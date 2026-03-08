@@ -16,6 +16,7 @@ The H.264 RTL encoder was already completed and is located at `av1-reference-doc
 ## Simulation Environment
 - All RTL simulation must be run inside a **Docker Ubuntu** container.
 - Docker configuration and simulation scripts go in the Docker Ubuntu folder.
+- For Verilator builds and simulation, use the maximum available host threads by default unless a specific debugging task requires fewer threads. On this machine, that means `24` threads.
 
 ## Encoding Configuration
 - **Chroma subsampling**: 4:2:0
