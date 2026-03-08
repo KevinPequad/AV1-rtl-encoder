@@ -1,0 +1,22 @@
+# Build artifacts
+tb/obj_dir/
+tb/Vav1_encoder_top
+*.o
+*.a
+
+# Large data files
+data/raw_frames.yuv
+data/raw_frames.hex
+data/bigbuckbunny.mp4
+data/test_frame.yuv
+data/*.yuv
+data/*.mp4
+data/*.png
+
+# Output artifacts
+output/
+tb/output/
+
+# Reference docs (large repos)
+av1-reference-docs/SVT-AV1/
+av1-reference-docs/h264-rtl-encoder/
