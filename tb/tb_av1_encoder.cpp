@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,8 @@ int main(int argc, char** argv) {
 
     int num_frames = 1;
     int qindex = 128;
+    int dc_only = 1;
+    int all_key = 1;
     std::string input_file = "data/raw_frames.yuv";
     std::string output_file = "output/encoded.obu";
     uint64_t timeout_cycles = 500000000;
@@ -57,7 +60,18 @@ int main(int argc, char** argv) {
         else if (arg.rfind("+output=", 0) == 0) output_file = arg.substr(8);
         else if (arg.rfind("+timeout=", 0) == 0) timeout_cycles = std::strtoull(arg.c_str() + 9, nullptr, 10);
         else if (arg.rfind("+qindex=", 0) == 0) qindex = std::atoi(arg.c_str() + 8);
+        else if (arg.rfind("+dc_only=", 0) == 0) dc_only = std::atoi(arg.c_str() + 9);
+        else if (arg.rfind("+all_key=", 0) == 0) all_key = std::atoi(arg.c_str() + 9);
     }
+
+    namespace fs = std::filesystem;
+    const fs::path output_path(output_file);
+    const fs::path output_dir = output_path.has_parent_path() ? output_path.parent_path() : fs::current_path();
+    const fs::path still_dir = output_dir / "still_frames";
+    std::error_code fs_ec;
+    fs::create_directories(output_dir, fs_ec);
+    fs::remove_all(still_dir, fs_ec);
+    fs::create_directories(still_dir, fs_ec);
 
     std::ifstream f(input_file, std::ios::binary);
     if (!f.is_open()) { fprintf(stderr, "[TB] ERROR: Cannot open %s\n", input_file.c_str()); return 1; }
@@ -81,8 +95,9 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "==========================================================\n");
     fprintf(stderr, "  AV1 RTL Encoder Testbench\n");
-    fprintf(stderr, "  Frames: %d  Resolution: %dx%d  QIndex: %d\n",
-            num_frames, FRAME_WIDTH, FRAME_HEIGHT, qindex);
+    fprintf(stderr, "  Frames: %d  Resolution: %dx%d  QIndex: %d  CoeffMode: %s  GOP: %s\n",
+            num_frames, FRAME_WIDTH, FRAME_HEIGHT, qindex,
+            dc_only ? "DC-only" : "Full", all_key ? "all-key" : "IP");
     fprintf(stderr, "==========================================================\n");
 
     Vav1_encoder_top* dut = new Vav1_encoder_top;
@@ -112,8 +127,8 @@ int main(int argc, char** argv) {
         if (!frame_active) {
             dut->start = 1;
             int idr_interval = 12;
-            bool is_key = (frame_idx % idr_interval == 0);
-            dut->frame_num_in = (frame_idx % idr_interval) & 0xF;
+            bool is_key = all_key ? true : (frame_idx % idr_interval == 0);
+            dut->frame_num_in = all_key ? 0 : ((frame_idx % idr_interval) & 0xF);
             dut->is_keyframe_in = is_key ? 1 : 0;
             dut->qindex_in = qindex;
             frame_active = true;
@@ -176,7 +191,7 @@ int main(int argc, char** argv) {
                         bi.qcoeff[i] = (int16_t)root->av1_encoder_top__DOT__qcoeff[i];
                     }
                     bi.pred_mode = root->av1_encoder_top__DOT__best_intra_mode;
-                    bi.is_inter = root->av1_encoder_top__DOT__use_inter;
+                    bi.is_inter = false;
                 }
             }
         }
@@ -214,24 +229,20 @@ int main(int argc, char** argv) {
             // Build proper AV1 bitstream using captured coefficients
             {
                 AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
+                writer.set_dc_only_mode(dc_only != 0);
                 for (auto& bi : frame_blocks)
                     writer.add_block(bi);
                 auto ivf_data = writer.write_ivf_frame();
 
-                // Write IVF output
-                std::string ivf_path = output_file;
-                auto dot_pos = ivf_path.rfind('.');
-                if (dot_pos != std::string::npos)
-                    ivf_path = ivf_path.substr(0, dot_pos) + ".ivf";
-                else
-                    ivf_path += ".ivf";
-
+                char frame_name[32];
+                std::snprintf(frame_name, sizeof(frame_name), "frame_%04d.ivf", frame_idx);
+                fs::path ivf_path = still_dir / frame_name;
                 std::ofstream ivf_out(ivf_path, std::ios::binary);
                 if (ivf_out.is_open()) {
                     ivf_out.write(reinterpret_cast<char*>(ivf_data.data()), ivf_data.size());
                     ivf_out.close();
                     fprintf(stderr, "[TB] Wrote AV1/IVF: %zu bytes to %s\n",
-                            ivf_data.size(), ivf_path.c_str());
+                            ivf_data.size(), ivf_path.string().c_str());
                 }
             }
 

@@ -124,21 +124,40 @@ static const uint8_t av1_part_ctx_left[4]  = {30, 28, 24, 16};
 // Stored in ICDF format. Only TX_8X8 (txs_ctx=1) and luma (plane=0).
 // ============================================================
 
+// txb_skip CDF for TX_4X4 [13 contexts][3 values] — for chroma in 4:2:0
+// Source: av1_default_txb_skip_cdfs[3][0] — QP group 3, TX_4X4
+static const uint16_t av1_txb_skip_cdf_4x4[13][3] = {
+    {AV1_ICDF(26887), AV1_ICDF(32768), 0},
+    {AV1_ICDF( 6729), AV1_ICDF(32768), 0},
+    {AV1_ICDF(10361), AV1_ICDF(32768), 0},
+    {AV1_ICDF(17442), AV1_ICDF(32768), 0},
+    {AV1_ICDF(15045), AV1_ICDF(32768), 0},
+    {AV1_ICDF(22478), AV1_ICDF(32768), 0},
+    {AV1_ICDF(29072), AV1_ICDF(32768), 0},
+    {AV1_ICDF( 2713), AV1_ICDF(32768), 0},
+    {AV1_ICDF(11861), AV1_ICDF(32768), 0},
+    {AV1_ICDF(20773), AV1_ICDF(32768), 0},
+    {AV1_ICDF(16384), AV1_ICDF(32768), 0},
+    {AV1_ICDF(16384), AV1_ICDF(32768), 0},
+    {AV1_ICDF(16384), AV1_ICDF(32768), 0},
+};
+
 // txb_skip CDF for TX_8X8 [13 contexts][3 values]
+// Source: av1_default_txb_skip_cdfs[3][1] — QP group 3, TX_8X8
 static const uint16_t av1_txb_skip_cdf[13][3] = {
-    {AV1_ICDF(26726), AV1_ICDF(32768), 0},
-    {AV1_ICDF( 1045), AV1_ICDF(32768), 0},
-    {AV1_ICDF(11703), AV1_ICDF(32768), 0},
-    {AV1_ICDF(20590), AV1_ICDF(32768), 0},
-    {AV1_ICDF(18554), AV1_ICDF(32768), 0},
-    {AV1_ICDF(25970), AV1_ICDF(32768), 0},
-    {AV1_ICDF(31938), AV1_ICDF(32768), 0},
-    {AV1_ICDF( 5583), AV1_ICDF(32768), 0},
-    {AV1_ICDF(21313), AV1_ICDF(32768), 0},
-    {AV1_ICDF(29390), AV1_ICDF(32768), 0},
-    {AV1_ICDF(  641), AV1_ICDF(32768), 0},
-    {AV1_ICDF(22265), AV1_ICDF(32768), 0},
-    {AV1_ICDF(31452), AV1_ICDF(32768), 0},
+    {AV1_ICDF(31903), AV1_ICDF(32768), 0},
+    {AV1_ICDF( 2044), AV1_ICDF(32768), 0},
+    {AV1_ICDF( 7528), AV1_ICDF(32768), 0},
+    {AV1_ICDF(14618), AV1_ICDF(32768), 0},
+    {AV1_ICDF(16182), AV1_ICDF(32768), 0},
+    {AV1_ICDF(24168), AV1_ICDF(32768), 0},
+    {AV1_ICDF(31037), AV1_ICDF(32768), 0},
+    {AV1_ICDF( 2786), AV1_ICDF(32768), 0},
+    {AV1_ICDF(11194), AV1_ICDF(32768), 0},
+    {AV1_ICDF(20155), AV1_ICDF(32768), 0},
+    {AV1_ICDF(16384), AV1_ICDF(32768), 0},
+    {AV1_ICDF(16384), AV1_ICDF(32768), 0},
+    {AV1_ICDF(16384), AV1_ICDF(32768), 0},
 };
 
 // EOB multi CDF for 64 coefficients (TX_8X8): [2 planes][8 values]
@@ -148,58 +167,60 @@ static const uint16_t av1_eob_multi64_cdf[2][8] = {
 };
 
 // EOB extra CDF for TX_8X8 [2 planes][9 contexts][3 values]
+// Source: av1_default_eob_extra_cdfs[3][1] — QP group 3, TX_8X8
 static const uint16_t av1_eob_extra_cdf[2][9][3] = {
-  {{AV1_ICDF(27399),AV1_ICDF(32768),0},{AV1_ICDF(16327),AV1_ICDF(32768),0},{AV1_ICDF(18071),AV1_ICDF(32768),0},
-   {AV1_ICDF(19584),AV1_ICDF(32768),0},{AV1_ICDF(20721),AV1_ICDF(32768),0},{AV1_ICDF(18432),AV1_ICDF(32768),0},
-   {AV1_ICDF(19560),AV1_ICDF(32768),0},{AV1_ICDF(10150),AV1_ICDF(32768),0},{AV1_ICDF( 8805),AV1_ICDF(32768),0}},
-  {{AV1_ICDF(24932),AV1_ICDF(32768),0},{AV1_ICDF(20833),AV1_ICDF(32768),0},{AV1_ICDF(12027),AV1_ICDF(32768),0},
-   {AV1_ICDF(16670),AV1_ICDF(32768),0},{AV1_ICDF(19914),AV1_ICDF(32768),0},{AV1_ICDF(15106),AV1_ICDF(32768),0},
-   {AV1_ICDF(17662),AV1_ICDF(32768),0},{AV1_ICDF(13783),AV1_ICDF(32768),0},{AV1_ICDF(28756),AV1_ICDF(32768),0}},
+  {{AV1_ICDF(20238),AV1_ICDF(32768),0},{AV1_ICDF(21057),AV1_ICDF(32768),0},{AV1_ICDF(19159),AV1_ICDF(32768),0},
+   {AV1_ICDF(22337),AV1_ICDF(32768),0},{AV1_ICDF(20159),AV1_ICDF(32768),0},{AV1_ICDF(16384),AV1_ICDF(32768),0},
+   {AV1_ICDF(16384),AV1_ICDF(32768),0},{AV1_ICDF(16384),AV1_ICDF(32768),0},{AV1_ICDF(16384),AV1_ICDF(32768),0}},
+  {{AV1_ICDF(20125),AV1_ICDF(32768),0},{AV1_ICDF(20559),AV1_ICDF(32768),0},{AV1_ICDF(21707),AV1_ICDF(32768),0},
+   {AV1_ICDF(22296),AV1_ICDF(32768),0},{AV1_ICDF(17333),AV1_ICDF(32768),0},{AV1_ICDF(16384),AV1_ICDF(32768),0},
+   {AV1_ICDF(16384),AV1_ICDF(32768),0},{AV1_ICDF(16384),AV1_ICDF(32768),0},{AV1_ICDF(16384),AV1_ICDF(32768),0}},
 };
 
 // coeff_base CDF for TX_8X8, luma plane [42 contexts][5 values]
+// Source: av1_default_coeff_base_multi_cdfs[3][1][0] — QP group 3, TX_8X8, luma
 static const uint16_t av1_coeff_base_cdf[42][5] = {
-    {AV1_ICDF(6041),AV1_ICDF(11854),AV1_ICDF(15927),AV1_ICDF(32768),0},
-    {AV1_ICDF(20326),AV1_ICDF(30905),AV1_ICDF(32251),AV1_ICDF(32768),0},
-    {AV1_ICDF(14164),AV1_ICDF(26831),AV1_ICDF(30725),AV1_ICDF(32768),0},
-    {AV1_ICDF(9760),AV1_ICDF(20647),AV1_ICDF(26585),AV1_ICDF(32768),0},
-    {AV1_ICDF(6416),AV1_ICDF(14953),AV1_ICDF(21219),AV1_ICDF(32768),0},
-    {AV1_ICDF(2966),AV1_ICDF(7151),AV1_ICDF(10891),AV1_ICDF(32768),0},
-    {AV1_ICDF(23567),AV1_ICDF(31374),AV1_ICDF(32254),AV1_ICDF(32768),0},
-    {AV1_ICDF(14978),AV1_ICDF(27416),AV1_ICDF(30946),AV1_ICDF(32768),0},
-    {AV1_ICDF(9434),AV1_ICDF(20225),AV1_ICDF(26254),AV1_ICDF(32768),0},
-    {AV1_ICDF(6658),AV1_ICDF(14558),AV1_ICDF(20535),AV1_ICDF(32768),0},
-    {AV1_ICDF(3916),AV1_ICDF(8677),AV1_ICDF(12989),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(18088),AV1_ICDF(29545),AV1_ICDF(31587),AV1_ICDF(32768),0},
-    {AV1_ICDF(13062),AV1_ICDF(25843),AV1_ICDF(30073),AV1_ICDF(32768),0},
-    {AV1_ICDF(8940),AV1_ICDF(16827),AV1_ICDF(22251),AV1_ICDF(32768),0},
-    {AV1_ICDF(7654),AV1_ICDF(13220),AV1_ICDF(17973),AV1_ICDF(32768),0},
-    {AV1_ICDF(5733),AV1_ICDF(10316),AV1_ICDF(14456),AV1_ICDF(32768),0},
-    {AV1_ICDF(22879),AV1_ICDF(31388),AV1_ICDF(32114),AV1_ICDF(32768),0},
-    {AV1_ICDF(15215),AV1_ICDF(27993),AV1_ICDF(30955),AV1_ICDF(32768),0},
-    {AV1_ICDF(9397),AV1_ICDF(19445),AV1_ICDF(24978),AV1_ICDF(32768),0},
-    {AV1_ICDF(3442),AV1_ICDF(9813),AV1_ICDF(15344),AV1_ICDF(32768),0},
-    {AV1_ICDF(1368),AV1_ICDF(3936),AV1_ICDF(6532),AV1_ICDF(32768),0},
-    {AV1_ICDF(25494),AV1_ICDF(32033),AV1_ICDF(32406),AV1_ICDF(32768),0},
-    {AV1_ICDF(16772),AV1_ICDF(27963),AV1_ICDF(30718),AV1_ICDF(32768),0},
-    {AV1_ICDF(9419),AV1_ICDF(18165),AV1_ICDF(23260),AV1_ICDF(32768),0},
-    {AV1_ICDF(2677),AV1_ICDF(7501),AV1_ICDF(11797),AV1_ICDF(32768),0},
-    {AV1_ICDF(1516),AV1_ICDF(4344),AV1_ICDF(7170),AV1_ICDF(32768),0},
-    {AV1_ICDF(26556),AV1_ICDF(31454),AV1_ICDF(32101),AV1_ICDF(32768),0},
-    {AV1_ICDF(17128),AV1_ICDF(27035),AV1_ICDF(30108),AV1_ICDF(32768),0},
-    {AV1_ICDF(8324),AV1_ICDF(15344),AV1_ICDF(20249),AV1_ICDF(32768),0},
-    {AV1_ICDF(1903),AV1_ICDF(5696),AV1_ICDF(9469),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
+    {AV1_ICDF(9704),AV1_ICDF(17294),AV1_ICDF(21132),AV1_ICDF(32768),0},
+    {AV1_ICDF(26762),AV1_ICDF(32278),AV1_ICDF(32633),AV1_ICDF(32768),0},
+    {AV1_ICDF(18382),AV1_ICDF(29620),AV1_ICDF(31819),AV1_ICDF(32768),0},
+    {AV1_ICDF(10891),AV1_ICDF(23475),AV1_ICDF(28723),AV1_ICDF(32768),0},
+    {AV1_ICDF(6358),AV1_ICDF(16583),AV1_ICDF(23309),AV1_ICDF(32768),0},
+    {AV1_ICDF(3248),AV1_ICDF(9118),AV1_ICDF(14141),AV1_ICDF(32768),0},
+    {AV1_ICDF(27204),AV1_ICDF(32573),AV1_ICDF(32699),AV1_ICDF(32768),0},
+    {AV1_ICDF(19818),AV1_ICDF(30824),AV1_ICDF(32329),AV1_ICDF(32768),0},
+    {AV1_ICDF(11772),AV1_ICDF(25120),AV1_ICDF(30041),AV1_ICDF(32768),0},
+    {AV1_ICDF(6995),AV1_ICDF(18033),AV1_ICDF(25039),AV1_ICDF(32768),0},
+    {AV1_ICDF(3752),AV1_ICDF(10442),AV1_ICDF(16098),AV1_ICDF(32768),0},
+    {AV1_ICDF(27222),AV1_ICDF(32256),AV1_ICDF(32559),AV1_ICDF(32768),0},
+    {AV1_ICDF(15356),AV1_ICDF(28399),AV1_ICDF(31475),AV1_ICDF(32768),0},
+    {AV1_ICDF(8821),AV1_ICDF(20635),AV1_ICDF(27057),AV1_ICDF(32768),0},
+    {AV1_ICDF(5511),AV1_ICDF(14404),AV1_ICDF(21239),AV1_ICDF(32768),0},
+    {AV1_ICDF(2935),AV1_ICDF(8222),AV1_ICDF(13051),AV1_ICDF(32768),0},
+    {AV1_ICDF(24875),AV1_ICDF(32120),AV1_ICDF(32529),AV1_ICDF(32768),0},
+    {AV1_ICDF(15233),AV1_ICDF(28265),AV1_ICDF(31445),AV1_ICDF(32768),0},
+    {AV1_ICDF(8605),AV1_ICDF(20570),AV1_ICDF(26932),AV1_ICDF(32768),0},
+    {AV1_ICDF(5431),AV1_ICDF(14413),AV1_ICDF(21196),AV1_ICDF(32768),0},
+    {AV1_ICDF(2994),AV1_ICDF(8341),AV1_ICDF(13223),AV1_ICDF(32768),0},
+    {AV1_ICDF(28201),AV1_ICDF(32604),AV1_ICDF(32700),AV1_ICDF(32768),0},
+    {AV1_ICDF(21041),AV1_ICDF(31446),AV1_ICDF(32456),AV1_ICDF(32768),0},
+    {AV1_ICDF(13221),AV1_ICDF(26213),AV1_ICDF(30475),AV1_ICDF(32768),0},
+    {AV1_ICDF(8255),AV1_ICDF(19385),AV1_ICDF(26037),AV1_ICDF(32768),0},
+    {AV1_ICDF(4930),AV1_ICDF(12585),AV1_ICDF(18830),AV1_ICDF(32768),0},
+    {AV1_ICDF(28768),AV1_ICDF(32448),AV1_ICDF(32627),AV1_ICDF(32768),0},
+    {AV1_ICDF(19705),AV1_ICDF(30561),AV1_ICDF(32021),AV1_ICDF(32768),0},
+    {AV1_ICDF(11572),AV1_ICDF(23589),AV1_ICDF(28220),AV1_ICDF(32768),0},
+    {AV1_ICDF(5532),AV1_ICDF(15034),AV1_ICDF(21446),AV1_ICDF(32768),0},
+    {AV1_ICDF(2460),AV1_ICDF(7150),AV1_ICDF(11456),AV1_ICDF(32768),0},
+    {AV1_ICDF(29874),AV1_ICDF(32619),AV1_ICDF(32699),AV1_ICDF(32768),0},
+    {AV1_ICDF(21621),AV1_ICDF(31071),AV1_ICDF(32201),AV1_ICDF(32768),0},
+    {AV1_ICDF(12511),AV1_ICDF(24747),AV1_ICDF(28992),AV1_ICDF(32768),0},
+    {AV1_ICDF(6281),AV1_ICDF(16395),AV1_ICDF(22748),AV1_ICDF(32768),0},
+    {AV1_ICDF(3246),AV1_ICDF(9278),AV1_ICDF(14497),AV1_ICDF(32768),0},
+    {AV1_ICDF(29715),AV1_ICDF(32625),AV1_ICDF(32712),AV1_ICDF(32768),0},
+    {AV1_ICDF(20958),AV1_ICDF(31011),AV1_ICDF(32283),AV1_ICDF(32768),0},
+    {AV1_ICDF(11233),AV1_ICDF(23671),AV1_ICDF(28806),AV1_ICDF(32768),0},
+    {AV1_ICDF(6012),AV1_ICDF(16128),AV1_ICDF(22868),AV1_ICDF(32768),0},
+    {AV1_ICDF(3427),AV1_ICDF(9851),AV1_ICDF(15414),AV1_ICDF(32768),0},
     {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
 };
 
@@ -212,28 +233,29 @@ static const uint16_t av1_coeff_base_eob_cdf[4][4] = {
 };
 
 // coeff_br (LPS) CDF for TX_8X8, luma [21 contexts][5 values]
+// Source: av1_default_coeff_lps_multi_cdfs[3][1][0] — QP group 3, TX_8X8, luma
 static const uint16_t av1_coeff_br_cdf[21][5] = {
-    {AV1_ICDF(14995),AV1_ICDF(21341),AV1_ICDF(24749),AV1_ICDF(32768),0},
-    {AV1_ICDF(13158),AV1_ICDF(20289),AV1_ICDF(24601),AV1_ICDF(32768),0},
-    {AV1_ICDF(8941),AV1_ICDF(15326),AV1_ICDF(19876),AV1_ICDF(32768),0},
-    {AV1_ICDF(6297),AV1_ICDF(11541),AV1_ICDF(15807),AV1_ICDF(32768),0},
-    {AV1_ICDF(4817),AV1_ICDF(9029),AV1_ICDF(12776),AV1_ICDF(32768),0},
-    {AV1_ICDF(3731),AV1_ICDF(7273),AV1_ICDF(10627),AV1_ICDF(32768),0},
-    {AV1_ICDF(1847),AV1_ICDF(3617),AV1_ICDF(5354),AV1_ICDF(32768),0},
-    {AV1_ICDF(14472),AV1_ICDF(19659),AV1_ICDF(22343),AV1_ICDF(32768),0},
-    {AV1_ICDF(16806),AV1_ICDF(24162),AV1_ICDF(27533),AV1_ICDF(32768),0},
-    {AV1_ICDF(12900),AV1_ICDF(20404),AV1_ICDF(24713),AV1_ICDF(32768),0},
-    {AV1_ICDF(9411),AV1_ICDF(16112),AV1_ICDF(20797),AV1_ICDF(32768),0},
-    {AV1_ICDF(7056),AV1_ICDF(12697),AV1_ICDF(17148),AV1_ICDF(32768),0},
-    {AV1_ICDF(5544),AV1_ICDF(10339),AV1_ICDF(14460),AV1_ICDF(32768),0},
-    {AV1_ICDF(2954),AV1_ICDF(5704),AV1_ICDF(8319),AV1_ICDF(32768),0},
-    {AV1_ICDF(12464),AV1_ICDF(18071),AV1_ICDF(21354),AV1_ICDF(32768),0},
-    {AV1_ICDF(15482),AV1_ICDF(22528),AV1_ICDF(26034),AV1_ICDF(32768),0},
-    {AV1_ICDF(12070),AV1_ICDF(19269),AV1_ICDF(23624),AV1_ICDF(32768),0},
-    {AV1_ICDF(8953),AV1_ICDF(15406),AV1_ICDF(20106),AV1_ICDF(32768),0},
-    {AV1_ICDF(7027),AV1_ICDF(12730),AV1_ICDF(17220),AV1_ICDF(32768),0},
-    {AV1_ICDF(5887),AV1_ICDF(10913),AV1_ICDF(15140),AV1_ICDF(32768),0},
-    {AV1_ICDF(3793),AV1_ICDF(7278),AV1_ICDF(10447),AV1_ICDF(32768),0},
+    {AV1_ICDF(18274),AV1_ICDF(24813),AV1_ICDF(27890),AV1_ICDF(32768),0},
+    {AV1_ICDF(15537),AV1_ICDF(23149),AV1_ICDF(27003),AV1_ICDF(32768),0},
+    {AV1_ICDF(9449),AV1_ICDF(16740),AV1_ICDF(21827),AV1_ICDF(32768),0},
+    {AV1_ICDF(6700),AV1_ICDF(12498),AV1_ICDF(17261),AV1_ICDF(32768),0},
+    {AV1_ICDF(4988),AV1_ICDF(9866),AV1_ICDF(14198),AV1_ICDF(32768),0},
+    {AV1_ICDF(4236),AV1_ICDF(8147),AV1_ICDF(11902),AV1_ICDF(32768),0},
+    {AV1_ICDF(2867),AV1_ICDF(5860),AV1_ICDF(8654),AV1_ICDF(32768),0},
+    {AV1_ICDF(17124),AV1_ICDF(23171),AV1_ICDF(26101),AV1_ICDF(32768),0},
+    {AV1_ICDF(20396),AV1_ICDF(27477),AV1_ICDF(30148),AV1_ICDF(32768),0},
+    {AV1_ICDF(16573),AV1_ICDF(24629),AV1_ICDF(28492),AV1_ICDF(32768),0},
+    {AV1_ICDF(12749),AV1_ICDF(20846),AV1_ICDF(25674),AV1_ICDF(32768),0},
+    {AV1_ICDF(10233),AV1_ICDF(17878),AV1_ICDF(22818),AV1_ICDF(32768),0},
+    {AV1_ICDF(8525),AV1_ICDF(15332),AV1_ICDF(20363),AV1_ICDF(32768),0},
+    {AV1_ICDF(6283),AV1_ICDF(11632),AV1_ICDF(16255),AV1_ICDF(32768),0},
+    {AV1_ICDF(20466),AV1_ICDF(26511),AV1_ICDF(29286),AV1_ICDF(32768),0},
+    {AV1_ICDF(23059),AV1_ICDF(29174),AV1_ICDF(31191),AV1_ICDF(32768),0},
+    {AV1_ICDF(19481),AV1_ICDF(27263),AV1_ICDF(30241),AV1_ICDF(32768),0},
+    {AV1_ICDF(15458),AV1_ICDF(23631),AV1_ICDF(28137),AV1_ICDF(32768),0},
+    {AV1_ICDF(12416),AV1_ICDF(20608),AV1_ICDF(25693),AV1_ICDF(32768),0},
+    {AV1_ICDF(10261),AV1_ICDF(18011),AV1_ICDF(23261),AV1_ICDF(32768),0},
+    {AV1_ICDF(8016),AV1_ICDF(14655),AV1_ICDF(19666),AV1_ICDF(32768),0},
 };
 
 // DC sign CDF [2 planes][3 contexts][3 values]
@@ -358,13 +380,15 @@ public:
         encode_bool(val, 16384);
     }
 
-    void encode_symbol(int symbol, const uint16_t *icdf, int nsyms) {
+    void encode_symbol(int symbol, const uint16_t *icdf, int nsyms, bool debug = false) {
         unsigned r = rng_;
         uint64_t l = low_;
         int s = symbol;
         int N = nsyms - 1;
         unsigned fl = (s > 0) ? (unsigned)icdf[s - 1] : 32768u;
         unsigned fh = (unsigned)icdf[s];
+        if (debug) fprintf(stderr, "  [RC] sym=%d nsyms=%d fl=%u fh=%u rng=%u low=%llu\n",
+                          s, nsyms, fl, fh, r, (unsigned long long)l);
         if (fl < 32768u) {
             unsigned u = ((r >> 8) * (uint32_t)(fl >> 6) >> 1) + 4 * (N - (s - 1));
             unsigned v = ((r >> 8) * (uint32_t)(fh >> 6) >> 1) + 4 * (N - s);
@@ -374,6 +398,8 @@ public:
             r -= ((r >> 8) * (uint32_t)(fh >> 6) >> 1) + 4 * (N - s);
         }
         normalize(l, r);
+        if (debug) fprintf(stderr, "  [RC] -> rng=%u low=%llu cnt=%d buf_sz=%zu\n",
+                          rng_, low_, cnt_, buf_.size());
     }
 
     std::vector<uint8_t> finish() {
@@ -459,7 +485,12 @@ public:
     AV1BitstreamWriter(int width, int height, int qindex)
         : width_(width), height_(height), qindex_(qindex),
           blk_cols_(width / 8), blk_rows_(height / 8),
-          mi_cols_(width / 4), mi_rows_(height / 4) {}
+          mi_cols_(width / 4), mi_rows_(height / 4),
+          force_skip0_(false), dc_only_mode_(false), coeff_debug_mode_(false) {}
+
+    void set_force_skip0(bool v) { force_skip0_ = v; }
+    void set_dc_only_mode(bool v) { dc_only_mode_ = v; }
+    void set_coeff_debug_mode(bool v) { coeff_debug_mode_ = v; }
 
     void add_block(const BlockInfo& blk) {
         blocks_.push_back(blk);
@@ -519,12 +550,16 @@ private:
     int width_, height_, qindex_;
     int blk_cols_, blk_rows_;
     int mi_cols_, mi_rows_;
+    bool force_skip0_;
+    bool dc_only_mode_;
+    bool coeff_debug_mode_;
     std::vector<BlockInfo> blocks_;
 
     // Context arrays
     std::vector<uint8_t> part_ctx_above_, part_ctx_left_;
     std::vector<uint8_t> skip_above_, skip_left_;
     std::vector<uint8_t> mode_above_, mode_left_;
+    std::vector<uint8_t> dc_sign_above_, dc_sign_left_;
 
     // ============================================================
     // Context helpers
@@ -536,6 +571,8 @@ private:
         skip_left_.assign(mi_rows_, 0);
         mode_above_.assign(mi_cols_, 0);
         mode_left_.assign(mi_rows_, 0);
+        dc_sign_above_.assign(mi_cols_, 0);
+        dc_sign_left_.assign(mi_rows_, 0);
     }
 
     int get_partition_ctx(int org_x, int org_y, int bsl) {
@@ -570,14 +607,28 @@ private:
         for (int i = 0; i < mi_size && (mi_row + i) < mi_rows_; i++) part_ctx_left_[mi_row + i] = l_val;
     }
 
-    void update_block_ctx(int mi_row, int mi_col, int mi_size, int skip, int mode) {
+    int get_dc_sign_ctx(int mi_row, int mi_col, int mi_size) {
+        static const int8_t signs[3] = {0, -1, 1};
+        int dc_sign = 0;
+        for (int i = 0; i < mi_size; i++) {
+            if (mi_row > 0 && (mi_col + i) < mi_cols_) dc_sign += signs[dc_sign_above_[mi_col + i]];
+            if (mi_col > 0 && (mi_row + i) < mi_rows_) dc_sign += signs[dc_sign_left_[mi_row + i]];
+        }
+        if (dc_sign > 0) return 2;
+        if (dc_sign < 0) return 1;
+        return 0;
+    }
+
+    void update_block_ctx(int mi_row, int mi_col, int mi_size, int skip, int mode, int dc_sign_code) {
         for (int i = 0; i < mi_size && (mi_col + i) < mi_cols_; i++) {
             skip_above_[mi_col + i] = skip;
             mode_above_[mi_col + i] = mode;
+            dc_sign_above_[mi_col + i] = (uint8_t)dc_sign_code;
         }
         for (int i = 0; i < mi_size && (mi_row + i) < mi_rows_; i++) {
             skip_left_[mi_row + i] = skip;
             mode_left_[mi_row + i] = mode;
+            dc_sign_left_[mi_row + i] = (uint8_t)dc_sign_code;
         }
     }
 
@@ -624,26 +675,29 @@ private:
         return eob;
     }
 
-    void encode_coeffs_txb(AV1RangeCoder& rc, const int16_t* qcoeff, int plane) {
+    void encode_coeffs_txb(AV1RangeCoder& rc, const int16_t* qcoeff, int plane, int dc_sign_ctx = 0, bool debug = false) {
         int eob = compute_eob(qcoeff);
 
         // txb_skip: 0 = has coefficients, 1 = all zero
         // Use context 0 for simplicity (first block default)
-        rc.encode_symbol(eob == 0 ? 1 : 0, av1_txb_skip_cdf[0], 2);
+        if (debug) fprintf(stderr, "[COEFF] plane=%d eob=%d txb_skip=%d\n", plane, eob, eob==0?1:0);
+        rc.encode_symbol(eob == 0 ? 1 : 0, av1_txb_skip_cdf[0], 2, debug);
 
         if (eob == 0) return;
 
         // TX type (luma only, qindex > 0)
         // DCT_DCT maps to symbol 1 in ext_tx_ind[EXT_TX_SET_DTT4_IDTX_1DDCT]
         if (plane == 0) {
-            rc.encode_symbol(1, av1_intra_tx_type_cdf_8x8_dc, 7);
+            if (debug) fprintf(stderr, "[COEFF] tx_type symbol=1 nsyms=7\n");
+            rc.encode_symbol(1, av1_intra_tx_type_cdf_8x8_dc, 7, debug);
         }
 
         // EOB encoding
         int eob_extra;
         int eob_pt = get_eob_pos_token(eob, &eob_extra);
+        if (debug) fprintf(stderr, "[COEFF] eob_pt=%d symbol=%d eob_extra=%d nsyms=7\n", eob_pt, eob_pt-1, eob_extra);
         // TX_8X8 → eob_multi_size=2 → eob_flag_cdf64 (7 symbols)
-        rc.encode_symbol(eob_pt - 1, av1_eob_multi64_cdf[plane], 7);
+        rc.encode_symbol(eob_pt - 1, av1_eob_multi64_cdf[plane], 7, debug);
 
         int eob_ob = eob_offset_bits[eob_pt];
         if (eob_ob > 0) {
@@ -669,7 +723,15 @@ private:
         int8_t coeff_contexts[64];
         for (int c = 0; c < eob; c++) {
             int pos = default_scan_8x8[c];
-            coeff_contexts[pos] = (int8_t)get_nz_map_ctx(levels, pos, 3);
+            if (c == eob - 1) {
+                // EOB position: special context based on scan position
+                if (c == 0) coeff_contexts[pos] = 0;
+                else if (c <= (8 * 8) / 8) coeff_contexts[pos] = 1;
+                else if (c <= (8 * 8) / 4) coeff_contexts[pos] = 2;
+                else coeff_contexts[pos] = 3;
+            } else {
+                coeff_contexts[pos] = (int8_t)get_nz_map_ctx(levels, pos, 3);
+            }
         }
 
         // Encode coefficient base levels (reverse scan order)
@@ -680,18 +742,23 @@ private:
 
             if (c == eob - 1) {
                 // EOB coefficient: 3 symbols (level-1: 0,1,2)
-                rc.encode_symbol(std::min(level, 3) - 1,
-                    av1_coeff_base_eob_cdf[coeff_ctx < 4 ? coeff_ctx : 3], 3);
+                int sym = std::min(level, 3) - 1;
+                int ctx = coeff_ctx < 4 ? coeff_ctx : 3;
+                if (debug) fprintf(stderr, "[COEFF] base_eob c=%d pos=%d level=%d sym=%d ctx=%d\n", c, pos, level, sym, ctx);
+                rc.encode_symbol(sym, av1_coeff_base_eob_cdf[ctx], 3, debug);
             } else {
                 // Non-EOB: 4 symbols (level: 0,1,2,3)
-                rc.encode_symbol(std::min(level, 3),
-                    av1_coeff_base_cdf[coeff_ctx < 42 ? coeff_ctx : 41], 4);
+                int sym = std::min(level, 3);
+                int ctx = coeff_ctx < 42 ? coeff_ctx : 41;
+                if (debug) fprintf(stderr, "[COEFF] base c=%d pos=%d level=%d sym=%d ctx=%d\n", c, pos, level, sym, ctx);
+                rc.encode_symbol(sym, av1_coeff_base_cdf[ctx], 4);
             }
 
             // Bypass range (level > 2)
             if (level > 2) {
                 int base_range = level - 1 - 2;
                 int br_ctx = get_br_ctx_2d(levels, pos, 3);
+                if (debug) fprintf(stderr, "[COEFF] br level=%d base_range=%d br_ctx=%d\n", level, base_range, br_ctx);
                 for (int idx = 0; idx < 12; idx += 3) {
                     int k = std::min(base_range - idx, 3);
                     rc.encode_symbol(k, av1_coeff_br_cdf[br_ctx < 21 ? br_ctx : 20], 4);
@@ -708,9 +775,10 @@ private:
             if (level) {
                 int sign = (v < 0) ? 1 : 0;
                 if (c == 0) {
-                    // DC sign with context (use ctx=0)
-                    rc.encode_symbol(sign, av1_dc_sign_cdf[plane][0], 2);
+                    if (debug) fprintf(stderr, "[COEFF] dc_sign=%d plane=%d ctx=%d\n", sign, plane, dc_sign_ctx);
+                    rc.encode_symbol(sign, av1_dc_sign_cdf[plane][dc_sign_ctx], 2, debug);
                 } else {
+                    if (debug) fprintf(stderr, "[COEFF] ac_sign=%d c=%d\n", sign, c);
                     rc.encode_bit(sign);
                 }
                 // Golomb for very large values (level > 14)
@@ -807,16 +875,58 @@ private:
     }
 
     void write_quantization_params(BitWriter& bw) {
-        bw.write_bits(qindex_, 8);
-        bw.write_bit(0); bw.write_bit(0); bw.write_bit(0); bw.write_bit(0);
+        bw.write_bits(qindex_, 8);  // base_q_idx
+        bw.write_bit(0);  // DeltaQYDc delta_coded = 0
+        bw.write_bit(0);  // diff_uv_delta = 0 (NumPlanes>1, base_q_idx>0)
+        bw.write_bit(0);  // DeltaQUDc delta_coded = 0
+        bw.write_bit(0);  // DeltaQUAc delta_coded = 0
+        bw.write_bit(0);  // using_qmatrix = 0
     }
 
     void write_loop_filter_params(BitWriter& bw) {
         bw.write_bits(0, 6); bw.write_bits(0, 6); bw.write_bits(0, 3); bw.write_bit(0);
     }
 
+    static int tile_log2(int blkSize, int target) {
+        int k = 0;
+        while ((blkSize << k) < target) k++;
+        return k;
+    }
+
     void write_tile_info(BitWriter& bw) {
-        bw.write_bit(1); bw.write_bit(0); bw.write_bit(0);
+        // Compute sbCols/sbRows per AV1 spec (SVT-AV1: ALIGN_POWER_OF_TWO then >>)
+        int log2_sb_mi = 4;  // 64x64 SB = 16 MI units, log2(16)=4
+        int mi_cols_aligned = (mi_cols_ + ((1 << log2_sb_mi) - 1)) & ~((1 << log2_sb_mi) - 1);
+        int mi_rows_aligned = (mi_rows_ + ((1 << log2_sb_mi) - 1)) & ~((1 << log2_sb_mi) - 1);
+        int sb_cols = mi_cols_aligned >> log2_sb_mi;
+        int sb_rows = mi_rows_aligned >> log2_sb_mi;
+
+        int sb_size_log2 = log2_sb_mi + 2;  // MI_SIZE_LOG2=2, so 6 for 64x64
+        int max_tile_width_sb = 4096 >> sb_size_log2;  // MAX_TILE_WIDTH=4096
+        int max_tile_area_sb = (4096 * 2304) >> (2 * sb_size_log2);
+
+        int min_log2_tile_cols = tile_log2(max_tile_width_sb, sb_cols);
+        int max_log2_tile_cols = tile_log2(1, std::min(sb_cols, 64));
+        int max_log2_tile_rows = tile_log2(1, std::min(sb_rows, 64));
+        int min_log2_tiles = std::max(min_log2_tile_cols,
+                                       tile_log2(max_tile_area_sb, sb_cols * sb_rows));
+
+        bw.write_bit(1);  // uniform_tile_spacing_flag
+
+        // Column increment bits
+        int tile_cols_log2 = min_log2_tile_cols;
+        while (tile_cols_log2 < max_log2_tile_cols) {
+            bw.write_bit(0);  // don't increment (single tile column)
+            break;
+        }
+
+        // Row increment bits
+        int min_log2_tile_rows = std::max(min_log2_tiles - tile_cols_log2, 0);
+        int tile_rows_log2 = min_log2_tile_rows;
+        while (tile_rows_log2 < max_log2_tile_rows) {
+            bw.write_bit(0);  // don't increment (single tile row)
+            break;
+        }
     }
 
     // ============================================================
@@ -841,7 +951,13 @@ private:
         // Count non-skip blocks for diagnostics
         for (auto& bi : blocks_) {
             bool has_coeff = false;
-            for (int i = 0; i < 64; i++) if (bi.qcoeff[i] != 0) { has_coeff = true; break; }
+            if (dc_only_mode_) {
+                has_coeff = bi.qcoeff[0] != 0;
+            } else {
+                for (int i = 0; i < 64; i++) {
+                    if (bi.qcoeff[i] != 0) { has_coeff = true; break; }
+                }
+            }
             if (has_coeff) non_skip_count++;
         }
         fprintf(stderr, "[BS] Tile data: %zu bytes, %d SBs (%dx%d), %d/%d blocks with coefficients\n",
@@ -917,18 +1033,27 @@ private:
         int blk_x = org_x / 8, blk_y = org_y / 8;
         int blk_idx = blk_y * blk_cols_ + blk_x;
         const int16_t* qcoeff = nullptr;
+        const int16_t* enc_qcoeff = nullptr;
         bool has_coeff = false;
+        int16_t dc_only_qcoeff[64] = {};
 
         if (blk_idx >= 0 && blk_idx < (int)blocks_.size()) {
             qcoeff = blocks_[blk_idx].qcoeff;
+            enc_qcoeff = qcoeff;
+            if (dc_only_mode_) {
+                dc_only_qcoeff[0] = qcoeff[0];
+                enc_qcoeff = dc_only_qcoeff;
+            }
             for (int i = 0; i < 64; i++) {
-                if (qcoeff[i] != 0) { has_coeff = true; break; }
+                if (enc_qcoeff[i] != 0) { has_coeff = true; break; }
             }
         }
 
         // Skip flag: 1 if ALL planes are all-zero, 0 otherwise
         // For now, skip is based on luma only (chroma always all-zero)
         int skip = has_coeff ? 0 : 1;
+        // Force skip=0 for first block if force_skip0_ is set (testing)
+        if (force_skip0_ && blk_idx == 0) skip = 0;
         int skip_ctx = get_skip_ctx(mi_row, mi_col);
         rc.encode_symbol(skip, av1_skip_cdf[skip_ctx], 2);
 
@@ -942,20 +1067,27 @@ private:
         int uv_mode = 0;  // UV_DC_PRED
         rc.encode_symbol(uv_mode, av1_uv_mode_cdf_cfl[y_mode], 14);
 
-        // If skip=0, encode coefficients
-        if (!skip && qcoeff) {
-            // Luma 8x8 TX block
-            encode_coeffs_txb(rc, qcoeff, 0);
-
-            // Chroma Cb 4x4 — all zero
-            static const int16_t zero_coeff[16] = {};
-            // For chroma, we just encode txb_skip=1
-            // txb_skip_ctx for chroma: use ctx 0
-            rc.encode_symbol(1, av1_txb_skip_cdf[0], 2);  // Cb all zero
-            rc.encode_symbol(1, av1_txb_skip_cdf[0], 2);  // Cr all zero
+        int dc_sign_ctx = get_dc_sign_ctx(mi_row, mi_col, mi_size);
+        int dc_sign_code = 0;
+        if (!skip && enc_qcoeff) {
+            if (enc_qcoeff[0] > 0) dc_sign_code = 2;
+            else if (enc_qcoeff[0] < 0) dc_sign_code = 1;
         }
 
-        update_block_ctx(mi_row, mi_col, mi_size, skip, y_mode);
+        // If skip=0, encode coefficients
+        if (!skip && enc_qcoeff) {
+            bool debug = coeff_debug_mode_ && has_coeff;
+            if (debug) fprintf(stderr, "[BLK] skip=0 blk_idx=%d mi_row=%d mi_col=%d\n", blk_idx, mi_row, mi_col);
+            // Luma 8x8 TX block
+            encode_coeffs_txb(rc, enc_qcoeff, 0, dc_sign_ctx, debug);
+
+            // Chroma Cb/Cr 4x4 — all zero
+            // Chroma TX_4X4: txs_ctx=0, use TX_4X4 CDF, ctx 0
+            rc.encode_symbol(1, av1_txb_skip_cdf_4x4[7], 2);  // Cb all zero
+            rc.encode_symbol(1, av1_txb_skip_cdf_4x4[7], 2);  // Cr all zero
+        }
+
+        update_block_ctx(mi_row, mi_col, mi_size, skip, y_mode, dc_sign_code);
     }
 
     // ============================================================

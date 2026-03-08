@@ -12,10 +12,16 @@ data/test_frame.yuv
 data/*.yuv
 data/*.mp4
 data/*.png
+data/*.ivf
 
 # Output artifacts
 output/
 tb/output/
+tb/*.ivf
+tb/*.yuv
+tb/test_bitstream
+tb/_tmp_*
+/_tmp_*
 
 # Reference docs (large repos)
 av1-reference-docs/SVT-AV1/

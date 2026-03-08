@@ -18,22 +18,35 @@ TOP_MODULE      := av1_encoder_top
 TB_CPP          := tb_av1_encoder.cpp
 RTL_DIR         := ../rtl
 OBJ_DIR         := obj_dir
+TRACE_OBJ_DIR   := obj_dir_trace
 SIM_BIN         := V$(TOP_MODULE)
+TRACE_SIM_BIN   := V$(TOP_MODULE)_trace
 
 # Resolution (override on command line for different sizes)
 WIDTH           ?= 1280
 HEIGHT          ?= 720
+THREADS         ?= $(shell nproc 2>/dev/null || echo 24)
+BUILD_JOBS      ?= $(THREADS)
 
 # Collect all Verilog sources from the RTL directory
 RTL_SRCS        := $(wildcard $(RTL_DIR)/*.v)
 
 # Verilator flags
-VERILATOR_FLAGS := --cc --exe --build \
+VERILATOR_COMMON_FLAGS := --cc --exe --build \
     -Wall -Wno-fatal \
-    --trace \
+    --build-jobs $(BUILD_JOBS) \
+    --threads $(THREADS) \
     --top-module $(TOP_MODULE) \
     -I$(RTL_DIR) \
-    -GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT) \
+    -GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT)
+
+VERILATOR_FLAGS := $(VERILATOR_COMMON_FLAGS) \
+    -Mdir $(OBJ_DIR) \
+    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)"
+
+VERILATOR_TRACE_FLAGS := $(VERILATOR_COMMON_FLAGS) \
+    --trace \
+    -Mdir $(TRACE_OBJ_DIR) \
     -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)"
 
 # Runtime defaults (override on command line)
@@ -61,6 +74,15 @@ $(SIM_BIN): $(TB_CPP) $(RTL_SRCS)
 	@echo ""
 	@echo "Build complete: ./$(SIM_BIN)"
 
+$(TRACE_SIM_BIN): $(TB_CPP) $(RTL_SRCS)
+	$(VERILATOR) $(VERILATOR_TRACE_FLAGS) \
+		$(RTL_SRCS) \
+		$(TB_CPP) \
+		-o $(TRACE_SIM_BIN)
+	@cp -f $(TRACE_OBJ_DIR)/$(TRACE_SIM_BIN) ./$(TRACE_SIM_BIN) 2>/dev/null || true
+	@echo ""
+	@echo "Build complete: ./$(TRACE_SIM_BIN)"
+
 run: $(SIM_BIN)
 	@mkdir -p $(dir $(OBU_OUTPUT))
 	./$(SIM_BIN) \
@@ -71,9 +93,9 @@ run: $(SIM_BIN)
 		+output=$(OBU_OUTPUT) \
 		$(EXTRA_PLUSARGS)
 
-wave: $(SIM_BIN)
+wave: $(TRACE_SIM_BIN)
 	@mkdir -p $(dir $(OBU_OUTPUT))
-	./$(SIM_BIN) \
+	./$(TRACE_SIM_BIN) \
 		+frames=$(FRAMES) \
 		+timeout=$(TIMEOUT) \
 		+qindex=$(QINDEX) \
@@ -83,7 +105,7 @@ wave: $(SIM_BIN)
 		$(EXTRA_PLUSARGS)
 
 clean:
-	rm -rf $(OBJ_DIR) $(SIM_BIN) *.vcd
+	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) *.vcd
 
 help:
 	@echo "Targets:"
@@ -98,4 +120,6 @@ help:
 	@echo "  QINDEX       Quantization index 0-255     (default: 128)"
 	@echo "  YUV_INPUT    Raw YUV420 input file"
 	@echo "  OBU_OUTPUT   Encoded AV1 OBU output file"
+	@echo "  THREADS      Verilator sim threads        (default: 24)"
+	@echo "  BUILD_JOBS   Parallel build jobs          (default: 24)"
 	@echo "  WIDTH/HEIGHT Resolution                   (default: 1280x720)"
