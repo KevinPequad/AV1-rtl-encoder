@@ -23,6 +23,9 @@
 - After each meaningful implementation or verification change, update `README.md` with the current supported subset, verification status, known gaps, and the current recommended run flow.
 - After each verified milestone, create a git commit that captures the completed work and push it to the configured remote before continuing.
 - Use non-interactive git commands only. Do not stop at the commit or push; continue directly to the next backlog item after the push succeeds.
+- When a blocker, ambiguity, or spec mismatch appears, do not stop at local guesswork. Pull authoritative external references into `av1-reference-docs/external/`, record the relevant findings there, and keep implementing from those materials.
+- Prefer official sources for external references: AOMedia AV1 spec/material, FFmpeg documentation/source, and other primary project docs directly tied to the tool being used.
+- Keep `av1-reference-docs/external/README.md` current with the downloaded source files, why they were pulled, and what they clarified for the active blocker.
 - Only stop to ask the user when required for:
   - missing credentials or private external resources
   - destructive actions outside normal build/test flow
@@ -67,6 +70,7 @@ The H.264 RTL encoder was already completed and is located at `av1-reference-doc
 - **SVT-AV1 reference repo**: `../SVT-AV1/` - This repo is reference-only. Always consult it instead of guessing. If you are unsure how something works in AV1, look it up here first.
 - **SVT-AV1 feature inventory**: `av1-reference-docs/svt-av1-feature-inventory.md` - Use this as the implementation roadmap and feature triage document before adding new encoder functionality.
 - **AV1 specification**: `av1-reference-docs/av1-spec.pdf` - The official spec sheet is available for detailed reference.
+- **External official references**: `av1-reference-docs/external/README.md` - Keep downloaded official web docs and source references here when the active blocker needs more than the local spec snapshot and SVT code.
 - **Do NOT guess.** If you need help understanding AV1 encoding stages, syntax elements, transforms, or anything else, reference the SVT-AV1 source code, the feature inventory, and the spec. Never fabricate implementation details.
 
 ## Test Video
