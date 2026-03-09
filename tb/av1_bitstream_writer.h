@@ -114,6 +114,18 @@ static const uint16_t av1_uv_mode_cdf_cfl[13][15] = {
     {AV1_ICDF( 3144),AV1_ICDF( 5087),AV1_ICDF( 7382),AV1_ICDF( 7504),AV1_ICDF( 7593),AV1_ICDF( 7690),AV1_ICDF( 7801),AV1_ICDF( 8064),AV1_ICDF( 8232),AV1_ICDF( 9248),AV1_ICDF( 9875),AV1_ICDF(10521),AV1_ICDF(29048),AV1_ICDF(32768),0},
 };
 
+// ---- Angle delta CDFs for directional intra modes [8][8] ----
+static const uint16_t av1_angle_delta_cdf[8][8] = {
+    {AV1_ICDF(2180), AV1_ICDF(5032), AV1_ICDF(7567), AV1_ICDF(22776), AV1_ICDF(26989), AV1_ICDF(30217), AV1_ICDF(32768), 0},
+    {AV1_ICDF(2301), AV1_ICDF(5608), AV1_ICDF(8801), AV1_ICDF(23487), AV1_ICDF(26974), AV1_ICDF(30330), AV1_ICDF(32768), 0},
+    {AV1_ICDF(3780), AV1_ICDF(11018), AV1_ICDF(13699), AV1_ICDF(19354), AV1_ICDF(23083), AV1_ICDF(31286), AV1_ICDF(32768), 0},
+    {AV1_ICDF(4581), AV1_ICDF(11226), AV1_ICDF(15147), AV1_ICDF(17138), AV1_ICDF(21834), AV1_ICDF(28397), AV1_ICDF(32768), 0},
+    {AV1_ICDF(1737), AV1_ICDF(10927), AV1_ICDF(14509), AV1_ICDF(19588), AV1_ICDF(22745), AV1_ICDF(28823), AV1_ICDF(32768), 0},
+    {AV1_ICDF(2664), AV1_ICDF(10176), AV1_ICDF(12485), AV1_ICDF(17650), AV1_ICDF(21600), AV1_ICDF(30495), AV1_ICDF(32768), 0},
+    {AV1_ICDF(2240), AV1_ICDF(11096), AV1_ICDF(15453), AV1_ICDF(20341), AV1_ICDF(22561), AV1_ICDF(28917), AV1_ICDF(32768), 0},
+    {AV1_ICDF(3605), AV1_ICDF(10428), AV1_ICDF(12459), AV1_ICDF(17676), AV1_ICDF(21244), AV1_ICDF(30655), AV1_ICDF(32768), 0},
+};
+
 // ---- Intra mode context and partition context ----
 static const uint8_t av1_intra_mode_context[13] = {0,1,2,3,4,4,4,4,3,0,1,2,0};
 static const uint8_t av1_part_ctx_above[4] = {30, 28, 24, 16};
@@ -399,7 +411,7 @@ public:
         }
         normalize(l, r);
         if (debug) fprintf(stderr, "  [RC] -> rng=%u low=%llu cnt=%d buf_sz=%zu\n",
-                          rng_, low_, cnt_, buf_.size());
+                          rng_, (unsigned long long)low_, cnt_, buf_.size());
     }
 
     std::vector<uint8_t> finish() {
@@ -480,24 +492,34 @@ public:
         int16_t qcoeff[64];
         uint8_t pred_mode;
         bool    is_inter;
+        int16_t mvx;
+        int16_t mvy;
     };
 
     AV1BitstreamWriter(int width, int height, int qindex)
         : width_(width), height_(height), qindex_(qindex),
           blk_cols_(width / 8), blk_rows_(height / 8),
           mi_cols_(width / 4), mi_rows_(height / 4),
-          force_skip0_(false), dc_only_mode_(false), coeff_debug_mode_(false) {}
+          force_skip0_(false), dc_only_mode_(false), coeff_debug_mode_(false),
+          still_picture_mode_(true), include_sequence_header_(true), is_keyframe_(true) {}
 
     void set_force_skip0(bool v) { force_skip0_ = v; }
     void set_dc_only_mode(bool v) { dc_only_mode_ = v; }
     void set_coeff_debug_mode(bool v) { coeff_debug_mode_ = v; }
+    void set_still_picture_mode(bool v) { still_picture_mode_ = v; }
+    void set_include_sequence_header(bool v) { include_sequence_header_ = v; }
+    void set_keyframe(bool v) { is_keyframe_ = v; }
 
     void add_block(const BlockInfo& blk) {
         blocks_.push_back(blk);
     }
 
+    std::vector<uint8_t> write_temporal_unit() {
+        return build_frame();
+    }
+
     std::vector<uint8_t> write_ivf_frame() {
-        auto frame_data = build_frame();
+        auto frame_data = write_temporal_unit();
         std::vector<uint8_t> ivf;
         ivf.reserve(32 + 12 + frame_data.size());
         write_bytes(ivf, "DKIF", 4);
@@ -513,6 +535,32 @@ public:
         write_le32(ivf, (uint32_t)frame_data.size());
         write_le64(ivf, 0);
         ivf.insert(ivf.end(), frame_data.begin(), frame_data.end());
+        return ivf;
+    }
+
+    static std::vector<uint8_t> write_ivf_sequence(
+        int width,
+        int height,
+        const std::vector<std::pair<uint64_t, std::vector<uint8_t>>>& frames) {
+        std::vector<uint8_t> ivf;
+        size_t total_size = 32;
+        for (const auto& frame : frames) total_size += 12 + frame.second.size();
+        ivf.reserve(total_size);
+        write_bytes(ivf, "DKIF", 4);
+        write_le16(ivf, 0);
+        write_le16(ivf, 32);
+        write_bytes(ivf, "AV01", 4);
+        write_le16(ivf, static_cast<uint16_t>(width));
+        write_le16(ivf, static_cast<uint16_t>(height));
+        write_le32(ivf, 30);
+        write_le32(ivf, 1);
+        write_le32(ivf, static_cast<uint32_t>(frames.size()));
+        write_le32(ivf, 0);
+        for (const auto& frame : frames) {
+            write_le32(ivf, static_cast<uint32_t>(frame.second.size()));
+            write_le64(ivf, frame.first);
+            ivf.insert(ivf.end(), frame.second.begin(), frame.second.end());
+        }
         return ivf;
     }
 
@@ -553,6 +601,9 @@ private:
     bool force_skip0_;
     bool dc_only_mode_;
     bool coeff_debug_mode_;
+    bool still_picture_mode_;
+    bool include_sequence_header_;
+    bool is_keyframe_;
     std::vector<BlockInfo> blocks_;
 
     // Context arrays
@@ -803,9 +854,11 @@ private:
     std::vector<uint8_t> build_frame() {
         std::vector<uint8_t> out;
         write_obu_header(out, 2, 0);
-        auto seq_data = build_sequence_header();
-        write_obu_header(out, 1, seq_data.size());
-        out.insert(out.end(), seq_data.begin(), seq_data.end());
+        if (include_sequence_header_) {
+            auto seq_data = build_sequence_header();
+            write_obu_header(out, 1, seq_data.size());
+            out.insert(out.end(), seq_data.begin(), seq_data.end());
+        }
         auto frame_obu = build_frame_obu();
         write_obu_header(out, 6, frame_obu.size());
         out.insert(out.end(), frame_obu.begin(), frame_obu.end());
@@ -829,17 +882,39 @@ private:
     std::vector<uint8_t> build_sequence_header() {
         BitWriter bw;
         bw.write_bits(0, 3);
-        bw.write_bit(1);
-        bw.write_bit(1);
-        bw.write_bits(4, 5);
+        if (still_picture_mode_) {
+            bw.write_bit(1);
+            bw.write_bit(1);
+            bw.write_bits(4, 5);
+        } else {
+            bw.write_bit(0);      // still_picture = 0
+            bw.write_bit(0);      // reduced_still_picture_header = 0
+            bw.write_bit(0);      // timing_info_present_flag = 0
+            bw.write_bit(0);      // initial_display_delay_present_flag = 0
+            bw.write_bits(0, 5);  // operating_points_cnt_minus_1 = 0
+            bw.write_bits(0, 12); // operating_point_idc = 0
+            bw.write_bits(4, 5);  // seq_level_idx[0]
+        }
         int w_bits = bits_needed(width_), h_bits = bits_needed(height_);
         bw.write_bits(w_bits - 1, 4);
         bw.write_bits(h_bits - 1, 4);
         bw.write_bits(width_ - 1, w_bits);
         bw.write_bits(height_ - 1, h_bits);
+        if (!still_picture_mode_) {
+            bw.write_bit(0); // frame_id_numbers_present_flag = 0
+        }
         bw.write_bit(0); // use_128x128_superblock = 0
         bw.write_bit(0); // enable_filter_intra = 0
         bw.write_bit(0); // enable_intra_edge_filter = 0
+        if (!still_picture_mode_) {
+            bw.write_bit(0); // enable_interintra_compound = 0
+            bw.write_bit(0); // enable_masked_compound = 0
+            bw.write_bit(0); // enable_warped_motion = 0
+            bw.write_bit(0); // enable_dual_filter = 0
+            bw.write_bit(0); // enable_order_hint = 0
+            bw.write_bit(0); // seq_choose_screen_content_tools = 0
+            bw.write_bit(0); // seq_force_screen_content_tools = 0
+        }
         bw.write_bit(0); // enable_superres = 0
         bw.write_bit(0); // enable_cdef = 0
         bw.write_bit(0); // enable_restoration = 0
@@ -855,6 +930,14 @@ private:
     }
 
     std::vector<uint8_t> build_frame_obu() {
+        if (!still_picture_mode_ && !is_keyframe_) {
+            return frame_has_inter_blocks() ? build_frame_obu_still_picture()
+                                            : build_frame_obu_video_intra_only();
+        }
+        return still_picture_mode_ ? build_frame_obu_still_picture() : build_frame_obu_video_keyframe();
+    }
+
+    std::vector<uint8_t> build_frame_obu_still_picture() {
         BitWriter hdr_bw;
         hdr_bw.write_bit(1);  // disable_cdf_update = 1
         hdr_bw.write_bit(0);  // allow_screen_content_tools
@@ -866,6 +949,54 @@ private:
         write_loop_filter_params(hdr_bw);
         hdr_bw.write_bit(0);  // tx_mode_select = 0
         hdr_bw.write_bit(0);  // reduced_tx_set = 0
+        auto hdr_bytes = hdr_bw.get_bytes();
+        auto tile_data = build_tile_data();
+        std::vector<uint8_t> frame_obu;
+        frame_obu.insert(frame_obu.end(), hdr_bytes.begin(), hdr_bytes.end());
+        frame_obu.insert(frame_obu.end(), tile_data.begin(), tile_data.end());
+        return frame_obu;
+    }
+
+    std::vector<uint8_t> build_frame_obu_video_keyframe() {
+        BitWriter hdr_bw;
+        hdr_bw.write_bit(0);      // show_existing_frame = 0
+        hdr_bw.write_bits(0, 2);  // frame_type = KEY_FRAME
+        hdr_bw.write_bit(1);      // show_frame = 1
+        hdr_bw.write_bit(1);      // disable_cdf_update = 1
+        hdr_bw.write_bit(0);      // frame_size_override_flag = 0
+        hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
+        write_tile_info(hdr_bw);
+        write_quantization_params(hdr_bw);
+        hdr_bw.write_bit(0);      // segmentation_enabled = 0
+        hdr_bw.write_bit(0);      // delta_q_present = 0
+        write_loop_filter_params(hdr_bw);
+        hdr_bw.write_bit(0);      // tx_mode_select = 0
+        hdr_bw.write_bit(0);      // reduced_tx_set = 0
+        auto hdr_bytes = hdr_bw.get_bytes();
+        auto tile_data = build_tile_data();
+        std::vector<uint8_t> frame_obu;
+        frame_obu.insert(frame_obu.end(), hdr_bytes.begin(), hdr_bytes.end());
+        frame_obu.insert(frame_obu.end(), tile_data.begin(), tile_data.end());
+        return frame_obu;
+    }
+
+    std::vector<uint8_t> build_frame_obu_video_intra_only() {
+        BitWriter hdr_bw;
+        hdr_bw.write_bit(0);      // show_existing_frame = 0
+        hdr_bw.write_bits(2, 2);  // frame_type = INTRA_ONLY_FRAME
+        hdr_bw.write_bit(1);      // show_frame = 1
+        hdr_bw.write_bit(0);      // error_resilient_mode = 0
+        hdr_bw.write_bit(1);      // disable_cdf_update = 1
+        hdr_bw.write_bit(0);      // frame_size_override_flag = 0
+        hdr_bw.write_bits(0x01, 8); // refresh_frame_flags = refresh LAST slot only
+        hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
+        write_tile_info(hdr_bw);
+        write_quantization_params(hdr_bw);
+        hdr_bw.write_bit(0);      // segmentation_enabled = 0
+        hdr_bw.write_bit(0);      // delta_q_present = 0
+        write_loop_filter_params(hdr_bw);
+        hdr_bw.write_bit(0);      // tx_mode_select = 0
+        hdr_bw.write_bit(0);      // reduced_tx_set = 0
         auto hdr_bytes = hdr_bw.get_bytes();
         auto tile_data = build_tile_data();
         std::vector<uint8_t> frame_obu;
@@ -1061,9 +1192,33 @@ private:
         int above_ctx, left_ctx;
         get_kf_y_mode_ctx(mi_row, mi_col, above_ctx, left_ctx);
         int y_mode = 0;  // DC_PRED
+        if (blk_idx >= 0 && blk_idx < (int)blocks_.size()) {
+            switch (blocks_[blk_idx].pred_mode) {
+            case 0:   // DC_PRED
+            case 1:   // V_PRED
+            case 2:   // H_PRED
+            case 3:   // D45_PRED
+            case 4:   // D135_PRED
+            case 5:   // D113_PRED
+            case 6:   // D157_PRED
+            case 7:   // D203_PRED
+            case 8:   // D67_PRED
+            case 9:   // SMOOTH_PRED
+            case 12:  // PAETH_PRED
+                y_mode = blocks_[blk_idx].pred_mode;
+                break;
+            default:
+                y_mode = 0;
+                break;
+            }
+        }
         rc.encode_symbol(y_mode, av1_kf_y_mode_cdf[above_ctx][left_ctx], 13);
+        if (bsize_log2 >= 3 && is_directional_mode(y_mode))
+            rc.encode_symbol(3, av1_angle_delta_cdf[y_mode - 1], 7);
 
-        // UV mode (CFL allowed for 8x8 blocks since max(8,8) <= 32)
+        // Keep chroma on a deterministic DC predictor until the writer grows
+        // real 4x4 chroma residual coding. This matches the current RTL chroma
+        // reconstruction path.
         int uv_mode = 0;  // UV_DC_PRED
         rc.encode_symbol(uv_mode, av1_uv_mode_cdf_cfl[y_mode], 14);
 
@@ -1097,6 +1252,15 @@ private:
         int bits = 0, v = val - 1;
         while (v > 0) { bits++; v >>= 1; }
         return std::max(bits, 1);
+    }
+    bool frame_has_inter_blocks() const {
+        for (const auto& bi : blocks_) {
+            if (bi.is_inter) return true;
+        }
+        return false;
+    }
+    static bool is_directional_mode(int mode) {
+        return mode >= 1 && mode <= 8;
     }
     static void write_bytes(std::vector<uint8_t>& v, const char* s, int n) {
         for (int i = 0; i < n; i++) v.push_back(s[i]);

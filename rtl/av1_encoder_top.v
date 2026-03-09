@@ -25,6 +25,7 @@ module av1_encoder_top #(
     // Frame control
     input  wire [3:0]  frame_num_in,
     input  wire        is_keyframe_in,
+    input  wire        force_intra_in,
     input  wire [7:0]  qindex_in,     // Quantization index (0-255)
 
     // Raw frame memory read port (YUV420 planar)
@@ -83,6 +84,9 @@ module av1_encoder_top #(
         TS_WAIT_FETCH   = 6'd8,
         TS_ME_START     = 6'd9,
         TS_WAIT_ME      = 6'd10,
+        TS_PREDICT_INIT = 6'd34,
+        TS_INTER_ADDR   = 6'd35,
+        TS_INTER_READ   = 6'd36,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -145,12 +149,51 @@ module av1_encoder_top #(
     reg signed [8:0] me_mvx, me_mvy;
     reg [17:0] me_sad;
     reg        use_inter;  // 1 if P-frame and ME result is good
+    reg signed [11:0] inter_base_x, inter_base_y;
+    reg [5:0]  inter_fetch_idx;
 
     // SAD threshold for choosing inter vs intra
     localparam [17:0] INTRA_SAD_THRESHOLD = 18'd4000;
 
     // Intra mode selection
-    reg [2:0] best_intra_mode;
+    localparam [3:0]
+        AV1_DC_PRED     = 4'd0,
+        AV1_V_PRED      = 4'd1,
+        AV1_H_PRED      = 4'd2,
+        AV1_D45_PRED    = 4'd3,
+        AV1_D135_PRED   = 4'd4,
+        AV1_D113_PRED   = 4'd5,
+        AV1_D157_PRED   = 4'd6,
+        AV1_D203_PRED   = 4'd7,
+        AV1_D67_PRED    = 4'd8,
+        AV1_SMOOTH_PRED = 4'd9,
+        AV1_PAETH_PRED  = 4'd12;
+
+    reg [3:0] best_intra_mode /* verilator public_flat */;
+    reg [3:0] intra_eval_idx;
+    reg [17:0] intra_best_sad;
+    reg [17:0] intra_cand_sad;
+
+    function [3:0] intra_mode_from_idx;
+        input [3:0] idx;
+        begin
+            case (idx)
+                4'd0: intra_mode_from_idx = AV1_DC_PRED;
+                4'd1: intra_mode_from_idx = AV1_V_PRED;
+                4'd2: intra_mode_from_idx = AV1_H_PRED;
+                4'd3: intra_mode_from_idx = AV1_D45_PRED;
+                4'd4: intra_mode_from_idx = AV1_D135_PRED;
+                4'd5: intra_mode_from_idx = AV1_D113_PRED;
+                4'd6: intra_mode_from_idx = AV1_D157_PRED;
+                4'd7: intra_mode_from_idx = AV1_D203_PRED;
+                4'd8: intra_mode_from_idx = AV1_D67_PRED;
+                4'd9: intra_mode_from_idx = AV1_SMOOTH_PRED;
+                default: intra_mode_from_idx = AV1_PAETH_PRED;
+            endcase
+        end
+    endfunction
+
+    wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
     // Processing counters
     reg [5:0]  proc_idx;
@@ -282,7 +325,7 @@ module av1_encoder_top #(
         .clk(clk), .rst_n(rst_n),
         .start(pred_start),
         .is_4x4(1'b0),
-        .mode(best_intra_mode),
+        .mode(intra_eval_mode),
         .done(pred_done),
         .top(top_pixels), .left(left_pixels),
         .top_left(top_left_pixel),
@@ -300,9 +343,13 @@ module av1_encoder_top #(
     // Neighbor loading address
     reg [19:0]  neigh_rd_addr;
     reg         neigh_rd_active;
+    reg [19:0]  inter_rd_addr;
+    reg         inter_rd_active;
 
-    // Mux reference read address: ME vs neighbor loading
-    assign ref_mem_rd_addr = neigh_rd_active ? neigh_rd_addr : me_ref_rd_addr;
+    // Mux reference read address: neighbor load vs inter prediction vs ME
+    assign ref_mem_rd_addr = neigh_rd_active ? neigh_rd_addr :
+                             inter_rd_active ? inter_rd_addr :
+                             me_ref_rd_addr;
     assign ref_rd_is_neigh = neigh_rd_active;
 
     av1_me #(
@@ -432,6 +479,11 @@ module av1_encoder_top #(
             chr_cb_ref_wr_en <= 0;
             chr_cr_ref_wr_en <= 0;
             neigh_rd_active <= 0;
+            inter_rd_active <= 0;
+            best_intra_mode <= AV1_DC_PRED;
+            intra_eval_idx  <= 4'd0;
+            intra_best_sad  <= 18'h3FFFF;
+            intra_cand_sad  <= 18'd0;
         end else begin
             done <= 0;
 
@@ -535,7 +587,7 @@ module av1_encoder_top #(
                                 top_state <= TS_ME_START;
                             else begin
                                 use_inter <= 0;
-                                top_state <= TS_PREDICT;
+                                top_state <= TS_PREDICT_INIT;
                             end
                         end
                     end
@@ -572,7 +624,7 @@ module av1_encoder_top #(
                                 top_state <= TS_ME_START;
                             else begin
                                 use_inter <= 0;
-                                top_state <= TS_PREDICT;
+                                top_state <= TS_PREDICT_INIT;
                             end
                         end
                     end
@@ -614,7 +666,7 @@ module av1_encoder_top #(
                             top_state <= TS_ME_START;
                         else begin
                             use_inter <= 0;
-                            top_state <= TS_PREDICT;
+                            top_state <= TS_PREDICT_INIT;
                         end
                     end else begin
                         neigh_cnt <= neigh_cnt + 1;
@@ -632,27 +684,95 @@ module av1_encoder_top #(
                         me_mvx <= me_best_mvx;
                         me_mvy <= me_best_mvy;
                         me_sad <= me_best_sad;
-                        use_inter <= (me_best_sad < INTRA_SAD_THRESHOLD);
+                        use_inter <= force_intra_in ? 1'b0 : (me_best_sad < INTRA_SAD_THRESHOLD);
+                        top_state <= TS_PREDICT_INIT;
+                    end
+                end
+
+                // Select between inter prediction for P-blocks and intra mode
+                // search for keyframes / intra-coded blocks.
+                TS_PREDICT_INIT: begin
+                    if (use_inter && !is_keyframe) begin
+                        inter_base_x <= ($signed({1'b0, blk_x}) <<< 3) + me_mvx;
+                        inter_base_y <= ($signed({1'b0, blk_y}) <<< 3) + me_mvy;
+                        inter_fetch_idx <= 6'd0;
+                        best_intra_mode <= AV1_DC_PRED;
+                        top_state <= TS_INTER_ADDR;
+                    end else begin
+                        intra_eval_idx <= 4'd0;
+                        intra_best_sad <= 18'h3FFFF;
+                        best_intra_mode <= AV1_DC_PRED;
                         top_state <= TS_PREDICT;
+                    end
+                end
+
+                // Integer-pel inter predictor fetch from the reference frame.
+                TS_INTER_ADDR: begin
+                    inter_rd_active <= 1;
+                    inter_rd_addr <= (inter_base_y + $signed({1'b0, inter_fetch_idx[5:3]})) * FRAME_WIDTH +
+                                     (inter_base_x + $signed({1'b0, inter_fetch_idx[2:0]}));
+                    top_state <= TS_INTER_READ;
+                end
+
+                TS_INTER_READ: begin
+                    pred_blk[inter_fetch_idx] <= ref_mem_rd_data;
+                    residual[inter_fetch_idx] <= $signed({1'b0, cur_blk[inter_fetch_idx]}) -
+                                                $signed({1'b0, ref_mem_rd_data});
+
+                    if (inter_fetch_idx < 6'd63) begin
+                        inter_fetch_idx <= inter_fetch_idx + 1'b1;
+                        top_state <= TS_INTER_ADDR;
+                    end else begin
+                        inter_rd_active <= 0;
+                        xform_row <= 0;
+                        top_state <= TS_XFORM_ROW;
                     end
                 end
 
                 // Prediction
                 TS_PREDICT: begin
-                    best_intra_mode <= 3'd0; // DC_PRED for now
                     pred_start <= 1;
                     top_state  <= TS_WAIT_PRED;
                 end
                 TS_WAIT_PRED: begin
                     if (pred_done) begin
-                        // Copy prediction and compute residual
+                        intra_cand_sad = 18'd0;
                         for (i = 0; i < 64; i = i + 1) begin
-                            pred_blk[i] <= pred_out[i];
-                            residual[i] <= $signed({1'b0, cur_blk[i]}) -
-                                           $signed({1'b0, pred_out[i]});
+                            if (cur_blk[i] > pred_out[i])
+                                intra_cand_sad = intra_cand_sad + (cur_blk[i] - pred_out[i]);
+                            else
+                                intra_cand_sad = intra_cand_sad + (pred_out[i] - cur_blk[i]);
                         end
-                        xform_row <= 0;
-                        top_state <= TS_XFORM_ROW;
+
+                        if (intra_eval_idx < 4'd10) begin
+                            if (intra_cand_sad < intra_best_sad) begin
+                                intra_best_sad <= intra_cand_sad;
+                                best_intra_mode <= intra_eval_mode;
+                                for (i = 0; i < 64; i = i + 1)
+                                    pred_blk[i] <= pred_out[i];
+                            end
+
+                            intra_eval_idx <= intra_eval_idx + 1'b1;
+                            top_state <= TS_PREDICT;
+                        end else begin
+                            if (intra_cand_sad < intra_best_sad) begin
+                                intra_best_sad <= intra_cand_sad;
+                                best_intra_mode <= intra_eval_mode;
+                                for (i = 0; i < 64; i = i + 1) begin
+                                    pred_blk[i] <= pred_out[i];
+                                    residual[i] <= $signed({1'b0, cur_blk[i]}) -
+                                                   $signed({1'b0, pred_out[i]});
+                                end
+                            end else begin
+                                for (i = 0; i < 64; i = i + 1) begin
+                                    residual[i] <= $signed({1'b0, cur_blk[i]}) -
+                                                   $signed({1'b0, pred_blk[i]});
+                                end
+                            end
+
+                            xform_row <= 0;
+                            top_state <= TS_XFORM_ROW;
+                        end
                     end
                 end
 
@@ -805,14 +925,15 @@ module av1_encoder_top #(
                 // Reconstruct pixels
                 TS_RECON: begin
                     if (ixform_done) begin
-                        // Reconstruct: recon = clamp(pred + round_shift(inv_residual, 4), 0, 255)
-                        // The >>4 compensates for the 16x gain from 2D DCT round-trip
-                        // (4x per dimension: forward cos_bit=13, inverse cos_bit=12).
+                        // Reconstruct: recon = clamp(pred + round_shift(inv_residual, 5), 0, 255)
+                        // The current 8x8 RTL transform pair produces roughly a 32x
+                        // round-trip gain, so we normalize by 5 bits here to match the
+                        // normative AV1 decoder's reconstructed sample range.
                         for (i = 0; i < 8; i = i + 1) begin
                             begin
                                 reg signed [16:0] shifted_res;
                                 reg signed [16:0] sum;
-                                shifted_res = (ixform_out_w[i] + 16'sd8) >>> 4;
+                                shifted_res = (ixform_out_w[i] + 16'sd16) >>> 5;
                                 sum = $signed({1'b0, 8'b0, pred_blk[xform_row * 8 + i]}) +
                                       shifted_res;
                                 if (sum < 0)
@@ -863,8 +984,11 @@ module av1_encoder_top #(
                 // Wait for chroma fetch, copy to buffer
                 TS_CHR_WAIT: begin
                     if (fetch_done) begin
+                        // The current software AV1 writer only emits zero-residual
+                        // chroma blocks. Keep RTL reconstruction aligned with that
+                        // path until real chroma residual coding is implemented.
                         for (i = 0; i < 16; i = i + 1)
-                            chr_blk[i] <= fetch_pixel_buf[i];
+                            chr_blk[i] <= 8'd128;
                         chr_wr_idx <= 0;
                         top_state  <= TS_CHR_WR;
                     end

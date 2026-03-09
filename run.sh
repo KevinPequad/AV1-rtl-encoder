@@ -17,13 +17,26 @@ BUILD_JOBS="${BUILD_JOBS:-$THREADS}"
 FRAME_BYTES=$((WIDTH * HEIGHT * 3 / 2))
 RAW_YUV="${RAW_YUV:-$PWD/data/raw_frames.yuv}"
 ENCODED_OBU="${ENCODED_OBU:-$PWD/output/encoded.obu}"
+ENCODED_IVF="${ENCODED_IVF:-$PWD/output/encoded.ivf}"
 OUTPUT_MP4="${OUTPUT_MP4:-$PWD/output/output.mp4}"
 DECODED_YUV="$PWD/output/decoded.yuv"
 STILL_DIR="$PWD/output/still_frames"
 CPU_LIST="${CPU_LIST:-0-$((THREADS - 1))}"
+FFMPEG_BIN="${FFMPEG_BIN:-}"
+if [ -z "$FFMPEG_BIN" ]; then
+    if command -v ffmpeg >/dev/null 2>&1; then
+        FFMPEG_BIN="$(command -v ffmpeg)"
+    elif [ -x "$PWD/tools/ffmpeg/ffmpeg-7.0.2-amd64-static/ffmpeg" ]; then
+        FFMPEG_BIN="$PWD/tools/ffmpeg/ffmpeg-7.0.2-amd64-static/ffmpeg"
+    else
+        echo "ERROR: ffmpeg not found" >&2
+        exit 1
+    fi
+fi
 
 OUTPUT_DIR="$PWD/data"
 export WIDTH HEIGHT FPS CLIP_SECONDS OUTPUT_DIR
+export FFMPEG_BIN
 
 echo "Step 1: Download and decode Big Buck Bunny (first ${CLIP_SECONDS} seconds at ${WIDTH}x${HEIGHT})..."
 bash "$PWD/scripts/download_and_decode.sh"
@@ -86,7 +99,20 @@ else
 fi
 
 echo ""
-if compgen -G "$STILL_DIR/frame_*.ivf" > /dev/null; then
+if [ -f "$ENCODED_IVF" ] && [ -s "$ENCODED_IVF" ]; then
+    echo "Step 5: Decode AV1 sequence IVF and package MP4..."
+    "$FFMPEG_BIN" -y -i "$ENCODED_IVF" -pix_fmt yuv420p "$DECODED_YUV" 2>/dev/null || true
+    "$FFMPEG_BIN" -y -hide_banner -loglevel error \
+        -f rawvideo \
+        -pix_fmt yuv420p \
+        -s "${WIDTH}x${HEIGHT}" \
+        -r "$FPS" \
+        -i "$DECODED_YUV" \
+        -c:v libx264 \
+        -pix_fmt yuv420p \
+        -movflags +faststart \
+        "$OUTPUT_MP4"
+elif compgen -G "$STILL_DIR/frame_*.ivf" > /dev/null; then
     echo "Step 5: Decode AV1 still-frame sequence and package MP4..."
     bash "$ORIG_DIR/scripts/decode_still_sequence.sh" \
         "$STILL_DIR" \
@@ -114,7 +140,7 @@ if [ -f "$DECODED_YUV" ] && [ -s "$DECODED_YUV" ]; then
 
     if [ -f "$PWD/data/ffmpeg_reference.ivf" ]; then
         FFMPEG_REF_YUV="$PWD/output/ffmpeg_reference_decoded.yuv"
-        ffmpeg -y -i "$PWD/data/ffmpeg_reference.ivf" -pix_fmt yuv420p "$FFMPEG_REF_YUV" 2>/dev/null || true
+        "$FFMPEG_BIN" -y -i "$PWD/data/ffmpeg_reference.ivf" -pix_fmt yuv420p "$FFMPEG_REF_YUV" 2>/dev/null || true
         if [ -f "$FFMPEG_REF_YUV" ] && [ -s "$FFMPEG_REF_YUV" ]; then
             echo ""
             echo "ffmpeg AV1 reference PSNR/SSIM baseline..."
@@ -123,9 +149,9 @@ if [ -f "$DECODED_YUV" ] && [ -s "$DECODED_YUV" ]; then
     fi
 
     # Extract frames for visual comparison
-    ffmpeg -y -f rawvideo -pix_fmt yuv420p -s "${WIDTH}x${HEIGHT}" -r "$FPS" \
+    "$FFMPEG_BIN" -y -f rawvideo -pix_fmt yuv420p -s "${WIDTH}x${HEIGHT}" -r "$FPS" \
         -i "$RAW_YUV" -frames:v 4 "$PWD/output/orig_%02d.png" 2>/dev/null || true
-    ffmpeg -y -f rawvideo -pix_fmt yuv420p -s "${WIDTH}x${HEIGHT}" -r "$FPS" \
+    "$FFMPEG_BIN" -y -f rawvideo -pix_fmt yuv420p -s "${WIDTH}x${HEIGHT}" -r "$FPS" \
         -i "$DECODED_YUV" -frames:v 4 "$PWD/output/decoded_%02d.png" 2>/dev/null || true
 
     echo "Visual comparison frames saved to output/"
