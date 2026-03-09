@@ -1160,15 +1160,16 @@ private:
 
     std::vector<uint8_t> build_frame_obu_video_intra_only() {
         BitWriter hdr_bw;
-        const uint8_t refresh_mask = force_video_intra_only_ ? 0xFF : 0x01;
+        const uint8_t refresh_mask = 0x01;
         hdr_bw.write_bit(0);      // show_existing_frame = 0
         hdr_bw.write_bits(2, 2);  // frame_type = INTRA_ONLY_FRAME
         hdr_bw.write_bit(1);      // show_frame = 1
         hdr_bw.write_bit(0);      // error_resilient_mode = 0
         hdr_bw.write_bit(1);      // disable_cdf_update = 1
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
-        // On sequence bootstrap, refresh every slot so later inter headers can
-        // legally point at any single-reference map entry.
+        // Keep the mixed-sequence bootstrap conformant by refreshing only the
+        // LAST slot. The inter-frame header maps all single-ref indices back
+        // to this slot until a fuller reference manager exists.
         hdr_bw.write_bits(refresh_mask, 8);
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
         write_tile_info(hdr_bw);
@@ -1196,7 +1197,7 @@ private:
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         hdr_bw.write_bits(0x01, 8); // refresh LAST slot only
         for (int ref = 0; ref < 7; ++ref)
-            hdr_bw.write_bits(ref, 3); // Ref frame map indices LAST..ALTREF
+            hdr_bw.write_bits(0, 3); // Map every ref type to the valid LAST slot
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
         hdr_bw.write_bit(0);      // allow_high_precision_mv = 0
         hdr_bw.write_bit(0);      // interpolation_filter == SWITCHABLE = 0

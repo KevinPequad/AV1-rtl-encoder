@@ -684,7 +684,11 @@ module av1_encoder_top #(
                         me_mvx <= me_best_mvx;
                         me_mvy <= me_best_mvy;
                         me_sad <= me_best_sad;
-                        use_inter <= force_intra_in ? 1'b0 : (me_best_sad < INTRA_SAD_THRESHOLD);
+                        // Keep the current verified inter subset to zero-motion
+                        // blocks until the writer grows full NEWMV support.
+                        use_inter <= force_intra_in ? 1'b0 :
+                                     ((me_best_sad < INTRA_SAD_THRESHOLD) &&
+                                      (me_best_mvx == 0) && (me_best_mvy == 0));
                         top_state <= TS_PREDICT_INIT;
                     end
                 end

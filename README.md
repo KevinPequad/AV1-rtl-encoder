@@ -67,25 +67,31 @@ These are used for RTL encode, decode, and comparison against an ffmpeg AV1 refe
   - decodable all-key IVF sequence output
 - The software writer and RTL reconstruction are currently aligned for chroma by using flat `128` chroma reconstruction until real chroma residual coding is implemented.
 - A minimal non-key writer path now exists for:
-  - a video-sequence bootstrap frame using `INTRA_ONLY` syntax to seed a valid reference state without falling back to still-picture syntax
+  - a video-sequence bootstrap frame using conformant `INTRA_ONLY` syntax with `LAST`-slot refresh only
   - exact decode-equals-RTL-reconstruction verification for the mixed-sequence `+force_intra=1` path on a `64x64` 2-frame test
   - intra blocks inside inter frames
   - single-reference `LAST_FRAME`
   - zero-motion `GLOBALMV` inter blocks
+- The mixed-sequence zero-motion inter subset is now verified end to end on a repeated-frame `64x64` 2-frame test:
+  - `aomdec` decodes the generated sequence IVF cleanly
+  - ffmpeg/libdav1d decodes the same sequence IVF cleanly
+  - decoded output matches `output/recon.yuv` exactly for both frames
 - The RTL is currently gated to that same zero-motion inter subset so unsupported non-zero-MV blocks do not enter the writer path accidentally.
 - Official AOMedia and FFmpeg references for active syntax/debug blockers are stored under `av1-reference-docs/external/`.
-- The non-key forced-intra path is now verified decode-equals-recon, but true inter-frame AV1 block syntax is still only partially implemented and not yet verified decode-equals-recon.
+- The current reference-sequence mapping is intentionally minimal: the bootstrap refreshes only `LAST`, and the reduced inter header maps all single-ref slots back to that valid slot until fuller reference management is implemented.
 
 ## Known Gaps
 
 - Full P-frame/inter-frame bitstream serialization is still incomplete.
 - The current inter writer only targets the zero-motion subset. `NEWMV` / non-zero-MV block coding is still missing.
-- The current blocker is the true inter-frame sequence path: the mixed-sequence bootstrap plus forced-intra path is exact, but switching frame 1 to inter coding still produces an invalid sequence.
 - Real chroma residual coding is still missing. The current path prioritizes decoded-output-equals-RTL-reconstruction verification over chroma fidelity.
 - The current fully verified decode-equals-recon checks are:
   - the all-key subset
   - the mixed-sequence bootstrap plus forced-intra subset
-- True inter-coded sequences are still not verified.
+  - the mixed-sequence zero-motion inter subset
+- The next blocker is feature depth, not conformance for the zero-motion case:
+  - single-reference `NEWMV` / non-zero motion vector coding
+  - fuller reference-slot management beyond the current `LAST`-only reduced path
 
 ## Recommended Run Flow
 
