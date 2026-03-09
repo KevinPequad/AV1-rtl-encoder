@@ -14,10 +14,28 @@ import shutil
 import subprocess
 import sys
 
+def resolve_tool(name):
+    tool = shutil.which(name)
+    if tool:
+        return tool
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(script_dir)
+    candidate = os.path.join(repo_root, 'tools', 'ffmpeg', 'ffmpeg-7.0.2-amd64-static', name)
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+
+    env_name = 'FFMPEG_BIN' if name == 'ffmpeg' else 'FFPROBE_BIN'
+    env_tool = os.environ.get(env_name)
+    if env_tool and os.path.isfile(env_tool) and os.access(env_tool, os.X_OK):
+        return env_tool
+
+    return None
+
 
 def package_mp4_ffmpeg(input_obu, output_mp4, fps=24, width=1280, height=720):
     """Package raw AV1 OBU stream into MP4 using ffmpeg."""
-    ffmpeg = shutil.which('ffmpeg')
+    ffmpeg = resolve_tool('ffmpeg')
     if not ffmpeg:
         raise FileNotFoundError('ffmpeg is not installed or not on PATH')
 
@@ -40,7 +58,7 @@ def package_mp4_ffmpeg(input_obu, output_mp4, fps=24, width=1280, height=720):
 
 def package_webm_ffmpeg(input_obu, output_webm, fps=24):
     """Package raw AV1 OBU stream into WebM using ffmpeg."""
-    ffmpeg = shutil.which('ffmpeg')
+    ffmpeg = resolve_tool('ffmpeg')
     if not ffmpeg:
         raise FileNotFoundError('ffmpeg is not installed or not on PATH')
 
@@ -58,7 +76,7 @@ def package_webm_ffmpeg(input_obu, output_webm, fps=24):
 
 def probe_mp4(path):
     """Return a small decode summary using ffprobe."""
-    ffprobe = shutil.which('ffprobe')
+    ffprobe = resolve_tool('ffprobe')
     if not ffprobe:
         return {}
 
@@ -80,7 +98,7 @@ def probe_mp4(path):
 
 def compare_with_ffmpeg_ref(rtl_output, ffmpeg_ref, raw_yuv, width, height, fps):
     """Compare RTL encoder output against ffmpeg reference using PSNR/SSIM."""
-    ffmpeg = shutil.which('ffmpeg')
+    ffmpeg = resolve_tool('ffmpeg')
     if not ffmpeg:
         print("WARNING: ffmpeg not available for comparison")
         return

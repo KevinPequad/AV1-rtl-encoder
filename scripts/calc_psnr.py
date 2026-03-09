@@ -6,8 +6,25 @@ import shutil
 import sys
 import os
 
-def calc_psnr(original_yuv, decoded_yuv, width, height, fps=24):
+def resolve_ffmpeg():
     ffmpeg = shutil.which('ffmpeg')
+    if ffmpeg:
+        return ffmpeg
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(script_dir)
+    candidate = os.path.join(repo_root, 'tools', 'ffmpeg', 'ffmpeg-7.0.2-amd64-static', 'ffmpeg')
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+
+    env_ffmpeg = os.environ.get('FFMPEG_BIN')
+    if env_ffmpeg and os.path.isfile(env_ffmpeg) and os.access(env_ffmpeg, os.X_OK):
+        return env_ffmpeg
+
+    return None
+
+def calc_psnr(original_yuv, decoded_yuv, width, height, fps=24):
+    ffmpeg = resolve_ffmpeg()
     if not ffmpeg:
         print("ERROR: ffmpeg not found", file=sys.stderr)
         sys.exit(1)

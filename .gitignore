@@ -1,28 +1,56 @@
-# Build artifacts
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.tmp
+*.bak
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Verilator / build artifacts
 tb/obj_dir/
 tb/Vav1_encoder_top
+tb/test_bitstream
+tb/*.o
+tb/*.a
+tb/*.d
 *.o
 *.a
+*.log
+*.vcd
+*.fst
+*.wlf
 
-# Large data files
-data/raw_frames.yuv
-data/raw_frames.hex
-data/bigbuckbunny.mp4
-data/test_frame.yuv
-data/*.yuv
-data/*.mp4
-data/*.png
-data/*.ivf
-
-# Output artifacts
+# Generated outputs
 output/
 tb/output/
-tb/*.ivf
-tb/*.yuv
-tb/test_bitstream
 tb/_tmp_*
 /_tmp_*
+tb/*.ivf
+tb/*.yuv
+tb/*.mp4
+tb/*.png
 
-# Reference docs (large repos)
-av1-reference-docs/SVT-AV1/
+# Local test data and generated media
+data/*.yuv
+data/*.hex
+data/*.ivf
+data/*.mp4
+data/*.png
+data/*.jpg
+data/*.jpeg
+data/*.webm
+
+# Local tool downloads and environments
+tools/ffmpeg/
+tools/mamba-root/
+tools/micromamba/
+tools/verilator/
+tools/verilator-env/
+
+# Large local reference repos copied into docs
 av1-reference-docs/h264-rtl-encoder/

@@ -36,6 +36,16 @@ static std::vector<uint8_t> ref_cb_rd, ref_cb_wr;
 static std::vector<uint8_t> ref_cr_rd, ref_cr_wr;
 static volatile bool got_sigint = false;
 static void sigint_handler(int) { got_sigint = true; }
+static int16_t sign_extend_9(uint16_t v) {
+    v &= 0x1FFu;
+    return (v & 0x100u) ? static_cast<int16_t>(v | 0xFE00u) : static_cast<int16_t>(v);
+}
+
+struct EncodedTemporalUnit {
+    uint64_t pts;
+    bool is_keyframe;
+    std::vector<uint8_t> payload;
+};
 
 // State for capturing RTL block data
 static std::vector<AV1BitstreamWriter::BlockInfo> frame_blocks;
@@ -49,6 +59,8 @@ int main(int argc, char** argv) {
     int qindex = 128;
     int dc_only = 1;
     int all_key = 1;
+    int dump_blocks = 0;
+    int force_intra = 0;
     std::string input_file = "data/raw_frames.yuv";
     std::string output_file = "output/encoded.obu";
     uint64_t timeout_cycles = 500000000;
@@ -62,6 +74,8 @@ int main(int argc, char** argv) {
         else if (arg.rfind("+qindex=", 0) == 0) qindex = std::atoi(arg.c_str() + 8);
         else if (arg.rfind("+dc_only=", 0) == 0) dc_only = std::atoi(arg.c_str() + 9);
         else if (arg.rfind("+all_key=", 0) == 0) all_key = std::atoi(arg.c_str() + 9);
+        else if (arg.rfind("+dump_blocks=", 0) == 0) dump_blocks = std::atoi(arg.c_str() + 13);
+        else if (arg.rfind("+force_intra=", 0) == 0) force_intra = std::atoi(arg.c_str() + 13);
     }
 
     namespace fs = std::filesystem;
@@ -103,6 +117,7 @@ int main(int argc, char** argv) {
     Vav1_encoder_top* dut = new Vav1_encoder_top;
     dut->clk = 0; dut->rst_n = 0; dut->start = 0;
     dut->frame_num_in = 0; dut->is_keyframe_in = 0;
+    dut->force_intra_in = force_intra ? 1 : 0;
     dut->qindex_in = qindex;
     dut->ref_mem_rd_data = 128;
     dut->chr_cb_ref_rd_data = 128;
@@ -112,6 +127,8 @@ int main(int argc, char** argv) {
     int frame_idx = 0;
     uint32_t total_bs_bytes = 0;
     bool frame_active = false;
+    bool current_frame_is_key = true;
+    std::vector<EncodedTemporalUnit> temporal_units;
 
     // FSM state constants (must match av1_encoder_top.v)
     constexpr int TS_REF_WR = 20;
@@ -130,7 +147,9 @@ int main(int argc, char** argv) {
             bool is_key = all_key ? true : (frame_idx % idr_interval == 0);
             dut->frame_num_in = all_key ? 0 : ((frame_idx % idr_interval) & 0xF);
             dut->is_keyframe_in = is_key ? 1 : 0;
+            dut->force_intra_in = force_intra ? 1 : 0;
             dut->qindex_in = qindex;
+            current_frame_is_key = is_key;
             frame_active = true;
             frame_blocks.clear();
             frame_blocks.resize(BLK_COLS * BLK_ROWS);
@@ -191,7 +210,9 @@ int main(int argc, char** argv) {
                         bi.qcoeff[i] = (int16_t)root->av1_encoder_top__DOT__qcoeff[i];
                     }
                     bi.pred_mode = root->av1_encoder_top__DOT__best_intra_mode;
-                    bi.is_inter = false;
+                    bi.is_inter = root->av1_encoder_top__DOT__use_inter;
+                    bi.mvx = sign_extend_9(root->av1_encoder_top__DOT__me_mvx);
+                    bi.mvy = sign_extend_9(root->av1_encoder_top__DOT__me_mvy);
                 }
             }
         }
@@ -243,6 +264,54 @@ int main(int argc, char** argv) {
                     ivf_out.close();
                     fprintf(stderr, "[TB] Wrote AV1/IVF: %zu bytes to %s\n",
                             ivf_data.size(), ivf_path.string().c_str());
+                }
+            }
+
+            {
+                bool frame_has_inter = false;
+                for (const auto& bi : frame_blocks) {
+                    if (bi.is_inter) {
+                        frame_has_inter = true;
+                        break;
+                    }
+                }
+
+                AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
+                writer.set_dc_only_mode(dc_only != 0);
+                if (!current_frame_is_key && frame_has_inter) {
+                    fprintf(stderr,
+                            "[TB] Frame %d uses inter blocks; skipping sequence temporal-unit write until inter syntax is implemented.\n",
+                            frame_idx);
+                } else {
+                    if (!current_frame_is_key) {
+                        writer.set_still_picture_mode(false);
+                        writer.set_include_sequence_header(frame_idx == 0);
+                        writer.set_keyframe(false);
+                    }
+                    for (auto bi : frame_blocks)
+                        writer.add_block(bi);
+                    temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key, writer.write_temporal_unit()});
+                }
+            }
+
+            if (dump_blocks) {
+                for (size_t bi_idx = 0; bi_idx < frame_blocks.size(); ++bi_idx) {
+                    const auto& bi = frame_blocks[bi_idx];
+                    int nonzero = 0;
+                    for (int i = 0; i < 64; ++i) {
+                        int16_t coeff = dc_only ? (i == 0 ? bi.qcoeff[0] : 0) : bi.qcoeff[i];
+                        if (coeff != 0) nonzero++;
+                    }
+                    if (!nonzero && bi.pred_mode == 0 && !bi.is_inter) continue;
+
+                    fprintf(stderr,
+                            "[TB] blk=%zu mode=%u inter=%d mv=(%d,%d) dc=%d nz=%d qcoeff[0..7]=",
+                            bi_idx, bi.pred_mode, bi.is_inter ? 1 : 0,
+                            bi.mvx, bi.mvy, bi.qcoeff[0], nonzero);
+                    for (int i = 0; i < 8; ++i) {
+                        fprintf(stderr, "%s%d", (i == 0) ? "" : ",", bi.qcoeff[i]);
+                    }
+                    fprintf(stderr, "\n");
                 }
             }
 
@@ -298,6 +367,36 @@ int main(int argc, char** argv) {
     if (out.is_open()) {
         out.write(reinterpret_cast<char*>(bitstream_mem.data()), total_bs_bytes);
         out.close();
+    }
+
+    if (!temporal_units.empty()) {
+        std::vector<std::pair<uint64_t, std::vector<uint8_t>>> sequence_packets;
+        sequence_packets.reserve(temporal_units.size());
+        std::vector<uint8_t> obu_stream;
+        for (const auto& tu : temporal_units) {
+            sequence_packets.push_back({tu.pts, tu.payload});
+            obu_stream.insert(obu_stream.end(), tu.payload.begin(), tu.payload.end());
+        }
+
+        std::ofstream obu_out(output_file, std::ios::binary | std::ios::trunc);
+        if (obu_out.is_open()) {
+            obu_out.write(reinterpret_cast<const char*>(obu_stream.data()), obu_stream.size());
+            obu_out.close();
+        }
+
+        fs::path seq_ivf_path = output_path;
+        if (seq_ivf_path.extension() == ".obu")
+            seq_ivf_path.replace_extension(".ivf");
+        else
+            seq_ivf_path += ".ivf";
+        auto ivf_sequence = AV1BitstreamWriter::write_ivf_sequence(FRAME_WIDTH, FRAME_HEIGHT, sequence_packets);
+        std::ofstream seq_ivf_out(seq_ivf_path, std::ios::binary);
+        if (seq_ivf_out.is_open()) {
+            seq_ivf_out.write(reinterpret_cast<const char*>(ivf_sequence.data()), ivf_sequence.size());
+            seq_ivf_out.close();
+            fprintf(stderr, "[TB] Wrote AV1 sequence IVF: %zu bytes to %s\n",
+                    ivf_sequence.size(), seq_ivf_path.string().c_str());
+        }
     }
 
     delete dut;

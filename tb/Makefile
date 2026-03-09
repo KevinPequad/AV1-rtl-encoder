@@ -14,6 +14,9 @@
 # ---------------------------------------------------------------------------
 
 VERILATOR       ?= verilator
+CXX             ?= g++
+LINK            ?= $(CXX)
+AR              ?= ar
 TOP_MODULE      := av1_encoder_top
 TB_CPP          := tb_av1_encoder.cpp
 RTL_DIR         := ../rtl
@@ -32,7 +35,7 @@ BUILD_JOBS      ?= $(THREADS)
 RTL_SRCS        := $(wildcard $(RTL_DIR)/*.v)
 
 # Verilator flags
-VERILATOR_COMMON_FLAGS := --cc --exe --build \
+VERILATOR_COMMON_FLAGS := --cc --exe \
     -Wall -Wno-fatal \
     --build-jobs $(BUILD_JOBS) \
     --threads $(THREADS) \
@@ -70,6 +73,7 @@ $(SIM_BIN): $(TB_CPP) $(RTL_SRCS)
 		$(RTL_SRCS) \
 		$(TB_CPP) \
 		-o $(SIM_BIN)
+	$(MAKE) -C $(OBJ_DIR) -f V$(TOP_MODULE).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
 	@cp -f $(OBJ_DIR)/$(SIM_BIN) ./$(SIM_BIN) 2>/dev/null || true
 	@echo ""
 	@echo "Build complete: ./$(SIM_BIN)"
@@ -79,6 +83,7 @@ $(TRACE_SIM_BIN): $(TB_CPP) $(RTL_SRCS)
 		$(RTL_SRCS) \
 		$(TB_CPP) \
 		-o $(TRACE_SIM_BIN)
+	$(MAKE) -C $(TRACE_OBJ_DIR) -f V$(TOP_MODULE).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
 	@cp -f $(TRACE_OBJ_DIR)/$(TRACE_SIM_BIN) ./$(TRACE_SIM_BIN) 2>/dev/null || true
 	@echo ""
 	@echo "Build complete: ./$(TRACE_SIM_BIN)"

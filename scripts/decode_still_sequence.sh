@@ -1,6 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FFMPEG_BIN="${FFMPEG_BIN:-}"
+if [ -z "$FFMPEG_BIN" ]; then
+    if command -v ffmpeg >/dev/null 2>&1; then
+        FFMPEG_BIN="$(command -v ffmpeg)"
+    elif [ -x "$REPO_ROOT/tools/ffmpeg/ffmpeg-7.0.2-amd64-static/ffmpeg" ]; then
+        FFMPEG_BIN="$REPO_ROOT/tools/ffmpeg/ffmpeg-7.0.2-amd64-static/ffmpeg"
+    else
+        echo "ERROR: ffmpeg not found" >&2
+        exit 1
+    fi
+fi
+
 if [ "$#" -ne 6 ]; then
     echo "Usage: $0 <frame_dir> <decoded_yuv> <output_mp4> <width> <height> <fps>" >&2
     exit 1
@@ -27,7 +41,7 @@ rm -f "$DECODED_YUV" "$OUTPUT_MP4"
 
 echo "Decoding ${#FRAME_FILES[@]} AV1 still frames from $FRAME_DIR ..."
 for ivf in "${FRAME_FILES[@]}"; do
-    ffmpeg -y -hide_banner -loglevel error \
+    "$FFMPEG_BIN" -y -hide_banner -loglevel error \
         -i "$ivf" \
         -f rawvideo \
         -pix_fmt yuv420p \
@@ -35,7 +49,7 @@ for ivf in "${FRAME_FILES[@]}"; do
 done
 
 echo "Packaging decoded sequence to MP4 ..."
-ffmpeg -y -hide_banner -loglevel error \
+"$FFMPEG_BIN" -y -hide_banner -loglevel error \
     -f rawvideo \
     -pix_fmt yuv420p \
     -s "${WIDTH}x${HEIGHT}" \
