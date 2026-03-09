@@ -368,6 +368,24 @@ int main(int argc, char** argv) {
         dut->clk = 0; dut->eval(); cycle++;
     }
 
+    if (frame_idx < num_frames) {
+        auto* root = dut->rootp;
+        fprintf(stderr,
+                "[TB] EXIT before completion: frame_idx=%d/%d cycle=%llu timeout=%llu state=%d blk=(%d,%d) "
+                "use_inter=%d me_mv=(%d,%d) inter_fetch_idx=%d done=%d\n",
+                frame_idx, num_frames,
+                (unsigned long long)cycle,
+                (unsigned long long)timeout_cycles,
+                root->av1_encoder_top__DOT__top_state,
+                root->av1_encoder_top__DOT__blk_x,
+                root->av1_encoder_top__DOT__blk_y,
+                root->av1_encoder_top__DOT__use_inter ? 1 : 0,
+                sign_extend_9(root->av1_encoder_top__DOT__me_mvx),
+                sign_extend_9(root->av1_encoder_top__DOT__me_mvy),
+                root->av1_encoder_top__DOT__inter_fetch_idx,
+                dut->done ? 1 : 0);
+    }
+
     fprintf(stderr, "==========================================================\n");
     fprintf(stderr, "[TB] %d frames encoded, %llu cycles, rtl_bs=%u bytes\n",
             frame_idx, (unsigned long long)cycle, total_bs_bytes);
