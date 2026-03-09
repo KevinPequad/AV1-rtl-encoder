@@ -9,6 +9,7 @@ The project goal is to implement the full AV1 encoder feature roadmap captured i
 ## Living Document
 
 This `README.md` is a living status document and must be updated continuously while the encoder is being implemented.
+Official external debug references pulled from the web are tracked in `av1-reference-docs/external/README.md`.
 
 - Do not wait until project completion to refresh this file.
 - Update it after meaningful implementation, simulation, decode, or verification changes.
@@ -65,14 +66,26 @@ These are used for RTL encode, decode, and comparison against an ffmpeg AV1 refe
   - decodable still-picture IVF output
   - decodable all-key IVF sequence output
 - The software writer and RTL reconstruction are currently aligned for chroma by using flat `128` chroma reconstruction until real chroma residual coding is implemented.
-- The non-key forced-intra path is present, but true inter-frame AV1 block syntax is not finished yet.
+- A minimal non-key writer path now exists for:
+  - a video-sequence bootstrap frame using `INTRA_ONLY` syntax to seed a valid reference state without falling back to still-picture syntax
+  - exact decode-equals-RTL-reconstruction verification for the mixed-sequence `+force_intra=1` path on a `64x64` 2-frame test
+  - intra blocks inside inter frames
+  - single-reference `LAST_FRAME`
+  - zero-motion `GLOBALMV` inter blocks
+- The RTL is currently gated to that same zero-motion inter subset so unsupported non-zero-MV blocks do not enter the writer path accidentally.
+- Official AOMedia and FFmpeg references for active syntax/debug blockers are stored under `av1-reference-docs/external/`.
+- The non-key forced-intra path is now verified decode-equals-recon, but true inter-frame AV1 block syntax is still only partially implemented and not yet verified decode-equals-recon.
 
 ## Known Gaps
 
-- True P-frame/inter-frame bitstream serialization is still incomplete.
-- The RTL can select inter blocks and produce MVs, but the software AV1 writer does not yet encode real inter block syntax from that state.
+- Full P-frame/inter-frame bitstream serialization is still incomplete.
+- The current inter writer only targets the zero-motion subset. `NEWMV` / non-zero-MV block coding is still missing.
+- The current blocker is the true inter-frame sequence path: the mixed-sequence bootstrap plus forced-intra path is exact, but switching frame 1 to inter coding still produces an invalid sequence.
 - Real chroma residual coding is still missing. The current path prioritizes decoded-output-equals-RTL-reconstruction verification over chroma fidelity.
-- The current fully verified decode-equals-recon check is for the all-key subset, not for true inter-coded sequences.
+- The current fully verified decode-equals-recon checks are:
+  - the all-key subset
+  - the mixed-sequence bootstrap plus forced-intra subset
+- True inter-coded sequences are still not verified.
 
 ## Recommended Run Flow
 
@@ -93,3 +106,6 @@ make THREADS=24 BUILD_JOBS=24 WIDTH=64 HEIGHT=64
 ```
 
 For exact reconstruction checks, decode the generated IVF and compare it against `output/recon.yuv`.
+
+For inter bring-up, use a repeated-frame `64x64` clip first so the zero-motion subset is exercised before attempting wider-motion content.
+If a syntax blocker appears, check `av1-reference-docs/external/README.md` first and refresh that folder from official sources before guessing.

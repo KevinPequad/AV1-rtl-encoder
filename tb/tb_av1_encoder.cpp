@@ -251,6 +251,12 @@ int main(int argc, char** argv) {
             {
                 AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
                 writer.set_dc_only_mode(dc_only != 0);
+                if (!all_key) {
+                    writer.set_still_picture_mode(false);
+                    writer.set_include_sequence_header(true);
+                    writer.set_force_video_intra_only(frame_idx == 0);
+                    writer.set_keyframe(current_frame_is_key);
+                }
                 for (auto& bi : frame_blocks)
                     writer.add_block(bi);
                 auto ivf_data = writer.write_ivf_frame();
@@ -269,24 +275,29 @@ int main(int argc, char** argv) {
 
             {
                 bool frame_has_inter = false;
+                bool frame_has_nonzero_inter = false;
                 for (const auto& bi : frame_blocks) {
                     if (bi.is_inter) {
                         frame_has_inter = true;
-                        break;
+                        if (bi.mvx != 0 || bi.mvy != 0) {
+                            frame_has_nonzero_inter = true;
+                            break;
+                        }
                     }
                 }
 
                 AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
                 writer.set_dc_only_mode(dc_only != 0);
-                if (!current_frame_is_key && frame_has_inter) {
+                if (!current_frame_is_key && frame_has_nonzero_inter) {
                     fprintf(stderr,
-                            "[TB] Frame %d uses inter blocks; skipping sequence temporal-unit write until inter syntax is implemented.\n",
+                            "[TB] Frame %d uses non-zero MVs; skipping sequence temporal-unit write until NEWMV support is implemented.\n",
                             frame_idx);
                 } else {
-                    if (!current_frame_is_key) {
+                    if (!all_key) {
                         writer.set_still_picture_mode(false);
                         writer.set_include_sequence_header(frame_idx == 0);
-                        writer.set_keyframe(false);
+                        writer.set_force_video_intra_only(frame_idx == 0);
+                        writer.set_keyframe(current_frame_is_key);
                     }
                     for (auto bi : frame_blocks)
                         writer.add_block(bi);
