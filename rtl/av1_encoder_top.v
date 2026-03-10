@@ -114,6 +114,8 @@ module av1_encoder_top #(
         TS_DC_BASE_WAIT= 6'd58,
         TS_DC_SIGN     = 6'd59,
         TS_DC_SIGN_WAIT= 6'd60,
+        TS_DC_BR       = 6'd61,
+        TS_DC_BR_WAIT  = 6'd62,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -211,7 +213,10 @@ module av1_encoder_top #(
     reg        skip_left      [0:MI_ROWS-1];
     reg [3:0]  mode_above     [0:MI_COLS-1];
     reg [3:0]  mode_left      [0:MI_ROWS-1];
+    reg [1:0]  dc_sign_above  [0:MI_COLS-1];
+    reg [1:0]  dc_sign_left   [0:MI_ROWS-1];
     reg        cur_only_dc_nonzero;
+    reg [4:0]  dc_br_remaining;
 
     function [3:0] intra_mode_from_idx;
         input [3:0] idx;
@@ -446,8 +451,56 @@ module av1_encoder_top #(
     endfunction
 
     function [255:0] dc_sign_ctx0_icdf_flat;
+        input [1:0] ctx;
         begin
-            dc_sign_ctx0_icdf_flat = {224'd0,16'd32768,16'd16000};
+            case (ctx)
+                2'd1:    dc_sign_ctx0_icdf_flat = {224'd0,16'd32768,16'd13056};
+                2'd2:    dc_sign_ctx0_icdf_flat = {224'd0,16'd32768,16'd18816};
+                default: dc_sign_ctx0_icdf_flat = {224'd0,16'd32768,16'd16000};
+            endcase
+        end
+    endfunction
+
+    function [255:0] coeff_br_ctx0_icdf_flat;
+        begin
+            coeff_br_ctx0_icdf_flat = {192'd0,16'd32768,16'd27890,16'd24813,16'd18274};
+        end
+    endfunction
+
+    function integer dc_sign_delta;
+        input [1:0] code;
+        begin
+            case (code)
+                2'd1:    dc_sign_delta = -1;
+                2'd2:    dc_sign_delta = 1;
+                default: dc_sign_delta = 0;
+            endcase
+        end
+    endfunction
+
+    function [1:0] get_dc_sign_ctx_cur;
+        input [9:0] cur_blk_x;
+        input [9:0] cur_blk_y;
+        integer mi_col;
+        integer mi_row;
+        integer acc;
+        integer t;
+        begin
+            mi_col = cur_blk_x << 1;
+            mi_row = cur_blk_y << 1;
+            acc = 0;
+            for (t = 0; t < 2; t = t + 1) begin
+                if ((cur_blk_y > 0) && ((mi_col + t) < MI_COLS))
+                    acc = acc + dc_sign_delta(dc_sign_above[mi_col + t]);
+                if ((cur_blk_x > 0) && ((mi_row + t) < MI_ROWS))
+                    acc = acc + dc_sign_delta(dc_sign_left[mi_row + t]);
+            end
+            if (acc > 0)
+                get_dc_sign_ctx_cur = 2'd2;
+            else if (acc < 0)
+                get_dc_sign_ctx_cur = 2'd1;
+            else
+                get_dc_sign_ctx_cur = 2'd0;
         end
     endfunction
 
@@ -471,9 +524,13 @@ module av1_encoder_top #(
     wire [255:0] cur_intra_tx_icdf = intra_tx_type_dct_icdf_flat(best_intra_mode);
     wire [255:0] cur_eob1_icdf     = eob_multi64_luma_eob1_icdf_flat();
     wire [255:0] cur_base_eob_icdf = coeff_base_eob_ctx0_icdf_flat();
-    wire [255:0] cur_dc_sign_icdf  = dc_sign_ctx0_icdf_flat();
-    wire         cur_small_dc_only_coeff =
-        cur_block_has_coeff && cur_only_dc_nonzero && (abs16(qcoeff[0]) <= 16'd3);
+    wire [1:0]   cur_dc_sign_ctx   = get_dc_sign_ctx_cur(blk_x, blk_y);
+    wire [255:0] cur_dc_sign_icdf  = dc_sign_ctx0_icdf_flat(cur_dc_sign_ctx);
+    wire [255:0] cur_coeff_br_icdf = coeff_br_ctx0_icdf_flat();
+    wire [1:0]   cur_dc_sign_code =
+        cur_block_has_coeff ? (qcoeff[0][15] ? 2'd1 : (qcoeff[0] != 16'sd0 ? 2'd2 : 2'd0)) : 2'd0;
+    wire         cur_dc_only_coeff_path =
+        cur_block_has_coeff && cur_only_dc_nonzero && (abs16(qcoeff[0]) <= 16'd14);
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -784,6 +841,7 @@ module av1_encoder_top #(
             ec_icdf_flat <= 256'd0;
             cur_block_has_coeff <= 1'b0;
             cur_only_dc_nonzero <= 1'b1;
+            dc_br_remaining <= 5'd0;
             best_intra_mode <= AV1_DC_PRED;
             intra_eval_idx  <= 4'd0;
             intra_best_sad  <= 18'h3FFFF;
@@ -793,11 +851,13 @@ module av1_encoder_top #(
                 part_ctx_above[i] <= 8'd0;
                 skip_above[i] <= 1'b0;
                 mode_above[i] <= AV1_DC_PRED;
+                dc_sign_above[i] <= 2'd0;
             end
             for (i = 0; i < MI_ROWS; i = i + 1) begin
                 part_ctx_left[i] <= 8'd0;
                 skip_left[i] <= 1'b0;
                 mode_left[i] <= AV1_DC_PRED;
+                dc_sign_left[i] <= 2'd0;
             end
         end else begin
             done <= 0;
@@ -836,15 +896,18 @@ module av1_encoder_top #(
                         blk_y       <= 0;
                         cur_block_has_coeff <= 1'b0;
                         cur_only_dc_nonzero <= 1'b1;
+                        dc_br_remaining <= 5'd0;
                         for (i = 0; i < MI_COLS; i = i + 1) begin
                             part_ctx_above[i] <= 8'd0;
                             skip_above[i] <= 1'b0;
                             mode_above[i] <= AV1_DC_PRED;
+                            dc_sign_above[i] <= 2'd0;
                         end
                         for (i = 0; i < MI_ROWS; i = i + 1) begin
                             part_ctx_left[i] <= 8'd0;
                             skip_left[i] <= 1'b0;
                             mode_left[i] <= AV1_DC_PRED;
+                            dc_sign_left[i] <= 2'd0;
                         end
                         top_state   <= TS_WRITE_TD;
                     end
@@ -894,6 +957,7 @@ module av1_encoder_top #(
                     fetch_blk_y     <= blk_y;
                     cur_block_has_coeff <= 1'b0;
                     cur_only_dc_nonzero <= 1'b1;
+                    dc_br_remaining <= 5'd0;
                     top_state       <= TS_WAIT_FETCH;
                 end
                 TS_WAIT_FETCH: begin
@@ -1282,7 +1346,7 @@ module av1_encoder_top #(
 
                 TS_TXB_SKIP_YW: begin
                     if (ec_done) begin
-                        if (!use_inter && cur_small_dc_only_coeff)
+                        if (!use_inter && cur_dc_only_coeff_path)
                             top_state <= TS_DC_TX_TYPE;
                         else begin
                             proc_idx  <= 0;
@@ -1326,8 +1390,34 @@ module av1_encoder_top #(
                 end
 
                 TS_DC_BASE_WAIT: begin
-                    if (ec_done)
-                        top_state <= TS_DC_SIGN;
+                    if (ec_done) begin
+                        if (abs16(qcoeff[0]) > 16'd3) begin
+                            dc_br_remaining <= abs16(qcoeff[0]) - 16'd3;
+                            top_state <= TS_DC_BR;
+                        end else begin
+                            top_state <= TS_DC_SIGN;
+                        end
+                    end
+                end
+
+                TS_DC_BR: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= (dc_br_remaining > 5'd3) ? 5'd3 : dc_br_remaining;
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_coeff_br_icdf;
+                    top_state        <= TS_DC_BR_WAIT;
+                end
+
+                TS_DC_BR_WAIT: begin
+                    if (ec_done) begin
+                        if (dc_br_remaining > 5'd3) begin
+                            dc_br_remaining <= dc_br_remaining - 5'd3;
+                            top_state <= TS_DC_BR;
+                        end else begin
+                            dc_br_remaining <= 5'd0;
+                            top_state <= TS_DC_SIGN;
+                        end
+                    end
                 end
 
                 TS_DC_SIGN: begin
@@ -1545,21 +1635,25 @@ module av1_encoder_top #(
                                 part_ctx_above[blk_x << 1] <= 8'd30;
                                 skip_above[blk_x << 1] <= ~cur_block_has_coeff;
                                 mode_above[blk_x << 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
+                                dc_sign_above[blk_x << 1] <= cur_dc_sign_code;
                             end
                             if (((blk_x << 1) + 1) < MI_COLS) begin
                                 part_ctx_above[(blk_x << 1) + 1] <= 8'd30;
                                 skip_above[(blk_x << 1) + 1] <= ~cur_block_has_coeff;
                                 mode_above[(blk_x << 1) + 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
+                                dc_sign_above[(blk_x << 1) + 1] <= cur_dc_sign_code;
                             end
                             if ((blk_y << 1) < MI_ROWS) begin
                                 part_ctx_left[blk_y << 1] <= 8'd30;
                                 skip_left[blk_y << 1] <= ~cur_block_has_coeff;
                                 mode_left[blk_y << 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
+                                dc_sign_left[blk_y << 1] <= cur_dc_sign_code;
                             end
                             if (((blk_y << 1) + 1) < MI_ROWS) begin
                                 part_ctx_left[(blk_y << 1) + 1] <= 8'd30;
                                 skip_left[(blk_y << 1) + 1] <= ~cur_block_has_coeff;
                                 mode_left[(blk_y << 1) + 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
+                                dc_sign_left[(blk_y << 1) + 1] <= cur_dc_sign_code;
                             end
                             // Both chroma planes done
                             top_state <= TS_NEXT_BLK;
