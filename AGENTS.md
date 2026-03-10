@@ -113,6 +113,14 @@
 - The video-keyframe debug path is also back in sync on that same exact-match probe:
   - `tb/av1_bitstream_writer.h` now emits the missing non-still `refresh_frame_context` bit before `tile_info`
   - the current sequence header still advertises `enable_intra_edge_filter = 0`, so the directional predictor must not apply directional edge upsampling on the RTL reconstruction path until that syntax bit is owned and enabled
+- The non-key ownership path now has its first real RTL-owned block and header syntax moves:
+  - `rtl/av1_encoder_top.v` now emits the real `intra_inter` symbol on non-key blocks before mode syntax
+  - `rtl/av1_bitstream.v` now emits a reduced video `INTER_FRAME` header instead of the old placeholder non-key bytes
+  - `tb/test_rtl_bitstream.cpp` plus `make bitstream-check` now lock the standalone sequence header, video keyframe header, and video inter-frame header bytes against a reduced reference model
+- The current raw-path inter subset is intentionally narrowed while ownership grows:
+  - `use_inter` is currently clamped to zero-motion matches on the RTL-owned path
+  - the top-level now tracks reduced inter neighborhood state (`inter`, `ref`, reduced inter mode) so zero-motion `GLOBALMV` syntax can be extended toward `NEARESTMV` / `NEWMV`
+  - do not widen the raw inter subset again until the missing reference signaling, inter-mode, and MV payload syntax are actually emitted and verified
 - Directional intra availability for the current fixed `8x8` / `TX_8X8` raster-order subset is now partially corrected:
   - real top-right extension samples are loaded and used when the above-right block is already reconstructed
   - bottom-left extension remains intentionally disabled on this subset because it would otherwise read future not-yet-reconstructed pixels and corrupt exactness
@@ -121,9 +129,15 @@
 - The next highest-priority ownership move is extending that reduced exactness into real multi-frame ownership:
   - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate
   - keep the new `32x32` and `64x64` `qindex=128` Big Buck Bunny crops as the partition-order and larger-frame regression guards
+  - keep `make bitstream-check WIDTH=16 HEIGHT=16` in the normal quick regression loop whenever `rtl/av1_bitstream.v` changes
   - do not spend more time on the old `qindex=224` blocker unless it reappears after a real code change
   - use `output/highdc_q1/` as the strict large-DC regression guard and `data/ac_probe_16x16_1f.yuv` at `qindex=240` as the verified exact-match regression guard
-  - then continue pulling multi-frame, non-key, inter, and remaining frame / tile syntax ownership onto the RTL byte path
+  - then continue pulling the remaining reduced inter syntax onto the RTL byte path in this order:
+    - single-ref LAST signaling
+    - zero-motion `GLOBALMV` / skip ownership
+    - `NEARESTMV` / `NEWMV` mode signaling
+    - MV payload syntax
+    - longer multi-frame decode verification
 - The immediate correctness target after the raw-byte mux fix is the reference-decoder-backed syntax split:
   - the strict non-lossless `output/highdc_q1/` bug is fixed:
     - the software debug writer and the RTL-owned raw path now use official qctx-selected TX_8X8 coefficient tables instead of the old hardcoded `qctx=3` slice
