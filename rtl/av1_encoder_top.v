@@ -69,6 +69,8 @@ module av1_encoder_top #(
     localparam CHROMA_W    = FRAME_WIDTH / 2;
     localparam CHROMA_H    = FRAME_HEIGHT / 2;
     localparam CHROMA_SIZE = CHROMA_W * CHROMA_H;
+    localparam MI_COLS     = FRAME_WIDTH / 4;
+    localparam MI_ROWS     = FRAME_HEIGHT / 4;
 
     // ====================================================================
     // Top-level FSM
@@ -88,6 +90,10 @@ module av1_encoder_top #(
         TS_PREDICT_INIT = 6'd34,
         TS_INTER_ADDR   = 6'd35,
         TS_INTER_READ   = 6'd36,
+        TS_SYNTAX_SKIP  = 6'd37,
+        TS_SYNTAX_WAIT  = 6'd38,
+        TS_COEFF_SYM    = 6'd39,
+        TS_COEFF_WAIT   = 6'd40,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -174,6 +180,17 @@ module av1_encoder_top #(
     reg [3:0] intra_eval_idx;
     reg [17:0] intra_best_sad;
     reg [17:0] intra_cand_sad;
+    reg        cur_block_has_coeff;
+
+    // Tile/block syntax context state mirrored from the software writer.
+    // The top-level does not fully emit these symbols yet, but it now tracks
+    // the neighborhood state needed for partition/skip/mode ownership work.
+    reg [7:0]  part_ctx_above [0:MI_COLS-1];
+    reg [7:0]  part_ctx_left  [0:MI_ROWS-1];
+    reg        skip_above     [0:MI_COLS-1];
+    reg        skip_left      [0:MI_ROWS-1];
+    reg [3:0]  mode_above     [0:MI_COLS-1];
+    reg [3:0]  mode_left      [0:MI_ROWS-1];
 
     function [3:0] intra_mode_from_idx;
         input [3:0] idx;
@@ -193,6 +210,38 @@ module av1_encoder_top #(
             endcase
         end
     endfunction
+
+    function [1:0] get_skip_ctx_cur;
+        input [9:0] cur_blk_x;
+        input [9:0] cur_blk_y;
+        integer mi_col;
+        integer mi_row;
+        integer ctx;
+        begin
+            mi_col = cur_blk_x << 1;
+            mi_row = cur_blk_y << 1;
+            ctx = 0;
+            if (mi_row > 0 && mi_col < MI_COLS)
+                ctx = ctx + skip_above[mi_col];
+            if (mi_col > 0 && mi_row < MI_ROWS)
+                ctx = ctx + skip_left[mi_row];
+            get_skip_ctx_cur = ctx[1:0];
+        end
+    endfunction
+
+    function [255:0] skip_icdf_flat;
+        input [1:0] ctx;
+        begin
+            case (ctx)
+                2'd0: skip_icdf_flat = {224'd0, 16'd32768, 16'd31671};
+                2'd1: skip_icdf_flat = {224'd0, 16'd32768, 16'd16515};
+                default: skip_icdf_flat = {224'd0, 16'd32768, 16'd4576};
+            endcase
+        end
+    endfunction
+
+    wire [1:0] cur_skip_ctx = get_skip_ctx_cur(blk_x, blk_y);
+    wire       cur_block_skip = ~cur_block_has_coeff;
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -501,11 +550,22 @@ module av1_encoder_top #(
             ec_symbol <= 5'd0;
             ec_nsyms <= 5'd0;
             ec_icdf_flat <= 256'd0;
+            cur_block_has_coeff <= 1'b0;
             best_intra_mode <= AV1_DC_PRED;
             intra_eval_idx  <= 4'd0;
             intra_best_sad  <= 18'h3FFFF;
             intra_cand_sad  <= 18'd0;
             frame_obu_start_addr <= 24'd0;
+            for (i = 0; i < MI_COLS; i = i + 1) begin
+                part_ctx_above[i] <= 8'd0;
+                skip_above[i] <= 1'b0;
+                mode_above[i] <= AV1_DC_PRED;
+            end
+            for (i = 0; i < MI_ROWS; i = i + 1) begin
+                part_ctx_left[i] <= 8'd0;
+                skip_left[i] <= 1'b0;
+                mode_left[i] <= AV1_DC_PRED;
+            end
         end else begin
             done <= 0;
 
@@ -541,6 +601,17 @@ module av1_encoder_top #(
                         frame_num   <= frame_num_in;
                         blk_x       <= 0;
                         blk_y       <= 0;
+                        cur_block_has_coeff <= 1'b0;
+                        for (i = 0; i < MI_COLS; i = i + 1) begin
+                            part_ctx_above[i] <= 8'd0;
+                            skip_above[i] <= 1'b0;
+                            mode_above[i] <= AV1_DC_PRED;
+                        end
+                        for (i = 0; i < MI_ROWS; i = i + 1) begin
+                            part_ctx_left[i] <= 8'd0;
+                            skip_left[i] <= 1'b0;
+                            mode_left[i] <= AV1_DC_PRED;
+                        end
                         top_state   <= TS_WRITE_TD;
                     end
                 end
@@ -587,6 +658,7 @@ module av1_encoder_top #(
                     fetch_chroma_id <= 0;
                     fetch_blk_x     <= blk_x;
                     fetch_blk_y     <= blk_y;
+                    cur_block_has_coeff <= 1'b0;
                     top_state       <= TS_WAIT_FETCH;
                 end
                 TS_WAIT_FETCH: begin
@@ -869,27 +941,60 @@ module av1_encoder_top #(
                 TS_QCOEFF_WAIT: begin
                     if (quant_done) begin
                         qcoeff[proc_idx] <= (dc_only_in && proc_idx != 0) ? 16'sd0 : quant_coeff_out;
+                        if (((dc_only_in && proc_idx != 0) ? 16'sd0 : quant_coeff_out) != 16'sd0)
+                            cur_block_has_coeff <= 1'b1;
                         if (proc_idx == 0)
                             dequant_dc <= quant_dequant_out;
                         else if (proc_idx == 1)
                             dequant_ac <= quant_dequant_out;
 
-                        // Entropy code: encode zero/nonzero flag
-                        ec_encode_bool <= 1;
-                        ec_bool_val    <= ((dc_only_in && proc_idx != 0) ? 16'sd0 : quant_coeff_out) != 0;
-                        ec_bool_prob   <= 15'd16384;
-                        top_state      <= TS_EC_WAIT;
-                    end
-                end
-
-                // Wait for entropy coder done, advance to next coefficient
-                TS_EC_WAIT: begin
-                    if (ec_done) begin
                         if (proc_idx < 63) begin
                             proc_idx  <= proc_idx + 1;
                             top_state <= TS_QCOEFF_START;
                         end else begin
-                            // All 64 coefficients quantized + entropy coded
+                            // All 64 coefficients are available. Begin the
+                            // block-level syntax pass from the RTL-owned skip
+                            // symbol before falling through the older
+                            // coefficient placeholder stream.
+                            proc_idx  <= 0;
+                            top_state <= TS_SYNTAX_SKIP;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_SKIP: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= cur_block_skip ? 5'd1 : 5'd0;
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= skip_icdf_flat(cur_skip_ctx);
+                    top_state        <= TS_SYNTAX_WAIT;
+                end
+
+                TS_SYNTAX_WAIT: begin
+                    if (ec_done) begin
+                        if (cur_block_skip) begin
+                            proc_idx  <= 0;
+                            top_state <= TS_IQ_START;
+                        end else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_COEFF_SYM;
+                        end
+                    end
+                end
+
+                TS_COEFF_SYM: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= (qcoeff[proc_idx] != 16'sd0);
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_COEFF_WAIT;
+                end
+
+                TS_COEFF_WAIT: begin
+                    if (ec_done) begin
+                        if (proc_idx < 63) begin
+                            proc_idx  <= proc_idx + 1'b1;
+                            top_state <= TS_COEFF_SYM;
+                        end else begin
                             proc_idx  <= 0;
                             top_state <= TS_IQ_START;
                         end
@@ -1044,6 +1149,29 @@ module av1_encoder_top #(
                             chr_plane <= 1;
                             top_state <= TS_CHR_FETCH;
                         end else begin
+                            // Mirror the writer's 8x8 neighborhood context
+                            // updates so later RTL-owned tile syntax can reuse
+                            // the same partition/skip/mode state.
+                            if ((blk_x << 1) < MI_COLS) begin
+                                part_ctx_above[blk_x << 1] <= 8'd30;
+                                skip_above[blk_x << 1] <= ~cur_block_has_coeff;
+                                mode_above[blk_x << 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
+                            end
+                            if (((blk_x << 1) + 1) < MI_COLS) begin
+                                part_ctx_above[(blk_x << 1) + 1] <= 8'd30;
+                                skip_above[(blk_x << 1) + 1] <= ~cur_block_has_coeff;
+                                mode_above[(blk_x << 1) + 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
+                            end
+                            if ((blk_y << 1) < MI_ROWS) begin
+                                part_ctx_left[blk_y << 1] <= 8'd30;
+                                skip_left[blk_y << 1] <= ~cur_block_has_coeff;
+                                mode_left[blk_y << 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
+                            end
+                            if (((blk_y << 1) + 1) < MI_ROWS) begin
+                                part_ctx_left[(blk_y << 1) + 1] <= 8'd30;
+                                skip_left[(blk_y << 1) + 1] <= ~cur_block_has_coeff;
+                                mode_left[(blk_y << 1) + 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
+                            end
                             // Both chroma planes done
                             top_state <= TS_NEXT_BLK;
                         end
