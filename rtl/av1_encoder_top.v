@@ -26,6 +26,7 @@ module av1_encoder_top #(
     input  wire [3:0]  frame_num_in,
     input  wire        is_keyframe_in,
     input  wire        force_intra_in,
+    input  wire        dc_only_in,
     input  wire [7:0]  qindex_in,     // Quantization index (0-255)
 
     // Raw frame memory read port (YUV420 planar)
@@ -684,11 +685,8 @@ module av1_encoder_top #(
                         me_mvx <= me_best_mvx;
                         me_mvy <= me_best_mvy;
                         me_sad <= me_best_sad;
-                        // Keep the current verified inter subset to zero-motion
-                        // blocks until the writer grows full NEWMV support.
                         use_inter <= force_intra_in ? 1'b0 :
-                                     ((me_best_sad < INTRA_SAD_THRESHOLD) &&
-                                      (me_best_mvx == 0) && (me_best_mvy == 0));
+                                     (me_best_sad < INTRA_SAD_THRESHOLD);
                         top_state <= TS_PREDICT_INIT;
                     end
                 end
@@ -843,7 +841,7 @@ module av1_encoder_top #(
                 // Wait for quantizer done, then start entropy coding
                 TS_QCOEFF_WAIT: begin
                     if (quant_done) begin
-                        qcoeff[proc_idx] <= quant_coeff_out;
+                        qcoeff[proc_idx] <= (dc_only_in && proc_idx != 0) ? 16'sd0 : quant_coeff_out;
                         if (proc_idx == 0)
                             dequant_dc <= quant_dequant_out;
                         else if (proc_idx == 1)
@@ -851,7 +849,7 @@ module av1_encoder_top #(
 
                         // Entropy code: encode zero/nonzero flag
                         ec_encode_bool <= 1;
-                        ec_bool_val    <= (quant_coeff_out != 0) ? 1'b1 : 1'b0;
+                        ec_bool_val    <= ((dc_only_in && proc_idx != 0) ? 16'sd0 : quant_coeff_out) != 0;
                         ec_bool_prob   <= 15'd16384;
                         top_state      <= TS_EC_WAIT;
                     end

@@ -152,6 +152,21 @@ static const uint16_t av1_zeromv_cdf[2][3] = {
     {AV1_ICDF(1054), AV1_ICDF(32768), 0},
 };
 
+static const uint16_t av1_refmv_cdf[6][3] = {
+    {AV1_ICDF(23974), AV1_ICDF(32768), 0},
+    {AV1_ICDF(24188), AV1_ICDF(32768), 0},
+    {AV1_ICDF(17848), AV1_ICDF(32768), 0},
+    {AV1_ICDF(28622), AV1_ICDF(32768), 0},
+    {AV1_ICDF(24312), AV1_ICDF(32768), 0},
+    {AV1_ICDF(19923), AV1_ICDF(32768), 0},
+};
+
+static const uint16_t av1_drl_cdf[3][3] = {
+    {AV1_ICDF(13104), AV1_ICDF(32768), 0},
+    {AV1_ICDF(24560), AV1_ICDF(32768), 0},
+    {AV1_ICDF(18945), AV1_ICDF(32768), 0},
+};
+
 static const uint16_t av1_intra_inter_cdf[4][3] = {
     {AV1_ICDF(806),   AV1_ICDF(32768), 0},
     {AV1_ICDF(16662), AV1_ICDF(32768), 0},
@@ -190,6 +205,62 @@ static const uint16_t av1_single_ref_cdf[3][6][3] = {
 static const uint8_t av1_intra_mode_context[13] = {0,1,2,3,4,4,4,4,3,0,1,2,0};
 static const uint8_t av1_part_ctx_above[4] = {30, 28, 24, 16};
 static const uint8_t av1_part_ctx_left[4]  = {30, 28, 24, 16};
+static const uint16_t AV1_REF_CAT_LEVEL = 640;
+static const int AV1_GLOBALMV_OFFSET = 3;
+static const int AV1_REFMV_OFFSET = 4;
+static const int AV1_NEWMV_CTX_MASK = (1 << AV1_GLOBALMV_OFFSET) - 1;
+static const int AV1_GLOBALMV_CTX_MASK =
+    (1 << (AV1_REFMV_OFFSET - AV1_GLOBALMV_OFFSET)) - 1;
+static const int AV1_REFMV_CTX_MASK = (1 << (8 - AV1_REFMV_OFFSET)) - 1;
+
+// ---- Default NMV tables from libaom/av1/common/entropymv.c ----
+static const uint16_t av1_mv_joint_cdf[5] = {
+    AV1_ICDF(4096), AV1_ICDF(11264), AV1_ICDF(19328), AV1_ICDF(32768), 0
+};
+
+static const uint16_t av1_mv_class_cdf[12] = {
+    AV1_ICDF(28672), AV1_ICDF(30976), AV1_ICDF(31858), AV1_ICDF(32320),
+    AV1_ICDF(32551), AV1_ICDF(32656), AV1_ICDF(32740), AV1_ICDF(32757),
+    AV1_ICDF(32762), AV1_ICDF(32767), AV1_ICDF(32768), 0
+};
+
+static const uint16_t av1_mv_class0_fp_cdf[2][5] = {
+    {AV1_ICDF(16384), AV1_ICDF(24576), AV1_ICDF(26624), AV1_ICDF(32768), 0},
+    {AV1_ICDF(12288), AV1_ICDF(21248), AV1_ICDF(24128), AV1_ICDF(32768), 0},
+};
+
+static const uint16_t av1_mv_fp_cdf[5] = {
+    AV1_ICDF(8192), AV1_ICDF(17408), AV1_ICDF(21248), AV1_ICDF(32768), 0
+};
+
+static const uint16_t av1_mv_sign_cdf[3] = {
+    AV1_ICDF(16384), AV1_ICDF(32768), 0
+};
+
+static const uint16_t av1_mv_class0_cdf[3] = {
+    AV1_ICDF(27648), AV1_ICDF(32768), 0
+};
+
+static const uint16_t av1_mv_bits_cdf[10][3] = {
+    {AV1_ICDF(17408), AV1_ICDF(32768), 0},
+    {AV1_ICDF(17920), AV1_ICDF(32768), 0},
+    {AV1_ICDF(18944), AV1_ICDF(32768), 0},
+    {AV1_ICDF(20480), AV1_ICDF(32768), 0},
+    {AV1_ICDF(22528), AV1_ICDF(32768), 0},
+    {AV1_ICDF(24576), AV1_ICDF(32768), 0},
+    {AV1_ICDF(28672), AV1_ICDF(32768), 0},
+    {AV1_ICDF(29952), AV1_ICDF(32768), 0},
+    {AV1_ICDF(29952), AV1_ICDF(32768), 0},
+    {AV1_ICDF(30720), AV1_ICDF(32768), 0},
+};
+
+// Inter ext-tx CDF for TX_8X8 under EXT_TX_SET_ALL16 / eset=1.
+static const uint16_t av1_inter_tx_type_cdf_8x8_all16[17] = {
+    AV1_ICDF(1645),  AV1_ICDF(2573),  AV1_ICDF(4778),  AV1_ICDF(5711),
+    AV1_ICDF(7807),  AV1_ICDF(8622),  AV1_ICDF(10522), AV1_ICDF(15357),
+    AV1_ICDF(17674), AV1_ICDF(20408), AV1_ICDF(22517), AV1_ICDF(25010),
+    AV1_ICDF(27116), AV1_ICDF(28856), AV1_ICDF(30749), AV1_ICDF(32768), 0
+};
 
 // ============================================================
 // Coefficient Coding CDF Tables (QP group 3: qindex > 120)
@@ -252,48 +323,48 @@ static const uint16_t av1_eob_extra_cdf[2][9][3] = {
 // coeff_base CDF for TX_8X8, luma plane [42 contexts][5 values]
 // Source: av1_default_coeff_base_multi_cdfs[3][1][0] — QP group 3, TX_8X8, luma
 static const uint16_t av1_coeff_base_cdf[42][5] = {
-    {AV1_ICDF(9704),AV1_ICDF(17294),AV1_ICDF(21132),AV1_ICDF(32768),0},
-    {AV1_ICDF(26762),AV1_ICDF(32278),AV1_ICDF(32633),AV1_ICDF(32768),0},
-    {AV1_ICDF(18382),AV1_ICDF(29620),AV1_ICDF(31819),AV1_ICDF(32768),0},
-    {AV1_ICDF(10891),AV1_ICDF(23475),AV1_ICDF(28723),AV1_ICDF(32768),0},
-    {AV1_ICDF(6358),AV1_ICDF(16583),AV1_ICDF(23309),AV1_ICDF(32768),0},
-    {AV1_ICDF(3248),AV1_ICDF(9118),AV1_ICDF(14141),AV1_ICDF(32768),0},
-    {AV1_ICDF(27204),AV1_ICDF(32573),AV1_ICDF(32699),AV1_ICDF(32768),0},
-    {AV1_ICDF(19818),AV1_ICDF(30824),AV1_ICDF(32329),AV1_ICDF(32768),0},
-    {AV1_ICDF(11772),AV1_ICDF(25120),AV1_ICDF(30041),AV1_ICDF(32768),0},
-    {AV1_ICDF(6995),AV1_ICDF(18033),AV1_ICDF(25039),AV1_ICDF(32768),0},
-    {AV1_ICDF(3752),AV1_ICDF(10442),AV1_ICDF(16098),AV1_ICDF(32768),0},
-    {AV1_ICDF(27222),AV1_ICDF(32256),AV1_ICDF(32559),AV1_ICDF(32768),0},
-    {AV1_ICDF(15356),AV1_ICDF(28399),AV1_ICDF(31475),AV1_ICDF(32768),0},
-    {AV1_ICDF(8821),AV1_ICDF(20635),AV1_ICDF(27057),AV1_ICDF(32768),0},
-    {AV1_ICDF(5511),AV1_ICDF(14404),AV1_ICDF(21239),AV1_ICDF(32768),0},
-    {AV1_ICDF(2935),AV1_ICDF(8222),AV1_ICDF(13051),AV1_ICDF(32768),0},
-    {AV1_ICDF(24875),AV1_ICDF(32120),AV1_ICDF(32529),AV1_ICDF(32768),0},
-    {AV1_ICDF(15233),AV1_ICDF(28265),AV1_ICDF(31445),AV1_ICDF(32768),0},
-    {AV1_ICDF(8605),AV1_ICDF(20570),AV1_ICDF(26932),AV1_ICDF(32768),0},
-    {AV1_ICDF(5431),AV1_ICDF(14413),AV1_ICDF(21196),AV1_ICDF(32768),0},
-    {AV1_ICDF(2994),AV1_ICDF(8341),AV1_ICDF(13223),AV1_ICDF(32768),0},
-    {AV1_ICDF(28201),AV1_ICDF(32604),AV1_ICDF(32700),AV1_ICDF(32768),0},
-    {AV1_ICDF(21041),AV1_ICDF(31446),AV1_ICDF(32456),AV1_ICDF(32768),0},
-    {AV1_ICDF(13221),AV1_ICDF(26213),AV1_ICDF(30475),AV1_ICDF(32768),0},
-    {AV1_ICDF(8255),AV1_ICDF(19385),AV1_ICDF(26037),AV1_ICDF(32768),0},
-    {AV1_ICDF(4930),AV1_ICDF(12585),AV1_ICDF(18830),AV1_ICDF(32768),0},
-    {AV1_ICDF(28768),AV1_ICDF(32448),AV1_ICDF(32627),AV1_ICDF(32768),0},
-    {AV1_ICDF(19705),AV1_ICDF(30561),AV1_ICDF(32021),AV1_ICDF(32768),0},
-    {AV1_ICDF(11572),AV1_ICDF(23589),AV1_ICDF(28220),AV1_ICDF(32768),0},
-    {AV1_ICDF(5532),AV1_ICDF(15034),AV1_ICDF(21446),AV1_ICDF(32768),0},
-    {AV1_ICDF(2460),AV1_ICDF(7150),AV1_ICDF(11456),AV1_ICDF(32768),0},
-    {AV1_ICDF(29874),AV1_ICDF(32619),AV1_ICDF(32699),AV1_ICDF(32768),0},
-    {AV1_ICDF(21621),AV1_ICDF(31071),AV1_ICDF(32201),AV1_ICDF(32768),0},
-    {AV1_ICDF(12511),AV1_ICDF(24747),AV1_ICDF(28992),AV1_ICDF(32768),0},
-    {AV1_ICDF(6281),AV1_ICDF(16395),AV1_ICDF(22748),AV1_ICDF(32768),0},
-    {AV1_ICDF(3246),AV1_ICDF(9278),AV1_ICDF(14497),AV1_ICDF(32768),0},
-    {AV1_ICDF(29715),AV1_ICDF(32625),AV1_ICDF(32712),AV1_ICDF(32768),0},
-    {AV1_ICDF(20958),AV1_ICDF(31011),AV1_ICDF(32283),AV1_ICDF(32768),0},
-    {AV1_ICDF(11233),AV1_ICDF(23671),AV1_ICDF(28806),AV1_ICDF(32768),0},
-    {AV1_ICDF(6012),AV1_ICDF(16128),AV1_ICDF(22868),AV1_ICDF(32768),0},
-    {AV1_ICDF(3427),AV1_ICDF(9851),AV1_ICDF(15414),AV1_ICDF(32768),0},
-    {AV1_ICDF(8192),AV1_ICDF(16384),AV1_ICDF(24576),AV1_ICDF(32768),0},
+    {25014,15820,10626,0,0},
+    {7098,438,77,0,0},
+    {17105,3543,774,0,0},
+    {22890,9480,3610,0,0},
+    {26349,15680,8432,0,0},
+    {28909,21765,15729,0,0},
+    {5206,173,43,0,0},
+    {15193,2180,369,0,0},
+    {21949,7930,2459,0,0},
+    {25644,14082,6852,0,0},
+    {28289,20080,13428,0,0},
+    {4383,292,95,0,0},
+    {17462,3763,830,0,0},
+    {23831,11153,4446,0,0},
+    {26786,17165,9982,0,0},
+    {29148,22501,16632,0,0},
+    {5488,304,101,0,0},
+    {17161,3608,764,0,0},
+    {23677,10633,4028,0,0},
+    {26536,16136,8748,0,0},
+    {28721,21391,15096,0,0},
+    {3548,138,50,0,0},
+    {13118,1548,306,0,0},
+    {19718,6456,1941,0,0},
+    {23540,11898,5300,0,0},
+    {26622,17619,10797,0,0},
+    {2599,287,145,0,0},
+    {15556,3457,1214,0,0},
+    {22857,11457,5886,0,0},
+    {28281,19454,12396,0,0},
+    {30198,24996,19879,0,0},
+    {1844,155,60,0,0},
+    {13278,2562,661,0,0},
+    {21536,8770,3492,0,0},
+    {25999,14813,7733,0,0},
+    {28370,20145,13554,0,0},
+    {2159,141,46,0,0},
+    {13398,2186,481,0,0},
+    {22311,9149,3359,0,0},
+    {26325,15131,7934,0,0},
+    {28123,19532,12662,0,0},
+    {24576,16384,8192,0,0},
 };
 
 // coeff_base_eob CDF for TX_8X8, luma [4 contexts][4 values]
@@ -338,8 +409,20 @@ static const uint16_t av1_dc_sign_cdf[2][3][3] = {
 
 // Intra TX type CDF: eset=1, TX_8X8, DC_PRED — 7 symbols
 // DCT_DCT maps to symbol 1 (av1_ext_tx_ind[3][0] = 1)
-static const uint16_t av1_intra_tx_type_cdf_8x8_dc[8] = {
-    AV1_ICDF(1870),AV1_ICDF(13742),AV1_ICDF(14530),AV1_ICDF(16498),AV1_ICDF(23770),AV1_ICDF(27698),AV1_ICDF(32768),0
+static const uint16_t av1_intra_tx_type_cdf_8x8[13][8] = {
+    {AV1_ICDF(1870), AV1_ICDF(13742), AV1_ICDF(14530), AV1_ICDF(16498), AV1_ICDF(23770), AV1_ICDF(27698), AV1_ICDF(32768), 0},
+    {AV1_ICDF(326),  AV1_ICDF(8796),  AV1_ICDF(14632), AV1_ICDF(15079), AV1_ICDF(19272), AV1_ICDF(27486), AV1_ICDF(32768), 0},
+    {AV1_ICDF(484),  AV1_ICDF(7576),  AV1_ICDF(7712),  AV1_ICDF(14443), AV1_ICDF(19159), AV1_ICDF(22591), AV1_ICDF(32768), 0},
+    {AV1_ICDF(1126), AV1_ICDF(15340), AV1_ICDF(15895), AV1_ICDF(17023), AV1_ICDF(20896), AV1_ICDF(30279), AV1_ICDF(32768), 0},
+    {AV1_ICDF(655),  AV1_ICDF(4854),  AV1_ICDF(5249),  AV1_ICDF(5913),  AV1_ICDF(22099), AV1_ICDF(27138), AV1_ICDF(32768), 0},
+    {AV1_ICDF(1299), AV1_ICDF(6458),  AV1_ICDF(8885),  AV1_ICDF(9290),  AV1_ICDF(14851), AV1_ICDF(25497), AV1_ICDF(32768), 0},
+    {AV1_ICDF(311),  AV1_ICDF(5295),  AV1_ICDF(5552),  AV1_ICDF(6885),  AV1_ICDF(16107), AV1_ICDF(22672), AV1_ICDF(32768), 0},
+    {AV1_ICDF(883),  AV1_ICDF(8059),  AV1_ICDF(8270),  AV1_ICDF(11258), AV1_ICDF(17289), AV1_ICDF(21549), AV1_ICDF(32768), 0},
+    {AV1_ICDF(741),  AV1_ICDF(7580),  AV1_ICDF(9318),  AV1_ICDF(10345), AV1_ICDF(16688), AV1_ICDF(29046), AV1_ICDF(32768), 0},
+    {AV1_ICDF(110),  AV1_ICDF(7406),  AV1_ICDF(7915),  AV1_ICDF(9195),  AV1_ICDF(16041), AV1_ICDF(23329), AV1_ICDF(32768), 0},
+    {AV1_ICDF(363),  AV1_ICDF(7974),  AV1_ICDF(9357),  AV1_ICDF(10673), AV1_ICDF(15629), AV1_ICDF(24474), AV1_ICDF(32768), 0},
+    {AV1_ICDF(153),  AV1_ICDF(7647),  AV1_ICDF(8112),  AV1_ICDF(9936),  AV1_ICDF(15307), AV1_ICDF(19996), AV1_ICDF(32768), 0},
+    {AV1_ICDF(3511), AV1_ICDF(6332),  AV1_ICDF(11165), AV1_ICDF(15335), AV1_ICDF(19323), AV1_ICDF(23594), AV1_ICDF(32768), 0},
 };
 
 // ---- Scan order for TX_8X8 (diagonal) ----
@@ -400,6 +483,8 @@ static inline int get_nz_map_ctx(const uint8_t* levels, int coeff_idx, int bwl) 
 }
 
 static inline int get_br_ctx_2d(const uint8_t* levels, int c, int bwl) {
+    // qcoeff is stored in row-major order in the RTL/testbench, so use the
+    // row-major transpose of libaom's context derivation here.
     int row = c >> bwl;
     int col = c - (row << bwl);
     int stride = (1 << bwl) + 4;
@@ -502,6 +587,11 @@ public:
         return buf_;
     }
 
+    unsigned rng_state() const { return rng_; }
+    uint64_t low_state() const { return low_; }
+    int cnt_state() const { return cnt_; }
+    size_t buf_size() const { return buf_.size(); }
+
 private:
     void normalize(uint64_t low, unsigned rng) {
         int d = 16 - ilog_nz(rng);
@@ -548,6 +638,9 @@ private:
 // ============================================================
 class AV1BitstreamWriter {
 public:
+    static constexpr uint32_t kDefaultIvfTimebaseNum = 24;
+    static constexpr uint32_t kDefaultIvfTimebaseDen = 1;
+
     struct BlockInfo {
         int16_t qcoeff[64];
         uint8_t pred_mode;
@@ -590,8 +683,8 @@ public:
         write_bytes(ivf, "AV01", 4);
         write_le16(ivf, width_);
         write_le16(ivf, height_);
-        write_le32(ivf, 30);
-        write_le32(ivf, 1);
+        write_le32(ivf, kDefaultIvfTimebaseNum);
+        write_le32(ivf, kDefaultIvfTimebaseDen);
         write_le32(ivf, 1);
         write_le32(ivf, 0);
         write_le32(ivf, (uint32_t)frame_data.size());
@@ -614,8 +707,8 @@ public:
         write_bytes(ivf, "AV01", 4);
         write_le16(ivf, static_cast<uint16_t>(width));
         write_le16(ivf, static_cast<uint16_t>(height));
-        write_le32(ivf, 30);
-        write_le32(ivf, 1);
+        write_le32(ivf, kDefaultIvfTimebaseNum);
+        write_le32(ivf, kDefaultIvfTimebaseDen);
         write_le32(ivf, static_cast<uint32_t>(frames.size()));
         write_le32(ivf, 0);
         for (const auto& frame : frames) {
@@ -636,6 +729,13 @@ private:
         REF_ALTREF2 = 5,
         REF_ALTREF = 6,
         REF_NONE = 0xFF,
+    };
+
+    enum : uint8_t {
+        REDUCED_INTER_NONE = 0,
+        REDUCED_INTER_GLOBALMV = 1,
+        REDUCED_INTER_NEARESTMV = 2,
+        REDUCED_INTER_NEWMV = 3,
     };
 
     class BitWriter {
@@ -689,6 +789,19 @@ private:
     std::vector<uint8_t> dc_sign_above_, dc_sign_left_;
     std::vector<uint8_t> blk_inter_coded_;
     std::vector<uint8_t> blk_ref0_;
+    std::vector<uint8_t> blk_inter_mode_;
+    std::vector<int16_t> blk_mv_x_;
+    std::vector<int16_t> blk_mv_y_;
+
+    struct ReducedMvCandidate {
+        int16_t row;
+        int16_t col;
+        uint16_t weight;
+    };
+
+    struct ReducedMvState {
+        std::vector<ReducedMvCandidate> stack;
+    };
 
     // ============================================================
     // Context helpers
@@ -708,6 +821,9 @@ private:
         dc_sign_left_.assign(mi_rows_, 0);
         blk_inter_coded_.assign(blk_cols_ * blk_rows_, 0);
         blk_ref0_.assign(blk_cols_ * blk_rows_, REF_NONE);
+        blk_inter_mode_.assign(blk_cols_ * blk_rows_, REDUCED_INTER_NONE);
+        blk_mv_x_.assign(blk_cols_ * blk_rows_, 0);
+        blk_mv_y_.assign(blk_cols_ * blk_rows_, 0);
     }
 
     int get_partition_ctx(int org_x, int org_y, int bsl) {
@@ -788,10 +904,22 @@ private:
 
         const int fwd_count = counts[REF_LAST] + counts[REF_LAST2] + counts[REF_LAST3] + counts[REF_GOLDEN];
         const int bwd_count = counts[REF_BWDREF] + counts[REF_ALTREF2] + counts[REF_ALTREF];
+        if (coeff_debug_mode_) {
+            fprintf(stderr,
+                    "[REF] mi=(%d,%d) counts L=%d L2=%d L3=%d G=%d B=%d A2=%d A=%d p1ctx=%d\n",
+                    mi_row, mi_col, counts[REF_LAST], counts[REF_LAST2], counts[REF_LAST3],
+                    counts[REF_GOLDEN], counts[REF_BWDREF], counts[REF_ALTREF2], counts[REF_ALTREF],
+                    compare_ref_counts(fwd_count, bwd_count));
+        }
         rc.encode_symbol(0, av1_single_ref_cdf[compare_ref_counts(fwd_count, bwd_count)][0], 2);
 
         const int ll2_count = counts[REF_LAST] + counts[REF_LAST2];
         const int l3g_count = counts[REF_LAST3] + counts[REF_GOLDEN];
+        if (coeff_debug_mode_) {
+            fprintf(stderr, "[REF] p3ctx=%d p4ctx=%d\n",
+                    compare_ref_counts(ll2_count, l3g_count),
+                    compare_ref_counts(counts[REF_LAST], counts[REF_LAST2]));
+        }
         rc.encode_symbol(0, av1_single_ref_cdf[compare_ref_counts(ll2_count, l3g_count)][2], 2);
 
         rc.encode_symbol(0, av1_single_ref_cdf[compare_ref_counts(counts[REF_LAST], counts[REF_LAST2])][3], 2);
@@ -803,37 +931,217 @@ private:
         return blk_inter_coded_[idx] && blk_ref0_[idx] == ref_frame;
     }
 
-    int get_zero_mv_newmv_ctx(int blk_x, int blk_y, uint8_t ref_frame) const {
-        const bool row_match = block_has_matching_ref(blk_x, blk_y - 1, ref_frame) ||
-                               block_has_matching_ref(blk_x + 1, blk_y - 1, ref_frame);
-        const bool col_match = block_has_matching_ref(blk_x - 1, blk_y, ref_frame);
+    bool block_uses_newmv(int blk_x, int blk_y, uint8_t ref_frame) const {
+        if (!block_has_matching_ref(blk_x, blk_y, ref_frame)) return false;
+        const int idx = blk_y * blk_cols_ + blk_x;
+        return blk_inter_mode_[idx] == REDUCED_INTER_NEWMV;
+    }
 
-        bool row_ref_match = row_match;
-        bool col_ref_match = col_match;
-        row_ref_match = row_ref_match ||
-                        block_has_matching_ref(blk_x - 1, blk_y - 1, ref_frame) ||
-                        block_has_matching_ref(blk_x, blk_y - 2, ref_frame) ||
-                        block_has_matching_ref(blk_x + 1, blk_y - 2, ref_frame);
-        col_ref_match = col_ref_match ||
-                        block_has_matching_ref(blk_x - 1, blk_y - 1, ref_frame) ||
-                        block_has_matching_ref(blk_x - 2, blk_y, ref_frame) ||
-                        block_has_matching_ref(blk_x - 2, blk_y + 1, ref_frame);
+    bool block_has_top_right(int blk_x, int blk_y) const {
+        if (blk_x < 0 || blk_y < 0 || blk_x >= blk_cols_ || blk_y >= blk_rows_) return false;
+
+        // Match the square-block `has_top_right()` behavior for our fixed
+        // 8x8-only partition tree inside a 64x64 superblock. Using top-right
+        // neighbors unconditionally makes the reduced single-ref contexts drift
+        // from the decoder once we get deeper into the recursive split order.
+        constexpr int sb_blk_size = 8;   // 64x64 SB / 8x8 blocks
+        int bs = 1;                      // 8x8 block in block-grid units
+        const int mask_row = blk_y & (sb_blk_size - 1);
+        const int mask_col = blk_x & (sb_blk_size - 1);
+
+        bool has_tr = !((mask_row & bs) && (mask_col & bs));
+        while (bs < sb_blk_size) {
+            if (mask_col & bs) {
+                if ((mask_col & (2 * bs)) && (mask_row & (2 * bs))) {
+                    has_tr = false;
+                    break;
+                }
+            } else {
+                break;
+            }
+            bs <<= 1;
+        }
+        return has_tr && (blk_y > 0) && (blk_x + 1 < blk_cols_);
+    }
+
+    bool block_has_row_match(int blk_x, int blk_y, uint8_t ref_frame, bool include_top_right) const {
+        if (block_has_matching_ref(blk_x, blk_y - 1, ref_frame)) return true;
+        if (include_top_right && block_has_matching_ref(blk_x + 1, blk_y - 1, ref_frame)) return true;
+        if (block_has_matching_ref(blk_x - 1, blk_y - 1, ref_frame)) return true;
+        for (int dy = 2; dy <= 4; ++dy) {
+            if (block_has_matching_ref(blk_x, blk_y - dy, ref_frame)) return true;
+        }
+        return false;
+    }
+
+    bool block_has_col_match(int blk_x, int blk_y, uint8_t ref_frame) const {
+        if (block_has_matching_ref(blk_x - 1, blk_y, ref_frame)) return true;
+        if (block_has_matching_ref(blk_x - 1, blk_y - 1, ref_frame)) return true;
+        for (int dx = 2; dx <= 4; ++dx) {
+            if (block_has_matching_ref(blk_x - dx, blk_y, ref_frame)) return true;
+        }
+        return false;
+    }
+
+    uint8_t get_reduced_single_ref_mode_ctx(int blk_x, int blk_y, uint8_t ref_frame) const {
+        const bool has_tr = block_has_top_right(blk_x, blk_y);
+        const bool row_match = block_has_matching_ref(blk_x, blk_y - 1, ref_frame) ||
+                               (has_tr && block_has_matching_ref(blk_x + 1, blk_y - 1, ref_frame));
+        const bool col_match = block_has_matching_ref(blk_x - 1, blk_y, ref_frame);
+        int newmv_count = 0;
+
+        if (block_uses_newmv(blk_x, blk_y - 1, ref_frame)) ++newmv_count;
+        if (has_tr && block_uses_newmv(blk_x + 1, blk_y - 1, ref_frame)) ++newmv_count;
+        if (block_uses_newmv(blk_x - 1, blk_y, ref_frame)) ++newmv_count;
+
+        const bool row_ref_match = block_has_row_match(blk_x, blk_y, ref_frame, has_tr);
+        const bool col_ref_match = block_has_col_match(blk_x, blk_y, ref_frame);
 
         const int nearest_match = static_cast<int>(row_match) + static_cast<int>(col_match);
         const int ref_match = static_cast<int>(row_ref_match) + static_cast<int>(col_ref_match);
+        uint8_t mode_ctx = 0;
 
         switch (nearest_match) {
         case 0:
-            return ref_match >= 1 ? 1 : 0;
+            mode_ctx |= ref_match >= 1 ? 1 : 0;
+            if (ref_match == 1)
+                mode_ctx |= (1 << AV1_REFMV_OFFSET);
+            else if (ref_match >= 2)
+                mode_ctx |= (2 << AV1_REFMV_OFFSET);
+            break;
         case 1:
-            return 3;
+            mode_ctx |= newmv_count > 0 ? 2 : 3;
+            if (ref_match == 1)
+                mode_ctx |= (3 << AV1_REFMV_OFFSET);
+            else if (ref_match >= 2)
+                mode_ctx |= (4 << AV1_REFMV_OFFSET);
+            break;
         default:
-            return 5;
+            mode_ctx |= newmv_count >= 1 ? 4 : 5;
+            mode_ctx |= (5 << AV1_REFMV_OFFSET);
+            break;
         }
+
+        return mode_ctx;
+    }
+
+    void add_reduced_single_ref_mv_candidate(std::vector<ReducedMvCandidate>& stack, int blk_x, int blk_y,
+                                             uint8_t ref_frame, uint16_t weight) const {
+        if (!block_has_matching_ref(blk_x, blk_y, ref_frame)) return;
+
+        const int blk_idx = blk_y * blk_cols_ + blk_x;
+        const int16_t row = static_cast<int16_t>(blk_mv_y_[blk_idx] * 8);
+        const int16_t col = static_cast<int16_t>(blk_mv_x_[blk_idx] * 8);
+
+        for (auto& cand : stack) {
+            if (cand.row == row && cand.col == col) {
+                cand.weight = static_cast<uint16_t>(cand.weight + weight);
+                return;
+            }
+        }
+        stack.push_back({row, col, weight});
+    }
+
+    ReducedMvState collect_reduced_single_ref_mv_state(int blk_x, int blk_y, uint8_t ref_frame) const {
+        ReducedMvState state;
+        const bool has_tr = block_has_top_right(blk_x, blk_y);
+        add_reduced_single_ref_mv_candidate(state.stack, blk_x,     blk_y - 1, ref_frame, 4);
+        if (has_tr)
+            add_reduced_single_ref_mv_candidate(state.stack, blk_x + 1, blk_y - 1, ref_frame, 4);
+        add_reduced_single_ref_mv_candidate(state.stack, blk_x - 1, blk_y,     ref_frame, 4);
+
+        const size_t nearest_refmv_count = state.stack.size();
+        for (size_t i = 0; i < nearest_refmv_count; ++i)
+            state.stack[i].weight = static_cast<uint16_t>(state.stack[i].weight + AV1_REF_CAT_LEVEL);
+
+        add_reduced_single_ref_mv_candidate(state.stack, blk_x - 1, blk_y - 1, ref_frame, 4);
+        add_reduced_single_ref_mv_candidate(state.stack, blk_x,     blk_y - 2, ref_frame, 4);
+        add_reduced_single_ref_mv_candidate(state.stack, blk_x - 2, blk_y,     ref_frame, 4);
+        for (int dy = 3; dy <= 4; ++dy) {
+            add_reduced_single_ref_mv_candidate(state.stack, blk_x, blk_y - dy, ref_frame, 4);
+        }
+        for (int dx = 3; dx <= 4; ++dx) {
+            add_reduced_single_ref_mv_candidate(state.stack, blk_x - dx, blk_y, ref_frame, 4);
+        }
+
+        std::stable_sort(state.stack.begin(), state.stack.end(),
+                         [](const ReducedMvCandidate& a, const ReducedMvCandidate& b) {
+                             return a.weight > b.weight;
+                         });
+        return state;
+    }
+
+    static ReducedMvCandidate get_reduced_newmv_ref_mv(const ReducedMvState& state) {
+        if (!state.stack.empty()) return state.stack[0];
+        return {0, 0, 0};
+    }
+
+    static int get_drl_ctx_from_weights(const ReducedMvState& state, size_t ref_idx) {
+        if (ref_idx + 1 >= state.stack.size()) return 0;
+        const uint16_t w0 = state.stack[ref_idx].weight;
+        const uint16_t w1 = state.stack[ref_idx + 1].weight;
+        if (w0 >= AV1_REF_CAT_LEVEL && w1 >= AV1_REF_CAT_LEVEL) return 0;
+        if (w0 >= AV1_REF_CAT_LEVEL && w1 < AV1_REF_CAT_LEVEL) return 1;
+        return 2;
+    }
+
+    static int get_mv_joint_type(int row, int col) {
+        return (col != 0 ? 1 : 0) | (row != 0 ? 2 : 0);
+    }
+
+    static int mv_class_base(int mv_class) {
+        return mv_class ? (2 << (mv_class + 2)) : 0;
+    }
+
+    static int log_in_base_2(unsigned int n) {
+        int log = 0;
+        while (n > 1) {
+            n >>= 1;
+            ++log;
+        }
+        return log;
+    }
+
+    static int get_mv_class(int z, int* offset) {
+        const int mv_class = (z >= 2 * 4096) ? 10 : log_in_base_2(static_cast<unsigned>(z) >> 3);
+        if (offset) *offset = z - mv_class_base(mv_class);
+        return mv_class;
+    }
+
+    static void encode_mv_component(AV1RangeCoder& rc, int comp, bool use_subpel) {
+        const int sign = comp < 0;
+        const int mag = sign ? -comp : comp;
+        int offset = 0;
+        const int mv_class = get_mv_class(mag - 1, &offset);
+        const int d = offset >> 3;
+        const int fr = (offset >> 1) & 3;
+
+        rc.encode_symbol(sign, av1_mv_sign_cdf, 2);
+        rc.encode_symbol(mv_class, av1_mv_class_cdf, 11);
+        if (mv_class == 0) {
+            rc.encode_symbol(d, av1_mv_class0_cdf, 2);
+        } else {
+            const int n = mv_class;
+            for (int i = 0; i < n; ++i)
+                rc.encode_symbol((d >> i) & 1, av1_mv_bits_cdf[i], 2);
+        }
+        if (use_subpel)
+            rc.encode_symbol(fr, mv_class == 0 ? av1_mv_class0_fp_cdf[d] : av1_mv_fp_cdf, 4);
+    }
+
+    static void encode_mv(AV1RangeCoder& rc, int mv_row, int mv_col, int ref_row, int ref_col,
+                          bool force_integer_mv) {
+        const int diff_row = mv_row - ref_row;
+        const int diff_col = mv_col - ref_col;
+        const int joint = get_mv_joint_type(diff_row, diff_col);
+        assert(joint != 0);
+        rc.encode_symbol(joint, av1_mv_joint_cdf, 4);
+        if (joint == 2 || joint == 3) encode_mv_component(rc, diff_row, !force_integer_mv);
+        if (joint == 1 || joint == 3) encode_mv_component(rc, diff_col, !force_integer_mv);
     }
 
     void update_block_ctx(int mi_row, int mi_col, int mi_size, int skip, int mode, int dc_sign_code, bool is_inter,
-                          uint8_t ref_frame) {
+                          uint8_t ref_frame, uint8_t inter_mode, int16_t mvx, int16_t mvy) {
         for (int i = 0; i < mi_size && (mi_col + i) < mi_cols_; i++) {
             skip_above_[mi_col + i] = skip;
             mode_above_[mi_col + i] = mode;
@@ -855,6 +1163,9 @@ private:
             const int blk_idx = blk_y * blk_cols_ + blk_x;
             blk_inter_coded_[blk_idx] = is_inter ? 1 : 0;
             blk_ref0_[blk_idx] = is_inter ? ref_frame : REF_NONE;
+            blk_inter_mode_[blk_idx] = is_inter ? inter_mode : REDUCED_INTER_NONE;
+            blk_mv_x_[blk_idx] = is_inter ? mvx : 0;
+            blk_mv_y_[blk_idx] = is_inter ? mvy : 0;
         }
     }
 
@@ -901,7 +1212,8 @@ private:
         return eob;
     }
 
-    void encode_coeffs_txb(AV1RangeCoder& rc, const int16_t* qcoeff, int plane, int dc_sign_ctx = 0, bool debug = false) {
+    void encode_coeffs_txb(AV1RangeCoder& rc, const int16_t* qcoeff, int plane, int dc_sign_ctx = 0,
+                           bool debug = false, bool inter_block = false, int intra_mode = 0) {
         int eob = compute_eob(qcoeff);
 
         // txb_skip: 0 = has coefficients, 1 = all zero
@@ -912,10 +1224,18 @@ private:
         if (eob == 0) return;
 
         // TX type (luma only, qindex > 0)
-        // DCT_DCT maps to symbol 1 in ext_tx_ind[EXT_TX_SET_DTT4_IDTX_1DDCT]
         if (plane == 0) {
-            if (debug) fprintf(stderr, "[COEFF] tx_type symbol=1 nsyms=7\n");
-            rc.encode_symbol(1, av1_intra_tx_type_cdf_8x8_dc, 7, debug);
+            if (inter_block) {
+                // For 8x8 inter blocks with reduced_tx_set=0, libaom uses
+                // EXT_TX_SET_ALL16 / eset=1 and DCT_DCT maps to symbol 7.
+                if (debug) fprintf(stderr, "[COEFF] inter tx_type symbol=7 nsyms=16\n");
+                rc.encode_symbol(7, av1_inter_tx_type_cdf_8x8_all16, 16, debug);
+            } else {
+                const int intra_tx_mode = (intra_mode >= 0 && intra_mode < 13) ? intra_mode : 0;
+                // DCT_DCT maps to symbol 1 in EXT_TX_SET_DTT4_IDTX_1DDCT.
+                if (debug) fprintf(stderr, "[COEFF] intra tx_type symbol=1 nsyms=7\n");
+                rc.encode_symbol(1, av1_intra_tx_type_cdf_8x8[intra_tx_mode], 7, debug);
+            }
         }
 
         // EOB encoding
@@ -977,7 +1297,7 @@ private:
                 int sym = std::min(level, 3);
                 int ctx = coeff_ctx < 42 ? coeff_ctx : 41;
                 if (debug) fprintf(stderr, "[COEFF] base c=%d pos=%d level=%d sym=%d ctx=%d\n", c, pos, level, sym, ctx);
-                rc.encode_symbol(sym, av1_coeff_base_cdf[ctx], 4);
+                rc.encode_symbol(sym, av1_coeff_base_cdf[ctx], 4, debug);
             }
 
             // Bypass range (level > 2)
@@ -987,7 +1307,8 @@ private:
                 if (debug) fprintf(stderr, "[COEFF] br level=%d base_range=%d br_ctx=%d\n", level, base_range, br_ctx);
                 for (int idx = 0; idx < 12; idx += 3) {
                     int k = std::min(base_range - idx, 3);
-                    rc.encode_symbol(k, av1_coeff_br_cdf[br_ctx < 21 ? br_ctx : 20], 4);
+                    if (debug) fprintf(stderr, "[COEFF] br_sym=%d idx=%d ctx=%d\n", k, idx, br_ctx < 21 ? br_ctx : 20);
+                    rc.encode_symbol(k, av1_coeff_br_cdf[br_ctx < 21 ? br_ctx : 20], 4, debug);
                     if (k < 3) break;
                 }
             }
@@ -1005,7 +1326,12 @@ private:
                     rc.encode_symbol(sign, av1_dc_sign_cdf[plane][dc_sign_ctx], 2, debug);
                 } else {
                     if (debug) fprintf(stderr, "[COEFF] ac_sign=%d c=%d\n", sign, c);
+                    if (debug) fprintf(stderr, "  [RC] bit=%d prob_q15=16384 rng=%u low=%llu\n",
+                                       sign, rc.rng_state(), (unsigned long long)rc.low_state());
                     rc.encode_bit(sign);
+                    if (debug) fprintf(stderr, "  [RC] -> rng=%u low=%llu cnt=%d buf_sz=%zu\n",
+                                       rc.rng_state(), (unsigned long long)rc.low_state(),
+                                       rc.cnt_state(), rc.buf_size());
                 }
                 // Golomb for very large values (level > 14)
                 if (level > 14) {
@@ -1087,8 +1413,10 @@ private:
             bw.write_bit(0); // enable_warped_motion = 0
             bw.write_bit(0); // enable_dual_filter = 0
             bw.write_bit(0); // enable_order_hint = 0
-            bw.write_bit(0); // seq_choose_screen_content_tools = 0
-            bw.write_bit(0); // seq_force_screen_content_tools = 0
+            // Keep video frames on explicit integer motion vectors. This
+            // matches the current RTL ME/prediction subset.
+            bw.write_bit(1); // seq_choose_screen_content_tools = 1
+            bw.write_bit(1); // seq_choose_integer_mv = 1
         }
         bw.write_bit(0); // enable_superres = 0
         bw.write_bit(0); // enable_cdef = 0
@@ -1141,6 +1469,7 @@ private:
         hdr_bw.write_bits(0, 2);  // frame_type = KEY_FRAME
         hdr_bw.write_bit(1);      // show_frame = 1
         hdr_bw.write_bit(1);      // disable_cdf_update = 1
+        hdr_bw.write_bit(0);      // allow_screen_content_tools = 0
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
         write_tile_info(hdr_bw);
@@ -1166,6 +1495,7 @@ private:
         hdr_bw.write_bit(1);      // show_frame = 1
         hdr_bw.write_bit(0);      // error_resilient_mode = 0
         hdr_bw.write_bit(1);      // disable_cdf_update = 1
+        hdr_bw.write_bit(0);      // allow_screen_content_tools = 0
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         // Keep the mixed-sequence bootstrap conformant by refreshing only the
         // LAST slot. The inter-frame header maps all single-ref indices back
@@ -1194,12 +1524,13 @@ private:
         hdr_bw.write_bit(1);      // show_frame = 1
         hdr_bw.write_bit(1);      // error_resilient_mode = 1
         hdr_bw.write_bit(1);      // disable_cdf_update = 1
+        hdr_bw.write_bit(1);      // allow_screen_content_tools = 1
+        hdr_bw.write_bit(1);      // force_integer_mv = 1
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         hdr_bw.write_bits(0x01, 8); // refresh LAST slot only
         for (int ref = 0; ref < 7; ++ref)
             hdr_bw.write_bits(0, 3); // Map every ref type to the valid LAST slot
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
-        hdr_bw.write_bit(0);      // allow_high_precision_mv = 0
         hdr_bw.write_bit(0);      // interpolation_filter == SWITCHABLE = 0
         hdr_bw.write_bits(0, 2);  // interpolation_filter = regular
         hdr_bw.write_bit(0);      // is_motion_mode_switchable = 0
@@ -1432,18 +1763,70 @@ private:
         }
         bool is_inter_block = video_inter_frame && blk_idx >= 0 && blk_idx < (int)blocks_.size() && blocks_[blk_idx].is_inter;
         uint8_t ref_frame = REF_NONE;
+        uint8_t inter_mode = REDUCED_INTER_NONE;
+        int16_t block_mvx = 0;
+        int16_t block_mvy = 0;
+        if (is_inter_block) {
+            block_mvx = blocks_[blk_idx].mvx;
+            block_mvy = blocks_[blk_idx].mvy;
+        }
 
         if (video_inter_frame) {
             const int intra_inter_ctx = get_intra_inter_ctx(mi_row, mi_col);
+            if (coeff_debug_mode_) {
+                fprintf(stderr, "[INTER] blk=%d mi=(%d,%d) intra_inter_ctx=%d is_inter=%d skip=%d\n",
+                        blk_idx, mi_row, mi_col, intra_inter_ctx, is_inter_block ? 1 : 0, skip);
+            }
             rc.encode_symbol(is_inter_block ? 1 : 0, av1_intra_inter_cdf[intra_inter_ctx], 2);
 
             if (is_inter_block) {
                 ref_frame = REF_LAST;
                 encode_last_frame_ref(rc, mi_row, mi_col);
 
-                const int newmv_ctx = get_zero_mv_newmv_ctx(blk_x, blk_y, ref_frame);
-                rc.encode_symbol(1, av1_newmv_cdf[newmv_ctx], 2); // mode != NEWMV
-                rc.encode_symbol(0, av1_zeromv_cdf[0], 2);        // mode == GLOBALMV
+                const int mode_ctx = get_reduced_single_ref_mode_ctx(blk_x, blk_y, ref_frame);
+                const int newmv_ctx = mode_ctx & AV1_NEWMV_CTX_MASK;
+                const int zeromv_ctx =
+                    (mode_ctx >> AV1_GLOBALMV_OFFSET) & AV1_GLOBALMV_CTX_MASK;
+                const int refmv_ctx =
+                    (mode_ctx >> AV1_REFMV_OFFSET) & AV1_REFMV_CTX_MASK;
+                const ReducedMvState mv_state = collect_reduced_single_ref_mv_state(blk_x, blk_y, ref_frame);
+                const ReducedMvCandidate ref_mv = get_reduced_newmv_ref_mv(mv_state);
+                const int ref_mvx = ref_mv.col / 8;
+                const int ref_mvy = ref_mv.row / 8;
+                if (coeff_debug_mode_) {
+                    fprintf(stderr,
+                            "[INTER] blk=%d ref=%u mv=(%d,%d) ref_mv=(%d,%d) mode_ctx=%d newmv_ctx=%d zeromv_ctx=%d refmv_ctx=%d\n",
+                            blk_idx, ref_frame, block_mvx, block_mvy, ref_mvx, ref_mvy,
+                            mode_ctx, newmv_ctx, zeromv_ctx, refmv_ctx);
+                    fprintf(stderr, "[INTER] blk=%d stack_sz=%zu", blk_idx, mv_state.stack.size());
+                    for (size_t si = 0; si < mv_state.stack.size() && si < 6; ++si) {
+                        fprintf(stderr, " cand%zu=(%d,%d,w=%u)",
+                                si,
+                                mv_state.stack[si].col / 8,
+                                mv_state.stack[si].row / 8,
+                                mv_state.stack[si].weight);
+                    }
+                    fprintf(stderr, "\n");
+                }
+                if (block_mvx == 0 && block_mvy == 0) {
+                    inter_mode = REDUCED_INTER_GLOBALMV;
+                    rc.encode_symbol(1, av1_newmv_cdf[newmv_ctx], 2); // mode != NEWMV
+                    rc.encode_symbol(0, av1_zeromv_cdf[zeromv_ctx], 2); // mode == GLOBALMV
+                } else if (block_mvx == ref_mvx && block_mvy == ref_mvy) {
+                    inter_mode = REDUCED_INTER_NEARESTMV;
+                    rc.encode_symbol(1, av1_newmv_cdf[newmv_ctx], 2); // mode != NEWMV
+                    rc.encode_symbol(1, av1_zeromv_cdf[zeromv_ctx], 2); // mode != GLOBALMV
+                    rc.encode_symbol(0, av1_refmv_cdf[refmv_ctx], 2); // mode == NEARESTMV
+                } else {
+                    inter_mode = REDUCED_INTER_NEWMV;
+                    rc.encode_symbol(0, av1_newmv_cdf[newmv_ctx], 2); // mode == NEWMV
+                    if (mv_state.stack.size() > 1) {
+                        const int drl_ctx = get_drl_ctx_from_weights(mv_state, 0);
+                        rc.encode_symbol(0, av1_drl_cdf[drl_ctx], 2); // keep ref_mv_idx = 0
+                    }
+                    encode_mv(rc, static_cast<int>(block_mvy) * 8, static_cast<int>(block_mvx) * 8,
+                              ref_mv.row, ref_mv.col, /*force_integer_mv=*/true);
+                }
             } else {
                 rc.encode_symbol(y_mode, av1_if_y_mode_cdf[1], 13);
                 if (bsize_log2 >= 3 && is_directional_mode(y_mode))
@@ -1478,7 +1861,7 @@ private:
             bool debug = coeff_debug_mode_ && has_coeff;
             if (debug) fprintf(stderr, "[BLK] skip=0 blk_idx=%d mi_row=%d mi_col=%d\n", blk_idx, mi_row, mi_col);
             // Luma 8x8 TX block
-            encode_coeffs_txb(rc, enc_qcoeff, 0, dc_sign_ctx, debug);
+            encode_coeffs_txb(rc, enc_qcoeff, 0, dc_sign_ctx, debug, is_inter_block, y_mode);
 
             // Chroma Cb/Cr 4x4 — all zero
             // Chroma TX_4X4: txs_ctx=0, use TX_4X4 CDF, ctx 0
@@ -1486,7 +1869,8 @@ private:
             rc.encode_symbol(1, av1_txb_skip_cdf_4x4[7], 2);  // Cr all zero
         }
 
-        update_block_ctx(mi_row, mi_col, mi_size, skip, y_mode, dc_sign_code, is_inter_block, ref_frame);
+        update_block_ctx(mi_row, mi_col, mi_size, skip, y_mode, dc_sign_code, is_inter_block, ref_frame,
+                         inter_mode, block_mvx, block_mvy);
     }
 
     // ============================================================

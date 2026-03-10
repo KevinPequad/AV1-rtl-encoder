@@ -61,6 +61,20 @@ int main(int argc, char** argv) {
     int all_key = 1;
     int dump_blocks = 0;
     int force_intra = 0;
+    int zero_inter_coeffs = 0;
+    int limit_newmv_blocks = -1;
+    int limit_inter_blocks = -1;
+    int override_first_newmvx = 0;
+    int override_first_newmvy = 0;
+    int override_first_newmv = 0;
+    int only_full_coeff_block = -1;
+    int max_coeff_block = -1;
+    int force_first_ac_positive = 0;
+    int force_first_ac_to_scan1 = 0;
+    int coeff_debug = 0;
+    int max_scan_coeffs = -1;
+    int trace_block = -1;
+    int dump_inter_summary = 0;
     std::string input_file = "data/raw_frames.yuv";
     std::string output_file = "output/encoded.obu";
     uint64_t timeout_cycles = 500000000;
@@ -76,6 +90,32 @@ int main(int argc, char** argv) {
         else if (arg.rfind("+all_key=", 0) == 0) all_key = std::atoi(arg.c_str() + 9);
         else if (arg.rfind("+dump_blocks=", 0) == 0) dump_blocks = std::atoi(arg.c_str() + 13);
         else if (arg.rfind("+force_intra=", 0) == 0) force_intra = std::atoi(arg.c_str() + 13);
+        else if (arg.rfind("+zero_inter_coeffs=", 0) == 0) zero_inter_coeffs = std::atoi(arg.c_str() + 19);
+        else if (arg.rfind("+limit_newmv_blocks=", 0) == 0) limit_newmv_blocks = std::atoi(arg.c_str() + 20);
+        else if (arg.rfind("+limit_inter_blocks=", 0) == 0) limit_inter_blocks = std::atoi(arg.c_str() + 20);
+        else if (arg.rfind("+override_first_newmvx=", 0) == 0) {
+            override_first_newmvx = std::atoi(arg.c_str() + 23);
+            override_first_newmv = 1;
+        } else if (arg.rfind("+override_first_newmvy=", 0) == 0) {
+            override_first_newmvy = std::atoi(arg.c_str() + 23);
+            override_first_newmv = 1;
+        } else if (arg.rfind("+only_full_coeff_block=", 0) == 0) {
+            only_full_coeff_block = std::atoi(arg.c_str() + 23);
+        } else if (arg.rfind("+max_coeff_block=", 0) == 0) {
+            max_coeff_block = std::atoi(arg.c_str() + 17);
+        } else if (arg.rfind("+force_first_ac_positive=", 0) == 0) {
+            force_first_ac_positive = std::atoi(arg.c_str() + 25);
+        } else if (arg.rfind("+force_first_ac_to_scan1=", 0) == 0) {
+            force_first_ac_to_scan1 = std::atoi(arg.c_str() + 25);
+        } else if (arg.rfind("+coeff_debug=", 0) == 0) {
+            coeff_debug = std::atoi(arg.c_str() + 13);
+        } else if (arg.rfind("+max_scan_coeffs=", 0) == 0) {
+            max_scan_coeffs = std::atoi(arg.c_str() + 17);
+        } else if (arg.rfind("+trace_block=", 0) == 0) {
+            trace_block = std::atoi(arg.c_str() + 13);
+        } else if (arg.rfind("+dump_inter_summary=", 0) == 0) {
+            dump_inter_summary = std::atoi(arg.c_str() + 20);
+        }
     }
 
     namespace fs = std::filesystem;
@@ -113,11 +153,16 @@ int main(int argc, char** argv) {
             num_frames, FRAME_WIDTH, FRAME_HEIGHT, qindex,
             dc_only ? "DC-only" : "Full", all_key ? "all-key" : "IP");
     fprintf(stderr, "==========================================================\n");
+    if (override_first_newmv) {
+        fprintf(stderr, "[TB] Writer override first NEWMV -> (%d,%d)\n",
+                override_first_newmvx, override_first_newmvy);
+    }
 
     Vav1_encoder_top* dut = new Vav1_encoder_top;
     dut->clk = 0; dut->rst_n = 0; dut->start = 0;
     dut->frame_num_in = 0; dut->is_keyframe_in = 0;
     dut->force_intra_in = force_intra ? 1 : 0;
+    dut->dc_only_in = dc_only ? 1 : 0;
     dut->qindex_in = qindex;
     dut->ref_mem_rd_data = 128;
     dut->chr_cb_ref_rd_data = 128;
@@ -131,7 +176,10 @@ int main(int argc, char** argv) {
     std::vector<EncodedTemporalUnit> temporal_units;
 
     // FSM state constants (must match av1_encoder_top.v)
+    constexpr int TS_PREDICT = 11;
+    constexpr int TS_WAIT_PRED = 12;
     constexpr int TS_REF_WR = 20;
+    constexpr int TS_CHR_FETCH = 21;
 
     // Reset
     for (int i = 0; i < 20; i++) {
@@ -148,6 +196,7 @@ int main(int argc, char** argv) {
             dut->frame_num_in = all_key ? 0 : ((frame_idx % idr_interval) & 0xF);
             dut->is_keyframe_in = is_key ? 1 : 0;
             dut->force_intra_in = force_intra ? 1 : 0;
+            dut->dc_only_in = dc_only ? 1 : 0;
             dut->qindex_in = qindex;
             current_frame_is_key = is_key;
             frame_active = true;
@@ -193,8 +242,9 @@ int main(int argc, char** argv) {
         dut->eval();
         if (dut->start) dut->start = 0;
 
-        // Capture quantized coefficients when block enters TS_REF_WR
-        // (at this point, all 64 coefficients have been quantized)
+        // Capture block metadata once the luma writeback phase is complete.
+        // Capturing on entry to TS_REF_WR was too early for some AC terms,
+        // which caused the software writer to serialize stale coefficients.
         {
             auto* root = dut->rootp;
             int state = root->av1_encoder_top__DOT__top_state;
@@ -202,7 +252,7 @@ int main(int argc, char** argv) {
             int by = root->av1_encoder_top__DOT__blk_y;
             int blk_idx = by * BLK_COLS + bx;
 
-            if (state == TS_REF_WR && blk_idx != last_captured_blk) {
+            if (state == TS_CHR_FETCH && blk_idx != last_captured_blk) {
                 last_captured_blk = blk_idx;
                 if (blk_idx < (int)frame_blocks.size()) {
                     auto& bi = frame_blocks[blk_idx];
@@ -213,6 +263,43 @@ int main(int argc, char** argv) {
                     bi.is_inter = root->av1_encoder_top__DOT__use_inter;
                     bi.mvx = sign_extend_9(root->av1_encoder_top__DOT__me_mvx);
                     bi.mvy = sign_extend_9(root->av1_encoder_top__DOT__me_mvy);
+                }
+            }
+
+            if (trace_block >= 0 && blk_idx == trace_block &&
+                (state == TS_PREDICT || state == TS_WAIT_PRED || state == TS_REF_WR)) {
+                fprintf(stderr,
+                        "[TRACE] blk=%d state=%d mode=%u use_inter=%d top_left=%u has_top=%d has_left=%d\n",
+                        blk_idx, state, root->av1_encoder_top__DOT__best_intra_mode,
+                        root->av1_encoder_top__DOT__use_inter ? 1 : 0,
+                        root->av1_encoder_top__DOT__top_left_pixel,
+                        root->av1_encoder_top__DOT__has_top ? 1 : 0,
+                        root->av1_encoder_top__DOT__has_left ? 1 : 0);
+                fprintf(stderr, "[TRACE] top=");
+                for (int i = 0; i < 8; ++i)
+                    fprintf(stderr, "%s%u", i ? "," : "", root->av1_encoder_top__DOT__top_pixels[i]);
+                fprintf(stderr, "\n");
+                fprintf(stderr, "[TRACE] left=");
+                for (int i = 0; i < 8; ++i)
+                    fprintf(stderr, "%s%u", i ? "," : "", root->av1_encoder_top__DOT__left_pixels[i]);
+                fprintf(stderr, "\n");
+                fprintf(stderr, "[TRACE] pred=");
+                for (int i = 0; i < 64; ++i)
+                    fprintf(stderr, "%s%u", i ? "," : "", root->av1_encoder_top__DOT__pred_blk[i]);
+                fprintf(stderr, "\n");
+                if (state == TS_REF_WR) {
+                    fprintf(stderr, "[TRACE] qcoeff=");
+                    for (int i = 0; i < 64; ++i)
+                        fprintf(stderr, "%s%d", i ? "," : "", (int16_t)root->av1_encoder_top__DOT__qcoeff[i]);
+                    fprintf(stderr, "\n");
+                    fprintf(stderr, "[TRACE] residual=");
+                    for (int i = 0; i < 64; ++i)
+                        fprintf(stderr, "%s%d", i ? "," : "", (int16_t)root->av1_encoder_top__DOT__residual[i]);
+                    fprintf(stderr, "\n");
+                    fprintf(stderr, "[TRACE] recon=");
+                    for (int i = 0; i < 64; ++i)
+                        fprintf(stderr, "%s%u", i ? "," : "", root->av1_encoder_top__DOT__recon_blk[i]);
+                    fprintf(stderr, "\n");
                 }
             }
         }
@@ -251,14 +338,85 @@ int main(int argc, char** argv) {
             {
                 AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
                 writer.set_dc_only_mode(dc_only != 0);
+                writer.set_coeff_debug_mode(coeff_debug != 0);
                 if (!all_key) {
                     writer.set_still_picture_mode(false);
                     writer.set_include_sequence_header(true);
                     writer.set_force_video_intra_only(frame_idx == 0);
                     writer.set_keyframe(current_frame_is_key);
                 }
-                for (auto& bi : frame_blocks)
+                int kept_newmv_blocks = 0;
+                int kept_inter_blocks = 0;
+                bool first_newmv_overridden = false;
+                bool first_ac_forced_positive = false;
+                bool first_ac_moved_to_scan1 = false;
+                int writer_block_idx = 0;
+                for (auto bi : frame_blocks) {
+                    if (limit_inter_blocks >= 0 && bi.is_inter) {
+                        if (kept_inter_blocks >= limit_inter_blocks) {
+                            bi.is_inter = false;
+                            bi.mvx = 0;
+                            bi.mvy = 0;
+                        } else {
+                            ++kept_inter_blocks;
+                        }
+                    }
+                    if (limit_newmv_blocks >= 0 && bi.is_inter && (bi.mvx != 0 || bi.mvy != 0)) {
+                        if (kept_newmv_blocks >= limit_newmv_blocks) {
+                            bi.mvx = 0;
+                            bi.mvy = 0;
+                        } else {
+                            ++kept_newmv_blocks;
+                        }
+                    }
+                    if (override_first_newmv && bi.is_inter && !first_newmv_overridden &&
+                        (bi.mvx != 0 || bi.mvy != 0)) {
+                        bi.mvx = override_first_newmvx;
+                        bi.mvy = override_first_newmvy;
+                        fprintf(stderr, "[TB] Override standalone first NEWMV -> (%d,%d)\n",
+                                bi.mvx, bi.mvy);
+                        first_newmv_overridden = true;
+                    }
+                    if (zero_inter_coeffs && bi.is_inter) {
+                        std::memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
+                    }
+                    if (only_full_coeff_block >= 0 && writer_block_idx != only_full_coeff_block) {
+                        std::memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
+                    }
+                    if (max_coeff_block >= 0 && writer_block_idx > max_coeff_block) {
+                        std::memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
+                    }
+                    if (max_scan_coeffs >= 0 && max_scan_coeffs < 64) {
+                        for (int scan_idx = max_scan_coeffs; scan_idx < 64; ++scan_idx)
+                            bi.qcoeff[default_scan_8x8[scan_idx]] = 0;
+                    }
+                    if (force_first_ac_positive && !first_ac_forced_positive) {
+                        for (int scan_idx = 1; scan_idx < 64; ++scan_idx) {
+                            const int coeff_idx = default_scan_8x8[scan_idx];
+                            if (bi.qcoeff[coeff_idx] != 0) {
+                                if (bi.qcoeff[coeff_idx] < 0)
+                                    bi.qcoeff[coeff_idx] = static_cast<int16_t>(-bi.qcoeff[coeff_idx]);
+                                first_ac_forced_positive = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (force_first_ac_to_scan1 && !first_ac_moved_to_scan1) {
+                        for (int scan_idx = 1; scan_idx < 64; ++scan_idx) {
+                            const int coeff_idx = default_scan_8x8[scan_idx];
+                            if (bi.qcoeff[coeff_idx] != 0) {
+                                if (coeff_idx != default_scan_8x8[1]) {
+                                    bi.qcoeff[default_scan_8x8[1]] = bi.qcoeff[coeff_idx];
+                                    bi.qcoeff[coeff_idx] = 0;
+                                }
+                                first_ac_moved_to_scan1 = true;
+                                break;
+                            }
+                        }
+                    }
                     writer.add_block(bi);
+                    ++writer_block_idx;
+                }
                 auto ivf_data = writer.write_ivf_frame();
 
                 char frame_name[32];
@@ -274,35 +432,86 @@ int main(int argc, char** argv) {
             }
 
             {
-                bool frame_has_inter = false;
-                bool frame_has_nonzero_inter = false;
-                for (const auto& bi : frame_blocks) {
-                    if (bi.is_inter) {
-                        frame_has_inter = true;
-                        if (bi.mvx != 0 || bi.mvy != 0) {
-                            frame_has_nonzero_inter = true;
-                            break;
-                        }
-                    }
-                }
-
                 AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
                 writer.set_dc_only_mode(dc_only != 0);
-                if (!current_frame_is_key && frame_has_nonzero_inter) {
-                    fprintf(stderr,
-                            "[TB] Frame %d uses non-zero MVs; skipping sequence temporal-unit write until NEWMV support is implemented.\n",
-                            frame_idx);
-                } else {
-                    if (!all_key) {
-                        writer.set_still_picture_mode(false);
-                        writer.set_include_sequence_header(frame_idx == 0);
-                        writer.set_force_video_intra_only(frame_idx == 0);
-                        writer.set_keyframe(current_frame_is_key);
+                writer.set_coeff_debug_mode(coeff_debug != 0);
+                writer.set_still_picture_mode(false);
+                writer.set_include_sequence_header(frame_idx == 0);
+                writer.set_force_video_intra_only(!all_key && frame_idx == 0);
+                writer.set_keyframe(current_frame_is_key);
+                int kept_newmv_blocks = 0;
+                int kept_inter_blocks = 0;
+                bool first_newmv_overridden = false;
+                bool first_ac_forced_positive = false;
+                bool first_ac_moved_to_scan1 = false;
+                int writer_block_idx = 0;
+                for (auto bi : frame_blocks) {
+                    if (limit_inter_blocks >= 0 && bi.is_inter) {
+                        if (kept_inter_blocks >= limit_inter_blocks) {
+                            bi.is_inter = false;
+                            bi.mvx = 0;
+                            bi.mvy = 0;
+                        } else {
+                            ++kept_inter_blocks;
+                        }
                     }
-                    for (auto bi : frame_blocks)
-                        writer.add_block(bi);
-                    temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key, writer.write_temporal_unit()});
+                    if (limit_newmv_blocks >= 0 && bi.is_inter && (bi.mvx != 0 || bi.mvy != 0)) {
+                        if (kept_newmv_blocks >= limit_newmv_blocks) {
+                            bi.mvx = 0;
+                            bi.mvy = 0;
+                        } else {
+                            ++kept_newmv_blocks;
+                        }
+                    }
+                    if (override_first_newmv && bi.is_inter && !first_newmv_overridden &&
+                        (bi.mvx != 0 || bi.mvy != 0)) {
+                        bi.mvx = override_first_newmvx;
+                        bi.mvy = override_first_newmvy;
+                        fprintf(stderr, "[TB] Override sequence first NEWMV -> (%d,%d)\n",
+                                bi.mvx, bi.mvy);
+                        first_newmv_overridden = true;
+                    }
+                    if (zero_inter_coeffs && bi.is_inter) {
+                        std::memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
+                    }
+                    if (only_full_coeff_block >= 0 && writer_block_idx != only_full_coeff_block) {
+                        std::memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
+                    }
+                    if (max_coeff_block >= 0 && writer_block_idx > max_coeff_block) {
+                        std::memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
+                    }
+                    if (max_scan_coeffs >= 0 && max_scan_coeffs < 64) {
+                        for (int scan_idx = max_scan_coeffs; scan_idx < 64; ++scan_idx)
+                            bi.qcoeff[default_scan_8x8[scan_idx]] = 0;
+                    }
+                    if (force_first_ac_positive && !first_ac_forced_positive) {
+                        for (int scan_idx = 1; scan_idx < 64; ++scan_idx) {
+                            const int coeff_idx = default_scan_8x8[scan_idx];
+                            if (bi.qcoeff[coeff_idx] != 0) {
+                                if (bi.qcoeff[coeff_idx] < 0)
+                                    bi.qcoeff[coeff_idx] = static_cast<int16_t>(-bi.qcoeff[coeff_idx]);
+                                first_ac_forced_positive = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (force_first_ac_to_scan1 && !first_ac_moved_to_scan1) {
+                        for (int scan_idx = 1; scan_idx < 64; ++scan_idx) {
+                            const int coeff_idx = default_scan_8x8[scan_idx];
+                            if (bi.qcoeff[coeff_idx] != 0) {
+                                if (coeff_idx != default_scan_8x8[1]) {
+                                    bi.qcoeff[default_scan_8x8[1]] = bi.qcoeff[coeff_idx];
+                                    bi.qcoeff[coeff_idx] = 0;
+                                }
+                                first_ac_moved_to_scan1 = true;
+                                break;
+                            }
+                        }
+                    }
+                    writer.add_block(bi);
+                    ++writer_block_idx;
                 }
+                temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key, writer.write_temporal_unit()});
             }
 
             if (dump_blocks) {
@@ -324,6 +533,29 @@ int main(int argc, char** argv) {
                     }
                     fprintf(stderr, "\n");
                 }
+            }
+
+            if (dump_inter_summary) {
+                int inter_count = 0;
+                int nonzero_inter_count = 0;
+                int first_inter_idx = -1;
+                for (size_t bi_idx = 0; bi_idx < frame_blocks.size(); ++bi_idx) {
+                    const auto& bi = frame_blocks[bi_idx];
+                    if (!bi.is_inter) continue;
+                    int nonzero = 0;
+                    for (int i = 0; i < 64; ++i) {
+                        if (bi.qcoeff[i] != 0) ++nonzero;
+                    }
+                    if (first_inter_idx < 0) first_inter_idx = static_cast<int>(bi_idx);
+                    ++inter_count;
+                    if (nonzero) ++nonzero_inter_count;
+                    fprintf(stderr,
+                            "[TB] inter_summary frame=%d blk=%zu mv=(%d,%d) mode=%u dc=%d nz=%d\n",
+                            frame_idx, bi_idx, bi.mvx, bi.mvy, bi.pred_mode, bi.qcoeff[0], nonzero);
+                }
+                fprintf(stderr,
+                        "[TB] inter_summary frame=%d total_inter=%d nonzero_inter=%d first_inter_blk=%d\n",
+                        frame_idx, inter_count, nonzero_inter_count, first_inter_idx);
             }
 
             // Dump encoder reconstruction as YUV
