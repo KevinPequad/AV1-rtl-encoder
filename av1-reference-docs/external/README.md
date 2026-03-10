@@ -129,6 +129,18 @@ syntax or verification blocker.
     - zero `coeff_base` at scan `c=1`, `pos=8`, context `1`
     - DC sign with the normal neighbor-derived context
     - AC sign for the EOB coefficient at flat index `1`
+  - the first dense low-order subset on that same probe is now also on the RTL
+    raw path for the reduced case with nonzeros at flat indices `0`, `8`, `1`,
+    and `10`
+  - the reference-backed reduced symbol sequence for that denser subset is:
+    - `eob_multi64` symbol `4` (`eob=9`)
+    - one context-2 `eob_extra` symbol with value `0`
+    - two trailing direct `0` bits for the remaining `eob_extra` payload
+    - `coeff_base_eob` at scan `c=8`, `pos=10`, context `1`
+    - zero `coeff_base` symbols at scan `c=7..3` with contexts `6,6,6,7,7`
+    - `coeff_base` at scan `c=2`, `pos=1`, context `2`, symbol `2`
+    - `coeff_base` at scan `c=1`, `pos=8`, context `2`, symbol `1`
+    - DC sign plus AC signs for scan positions `1`, `2`, and `8`
 - The current ME core fix is local, not spec-derived, but was guided by the
   surrounding reference behavior:
   - candidate SAD must include the final sample before best-match update
@@ -145,6 +157,6 @@ syntax or verification blocker.
     the exhaustive ME block remains expensive at `64x64` and above
   - move more final syntax ownership out of `tb/av1_bitstream_writer.h` and
     into the RTL bitstream path without regressing decoder cleanliness
-  - extend the current reduced non-DC ownership subset into denser low-order AC
-    blocks and larger-magnitude coefficient tails using the same reference
+  - extend the current reduced non-DC ownership subset into larger-magnitude
+    coefficient tails and less constrained dense blocks using the same reference
     traces before touching broader tile grammar
