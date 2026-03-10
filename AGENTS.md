@@ -98,6 +98,9 @@
   - `tb/av1_bitstream_writer.h` uses the official libaom `default_scan_8x8`
   - `rtl/av1_encoder_top.v` transposes the dequantized 8x8 coefficient matrix into decoder-consistent orientation before inverse transform
   - `rtl/av1_intra_pred.v` now matches the reference left-only / top-only edge fill rules for non-directional intra modes
+- The focused ownership checkpoint now has a direct RTL-byte capture path in the testbench:
+  - `tb/tb_av1_encoder.cpp` records `bs_byte_valid`, `ec_byte_valid`, and explicit `manual_bs_wr` back-patches directly from the RTL top-level mux when building `*_rtl_raw.obu` / `*_rtl.ivf`
+  - on the current `16x16` ownership probe, those RTL-owned artifacts now match the software-owned payload byte-for-byte and decode cleanly in ffmpeg/libdav1d once wrapped in IVF
 - The video-keyframe debug path is also back in sync on that same exact-match probe:
   - `tb/av1_bitstream_writer.h` now emits the missing non-still `refresh_frame_context` bit before `tile_info`
   - the current sequence header still advertises `enable_intra_edge_filter = 0`, so the directional predictor must not apply directional edge upsampling on the RTL reconstruction path until that syntax bit is owned and enabled
@@ -111,6 +114,10 @@
   - do not spend more time on the old `qindex=224` blocker unless it reappears after a real code change
   - use a broader natural-content `16x16` crop from `data/raw_frames.yuv` to expose the next larger-magnitude tail (`coeff_br`) or less constrained dense pattern, because the synthetic AC probe is now exact across the tested `qindex` range
   - then continue pulling partition, remaining intra/inter frame-type and mode symbols, and motion syntax onto the same RTL-owned path
+- The immediate correctness target after the direct RTL-byte capture milestone is restoring exact decoded-vs-`recon.yuv` parity on that ownership probe:
+  - the raw RTL payload bytes are now aligned with the software-owned payload
+  - the remaining mismatch is decode-vs-reconstruction on luma only (`227` differing `Y` bytes, max delta `12`, `U/V` exact)
+  - treat that luma-only drift as the next blocker to isolate before expanding scope again
 - Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
 
 ## Stop Conditions

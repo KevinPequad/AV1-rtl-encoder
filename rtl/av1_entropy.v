@@ -41,7 +41,16 @@ module av1_entropy #(
     // Output byte stream
     output reg         byte_valid,
     output reg  [7:0]  byte_out,
-    output reg  [23:0] bytes_written
+    output reg  [23:0] bytes_written,
+
+    // Debug: operation accepted by the entropy core this cycle
+    output reg         dbg_accept_valid,
+    output reg  [1:0]  dbg_accept_kind,
+    output reg  [4:0]  dbg_accept_symbol,
+    output reg  [4:0]  dbg_accept_nsyms,
+    output reg         dbg_accept_bool_val,
+    output reg  [14:0] dbg_accept_bool_prob,
+    output reg  [255:0] dbg_accept_icdf_flat
 );
 
     localparam [2:0] S_IDLE   = 3'd0;
@@ -72,7 +81,6 @@ module av1_entropy #(
     reg [63:0] fin_n_reg;
     integer    fin_c_reg;
     integer    fin_s_reg;
-
     function integer ilog_nz;
         input [15:0] val;
         integer tmp;
@@ -268,9 +276,17 @@ module av1_entropy #(
             fin_n_reg     = 64'd0;
             fin_c_reg     = 0;
             fin_s_reg     = 0;
+            dbg_accept_valid = 1'b0;
+            dbg_accept_kind = 2'd0;
+            dbg_accept_symbol = 5'd0;
+            dbg_accept_nsyms = 5'd0;
+            dbg_accept_bool_val = 1'b0;
+            dbg_accept_bool_prob = 15'd0;
+            dbg_accept_icdf_flat = 256'd0;
         end else begin
             done       = 1'b0;
             byte_valid = 1'b0;
+            dbg_accept_valid = 1'b0;
 
             case (state)
                 S_IDLE: begin
@@ -286,9 +302,19 @@ module av1_entropy #(
                         bytes_written = 24'd0;
                         done          = 1'b1;
                     end else if (encode_bool) begin
+                        dbg_accept_valid = 1'b1;
+                        dbg_accept_kind = 2'd1;
+                        dbg_accept_bool_val = bool_val;
+                        dbg_accept_bool_prob = bool_prob;
+                        dbg_accept_icdf_flat = 256'd0;
                         encode_bool_once(bool_val, bool_prob);
                         done = 1'b1;
                     end else if (encode_symbol) begin
+                        dbg_accept_valid = 1'b1;
+                        dbg_accept_kind = 2'd2;
+                        dbg_accept_symbol = symbol;
+                        dbg_accept_nsyms = nsyms;
+                        dbg_accept_icdf_flat = icdf_flat;
                         encode_symbol_once(symbol, nsyms, icdf_flat);
                         done = 1'b1;
                     end else if (encode_lit) begin

@@ -162,6 +162,141 @@ void run_case(const char* label, const std::vector<Op>& ops) {
     std::fprintf(stderr, "[OK] %s -> %zu bytes\n", label, rtl.size());
 }
 
+std::vector<Op> build_probe_16x16_static_case() {
+    std::vector<Op> ops;
+    auto push_symbol = [&](int value, int nsyms, std::initializer_list<uint16_t> icdf) {
+        ops.push_back(Op{Op::kSymbol, value, 0, 0, nsyms, std::vector<uint16_t>(icdf)});
+    };
+    auto push_bool = [&](int value) {
+        ops.push_back(Op{Op::kBool, value, 16384, 0, 0, {}});
+    };
+
+    // Partition split to 8x8 for the 16x16 root, then 8x8 PARTITION_NONE for
+    // the four leaf blocks. This sequence matches the current RTL 16x16
+    // ac_probe static-CDF keyframe bring-up.
+    push_symbol(3, 10, {av1_partition_cdf[4][0], av1_partition_cdf[4][1], av1_partition_cdf[4][2],
+                        av1_partition_cdf[4][3], av1_partition_cdf[4][4], av1_partition_cdf[4][5],
+                        av1_partition_cdf[4][6], av1_partition_cdf[4][7], av1_partition_cdf[4][8],
+                        av1_partition_cdf[4][9]});
+
+    // Block (0,0): V_PRED, qcoeff = {-1, -1}
+    push_symbol(0, 4, {av1_partition_cdf[0][0], av1_partition_cdf[0][1], av1_partition_cdf[0][2], av1_partition_cdf[0][3]});
+    push_symbol(0, 2, {av1_skip_cdf[0][0], av1_skip_cdf[0][1]});
+    push_symbol(1, 13, {av1_kf_y_mode_cdf[0][0][0], av1_kf_y_mode_cdf[0][0][1], av1_kf_y_mode_cdf[0][0][2],
+                        av1_kf_y_mode_cdf[0][0][3], av1_kf_y_mode_cdf[0][0][4], av1_kf_y_mode_cdf[0][0][5],
+                        av1_kf_y_mode_cdf[0][0][6], av1_kf_y_mode_cdf[0][0][7], av1_kf_y_mode_cdf[0][0][8],
+                        av1_kf_y_mode_cdf[0][0][9], av1_kf_y_mode_cdf[0][0][10], av1_kf_y_mode_cdf[0][0][11],
+                        av1_kf_y_mode_cdf[0][0][12]});
+    push_symbol(3, 7, {av1_angle_delta_cdf[0][0], av1_angle_delta_cdf[0][1], av1_angle_delta_cdf[0][2],
+                       av1_angle_delta_cdf[0][3], av1_angle_delta_cdf[0][4], av1_angle_delta_cdf[0][5],
+                       av1_angle_delta_cdf[0][6]});
+    push_symbol(0, 14, {av1_uv_mode_cdf_cfl[1][0], av1_uv_mode_cdf_cfl[1][1], av1_uv_mode_cdf_cfl[1][2],
+                        av1_uv_mode_cdf_cfl[1][3], av1_uv_mode_cdf_cfl[1][4], av1_uv_mode_cdf_cfl[1][5],
+                        av1_uv_mode_cdf_cfl[1][6], av1_uv_mode_cdf_cfl[1][7], av1_uv_mode_cdf_cfl[1][8],
+                        av1_uv_mode_cdf_cfl[1][9], av1_uv_mode_cdf_cfl[1][10], av1_uv_mode_cdf_cfl[1][11],
+                        av1_uv_mode_cdf_cfl[1][12], av1_uv_mode_cdf_cfl[1][13]});
+    push_symbol(0, 2, {av1_txb_skip_cdf[0][0], av1_txb_skip_cdf[0][1]});
+    push_symbol(1, 7, {av1_intra_tx_type_cdf_8x8[1][0], av1_intra_tx_type_cdf_8x8[1][1], av1_intra_tx_type_cdf_8x8[1][2],
+                       av1_intra_tx_type_cdf_8x8[1][3], av1_intra_tx_type_cdf_8x8[1][4], av1_intra_tx_type_cdf_8x8[1][5],
+                       av1_intra_tx_type_cdf_8x8[1][6]});
+    push_symbol(2, 7, {av1_eob_multi64_cdf[0][0], av1_eob_multi64_cdf[0][1], av1_eob_multi64_cdf[0][2],
+                       av1_eob_multi64_cdf[0][3], av1_eob_multi64_cdf[0][4], av1_eob_multi64_cdf[0][5],
+                       av1_eob_multi64_cdf[0][6]});
+    push_symbol(0, 2, {av1_eob_extra_cdf[0][0][0], av1_eob_extra_cdf[0][0][1]});
+    push_symbol(0, 3, {av1_coeff_base_eob_cdf[1][0], av1_coeff_base_eob_cdf[1][1], av1_coeff_base_eob_cdf[1][2]});
+    push_symbol(0, 4, {av1_coeff_base_cdf[1][0], av1_coeff_base_cdf[1][1], av1_coeff_base_cdf[1][2], av1_coeff_base_cdf[1][3]});
+    push_symbol(1, 4, {av1_coeff_base_cdf[0][0], av1_coeff_base_cdf[0][1], av1_coeff_base_cdf[0][2], av1_coeff_base_cdf[0][3]});
+    push_symbol(1, 2, {av1_dc_sign_cdf[0][0][0], av1_dc_sign_cdf[0][0][1]});
+    push_symbol(1, 2, {av1_txb_skip_cdf_4x4[7][0], av1_txb_skip_cdf_4x4[7][1]});
+    push_symbol(1, 2, {av1_txb_skip_cdf_4x4[7][0], av1_txb_skip_cdf_4x4[7][1]});
+
+    // Block (1,0): D203_PRED, qcoeff = {2}
+    push_symbol(0, 4, {av1_partition_cdf[0][0], av1_partition_cdf[0][1], av1_partition_cdf[0][2], av1_partition_cdf[0][3]});
+    push_symbol(0, 2, {av1_skip_cdf[0][0], av1_skip_cdf[0][1]});
+    push_symbol(7, 13, {av1_kf_y_mode_cdf[0][1][0], av1_kf_y_mode_cdf[0][1][1], av1_kf_y_mode_cdf[0][1][2],
+                        av1_kf_y_mode_cdf[0][1][3], av1_kf_y_mode_cdf[0][1][4], av1_kf_y_mode_cdf[0][1][5],
+                        av1_kf_y_mode_cdf[0][1][6], av1_kf_y_mode_cdf[0][1][7], av1_kf_y_mode_cdf[0][1][8],
+                        av1_kf_y_mode_cdf[0][1][9], av1_kf_y_mode_cdf[0][1][10], av1_kf_y_mode_cdf[0][1][11],
+                        av1_kf_y_mode_cdf[0][1][12]});
+    push_symbol(3, 7, {av1_angle_delta_cdf[6][0], av1_angle_delta_cdf[6][1], av1_angle_delta_cdf[6][2],
+                       av1_angle_delta_cdf[6][3], av1_angle_delta_cdf[6][4], av1_angle_delta_cdf[6][5],
+                       av1_angle_delta_cdf[6][6]});
+    push_symbol(0, 14, {av1_uv_mode_cdf_cfl[7][0], av1_uv_mode_cdf_cfl[7][1], av1_uv_mode_cdf_cfl[7][2],
+                        av1_uv_mode_cdf_cfl[7][3], av1_uv_mode_cdf_cfl[7][4], av1_uv_mode_cdf_cfl[7][5],
+                        av1_uv_mode_cdf_cfl[7][6], av1_uv_mode_cdf_cfl[7][7], av1_uv_mode_cdf_cfl[7][8],
+                        av1_uv_mode_cdf_cfl[7][9], av1_uv_mode_cdf_cfl[7][10], av1_uv_mode_cdf_cfl[7][11],
+                        av1_uv_mode_cdf_cfl[7][12], av1_uv_mode_cdf_cfl[7][13]});
+    push_symbol(0, 2, {av1_txb_skip_cdf[0][0], av1_txb_skip_cdf[0][1]});
+    push_symbol(1, 7, {av1_intra_tx_type_cdf_8x8[7][0], av1_intra_tx_type_cdf_8x8[7][1], av1_intra_tx_type_cdf_8x8[7][2],
+                       av1_intra_tx_type_cdf_8x8[7][3], av1_intra_tx_type_cdf_8x8[7][4], av1_intra_tx_type_cdf_8x8[7][5],
+                       av1_intra_tx_type_cdf_8x8[7][6]});
+    push_symbol(0, 7, {av1_eob_multi64_cdf[0][0], av1_eob_multi64_cdf[0][1], av1_eob_multi64_cdf[0][2],
+                       av1_eob_multi64_cdf[0][3], av1_eob_multi64_cdf[0][4], av1_eob_multi64_cdf[0][5],
+                       av1_eob_multi64_cdf[0][6]});
+    push_symbol(1, 3, {av1_coeff_base_eob_cdf[0][0], av1_coeff_base_eob_cdf[0][1], av1_coeff_base_eob_cdf[0][2]});
+    push_symbol(0, 2, {av1_dc_sign_cdf[0][1][0], av1_dc_sign_cdf[0][1][1]});
+    push_symbol(1, 2, {av1_txb_skip_cdf_4x4[7][0], av1_txb_skip_cdf_4x4[7][1]});
+    push_symbol(1, 2, {av1_txb_skip_cdf_4x4[7][0], av1_txb_skip_cdf_4x4[7][1]});
+
+    // Block (0,1): D45_PRED, all-zero coeffs.
+    push_symbol(0, 4, {av1_partition_cdf[0][0], av1_partition_cdf[0][1], av1_partition_cdf[0][2], av1_partition_cdf[0][3]});
+    push_symbol(1, 2, {av1_skip_cdf[0][0], av1_skip_cdf[0][1]});
+    push_symbol(3, 13, {av1_kf_y_mode_cdf[1][0][0], av1_kf_y_mode_cdf[1][0][1], av1_kf_y_mode_cdf[1][0][2],
+                        av1_kf_y_mode_cdf[1][0][3], av1_kf_y_mode_cdf[1][0][4], av1_kf_y_mode_cdf[1][0][5],
+                        av1_kf_y_mode_cdf[1][0][6], av1_kf_y_mode_cdf[1][0][7], av1_kf_y_mode_cdf[1][0][8],
+                        av1_kf_y_mode_cdf[1][0][9], av1_kf_y_mode_cdf[1][0][10], av1_kf_y_mode_cdf[1][0][11],
+                        av1_kf_y_mode_cdf[1][0][12]});
+    push_symbol(3, 7, {av1_angle_delta_cdf[2][0], av1_angle_delta_cdf[2][1], av1_angle_delta_cdf[2][2],
+                       av1_angle_delta_cdf[2][3], av1_angle_delta_cdf[2][4], av1_angle_delta_cdf[2][5],
+                       av1_angle_delta_cdf[2][6]});
+    push_symbol(0, 14, {av1_uv_mode_cdf_cfl[3][0], av1_uv_mode_cdf_cfl[3][1], av1_uv_mode_cdf_cfl[3][2],
+                        av1_uv_mode_cdf_cfl[3][3], av1_uv_mode_cdf_cfl[3][4], av1_uv_mode_cdf_cfl[3][5],
+                        av1_uv_mode_cdf_cfl[3][6], av1_uv_mode_cdf_cfl[3][7], av1_uv_mode_cdf_cfl[3][8],
+                        av1_uv_mode_cdf_cfl[3][9], av1_uv_mode_cdf_cfl[3][10], av1_uv_mode_cdf_cfl[3][11],
+                        av1_uv_mode_cdf_cfl[3][12], av1_uv_mode_cdf_cfl[3][13]});
+
+    // Block (1,1): DC_PRED, qcoeff = {-1, 2, 1@8, -1@10}
+    push_symbol(0, 4, {av1_partition_cdf[0][0], av1_partition_cdf[0][1], av1_partition_cdf[0][2], av1_partition_cdf[0][3]});
+    push_symbol(0, 2, {av1_skip_cdf[1][0], av1_skip_cdf[1][1]});
+    push_symbol(0, 13, {av1_kf_y_mode_cdf[4][3][0], av1_kf_y_mode_cdf[4][3][1], av1_kf_y_mode_cdf[4][3][2],
+                        av1_kf_y_mode_cdf[4][3][3], av1_kf_y_mode_cdf[4][3][4], av1_kf_y_mode_cdf[4][3][5],
+                        av1_kf_y_mode_cdf[4][3][6], av1_kf_y_mode_cdf[4][3][7], av1_kf_y_mode_cdf[4][3][8],
+                        av1_kf_y_mode_cdf[4][3][9], av1_kf_y_mode_cdf[4][3][10], av1_kf_y_mode_cdf[4][3][11],
+                        av1_kf_y_mode_cdf[4][3][12]});
+    push_symbol(0, 14, {av1_uv_mode_cdf_cfl[0][0], av1_uv_mode_cdf_cfl[0][1], av1_uv_mode_cdf_cfl[0][2],
+                        av1_uv_mode_cdf_cfl[0][3], av1_uv_mode_cdf_cfl[0][4], av1_uv_mode_cdf_cfl[0][5],
+                        av1_uv_mode_cdf_cfl[0][6], av1_uv_mode_cdf_cfl[0][7], av1_uv_mode_cdf_cfl[0][8],
+                        av1_uv_mode_cdf_cfl[0][9], av1_uv_mode_cdf_cfl[0][10], av1_uv_mode_cdf_cfl[0][11],
+                        av1_uv_mode_cdf_cfl[0][12], av1_uv_mode_cdf_cfl[0][13]});
+    push_symbol(0, 2, {av1_txb_skip_cdf[0][0], av1_txb_skip_cdf[0][1]});
+    push_symbol(1, 7, {av1_intra_tx_type_cdf_8x8[0][0], av1_intra_tx_type_cdf_8x8[0][1], av1_intra_tx_type_cdf_8x8[0][2],
+                       av1_intra_tx_type_cdf_8x8[0][3], av1_intra_tx_type_cdf_8x8[0][4], av1_intra_tx_type_cdf_8x8[0][5],
+                       av1_intra_tx_type_cdf_8x8[0][6]});
+    push_symbol(4, 7, {av1_eob_multi64_cdf[0][0], av1_eob_multi64_cdf[0][1], av1_eob_multi64_cdf[0][2],
+                       av1_eob_multi64_cdf[0][3], av1_eob_multi64_cdf[0][4], av1_eob_multi64_cdf[0][5],
+                       av1_eob_multi64_cdf[0][6]});
+    push_symbol(0, 2, {av1_eob_extra_cdf[0][2][0], av1_eob_extra_cdf[0][2][1]});
+    push_bool(0);
+    push_bool(0);
+    push_symbol(0, 3, {av1_coeff_base_eob_cdf[1][0], av1_coeff_base_eob_cdf[1][1], av1_coeff_base_eob_cdf[1][2]});
+    push_symbol(0, 4, {av1_coeff_base_cdf[6][0], av1_coeff_base_cdf[6][1], av1_coeff_base_cdf[6][2], av1_coeff_base_cdf[6][3]});
+    push_symbol(0, 4, {av1_coeff_base_cdf[6][0], av1_coeff_base_cdf[6][1], av1_coeff_base_cdf[6][2], av1_coeff_base_cdf[6][3]});
+    push_symbol(0, 4, {av1_coeff_base_cdf[6][0], av1_coeff_base_cdf[6][1], av1_coeff_base_cdf[6][2], av1_coeff_base_cdf[6][3]});
+    push_symbol(0, 4, {av1_coeff_base_cdf[7][0], av1_coeff_base_cdf[7][1], av1_coeff_base_cdf[7][2], av1_coeff_base_cdf[7][3]});
+    push_symbol(0, 4, {av1_coeff_base_cdf[7][0], av1_coeff_base_cdf[7][1], av1_coeff_base_cdf[7][2], av1_coeff_base_cdf[7][3]});
+    push_symbol(2, 4, {av1_coeff_base_cdf[2][0], av1_coeff_base_cdf[2][1], av1_coeff_base_cdf[2][2], av1_coeff_base_cdf[2][3]});
+    push_symbol(1, 4, {av1_coeff_base_cdf[2][0], av1_coeff_base_cdf[2][1], av1_coeff_base_cdf[2][2], av1_coeff_base_cdf[2][3]});
+    push_symbol(1, 4, {av1_coeff_base_cdf[0][0], av1_coeff_base_cdf[0][1], av1_coeff_base_cdf[0][2], av1_coeff_base_cdf[0][3]});
+    push_symbol(1, 2, {av1_dc_sign_cdf[0][2][0], av1_dc_sign_cdf[0][2][1]});
+    push_bool(0);
+    push_bool(0);
+    push_bool(1);
+    push_symbol(1, 2, {av1_txb_skip_cdf_4x4[7][0], av1_txb_skip_cdf_4x4[7][1]});
+    push_symbol(1, 2, {av1_txb_skip_cdf_4x4[7][0], av1_txb_skip_cdf_4x4[7][1]});
+
+    return ops;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -203,6 +338,7 @@ int main(int argc, char** argv) {
                                      av1_kf_y_mode_cdf[0][0][12]}},
         {Op::kBool, 1, 16384, 0, 0, {}},
     });
+    run_case("probe-16x16-static", build_probe_16x16_static_case());
 
     std::fprintf(stderr, "All av1_entropy reference checks passed.\n");
     return 0;

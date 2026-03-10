@@ -252,14 +252,20 @@ module av1_bitstream #(
                         obuf[j] = 8'd0;
 
                     if (build_cmd == CMD_SEQ) begin
-                        // Reduced still-picture sequence header matching the
-                        // current software writer's main-profile 8-bit 4:2:0
-                        // subset for the all-key bring-up path.
+                        // Match the software-owned debug path's video sequence
+                        // header for the current 8-bit 4:2:0 single-layer
+                        // subset. Even the all-key bring-up path needs the
+                        // non-still sequence form to stay aligned with the
+                        // multi-frame ownership target.
                         obuf[0] = 8'h0A;
                         bw_reset(2);
                         bw_write_bits(0, 3);
-                        bw_write_bit(1);   // still_picture
-                        bw_write_bit(1);   // reduced_still_picture_header
+                        bw_write_bit(0);   // still_picture
+                        bw_write_bit(0);   // reduced_still_picture_header
+                        bw_write_bit(0);   // timing_info_present_flag
+                        bw_write_bit(0);   // initial_display_delay_present_flag
+                        bw_write_bits(0, 5);   // operating_points_cnt_minus_1
+                        bw_write_bits(0, 12);  // operating_point_idc
                         bw_write_bits(4, 5);  // seq_level_idx
                         w_bits = bits_needed(FRAME_WIDTH);
                         h_bits = bits_needed(FRAME_HEIGHT);
@@ -267,9 +273,17 @@ module av1_bitstream #(
                         bw_write_bits(h_bits - 1, 4);
                         bw_write_bits(FRAME_WIDTH - 1, w_bits);
                         bw_write_bits(FRAME_HEIGHT - 1, h_bits);
+                        bw_write_bit(0);   // frame_id_numbers_present_flag
                         bw_write_bit(0);   // use_128x128_superblock
                         bw_write_bit(0);   // enable_filter_intra
                         bw_write_bit(0);   // enable_intra_edge_filter
+                        bw_write_bit(0);   // enable_interintra_compound
+                        bw_write_bit(0);   // enable_masked_compound
+                        bw_write_bit(0);   // enable_warped_motion
+                        bw_write_bit(0);   // enable_dual_filter
+                        bw_write_bit(0);   // enable_order_hint
+                        bw_write_bit(1);   // seq_choose_screen_content_tools
+                        bw_write_bit(1);   // seq_choose_integer_mv
                         bw_write_bit(0);   // enable_superres
                         bw_write_bit(0);   // enable_cdef
                         bw_write_bit(0);   // enable_restoration
@@ -282,14 +296,24 @@ module av1_bitstream #(
                     end else begin
                         // Keep the non-key path as a reduced placeholder for
                         // now. For keyframes, emit the software writer's
-                        // reduced still-picture header fields so the RTL raw
-                        // bytes move closer to the owned all-key path.
+                        // video keyframe header fields so the RTL raw bytes
+                        // stay aligned with the non-still ownership target.
                         obuf[0] = 8'h32;
                         if (lat_is_keyframe) begin
                             bw_reset(2);
+                            bw_write_bit(0);   // show_existing_frame
+                            bw_write_bits(0, 2);   // frame_type = KEY_FRAME
+                            bw_write_bit(1);   // show_frame
+                            // The current raw RTL tile path still uses the
+                            // default CDF tables without adaptive updates.
+                            // Keep the owned raw bitstream aligned with that
+                            // subset until live CDF adaptation moves onto the
+                            // RTL path.
                             bw_write_bit(1);   // disable_cdf_update
                             bw_write_bit(0);   // allow_screen_content_tools
+                            bw_write_bit(0);   // frame_size_override_flag
                             bw_write_bit(0);   // render_and_frame_size_different
+                            bw_write_bit(1);   // refresh_frame_context = DISABLED
                             bw_write_tile_info();
                             bw_write_quantization_params(lat_qindex);
                             bw_write_bit(0);   // segmentation_enabled
