@@ -163,6 +163,8 @@ int main(int argc, char** argv) {
         }
     }
 
+    const int effective_qindex = qindex <= 0 ? 1 : qindex;
+
     namespace fs = std::filesystem;
     const fs::path output_path(output_file);
     const fs::path output_dir = output_path.has_parent_path() ? output_path.parent_path() : fs::current_path();
@@ -198,9 +200,14 @@ int main(int argc, char** argv) {
     fprintf(stderr, "==========================================================\n");
     fprintf(stderr, "  AV1 RTL Encoder Testbench\n");
     fprintf(stderr, "  Frames: %d  Resolution: %dx%d  QIndex: %d  CoeffMode: %s  GOP: %s\n",
-            num_frames, FRAME_WIDTH, FRAME_HEIGHT, qindex,
+            num_frames, FRAME_WIDTH, FRAME_HEIGHT, effective_qindex,
             dc_only ? "DC-only" : "Full", all_key ? "all-key" : "IP");
     fprintf(stderr, "==========================================================\n");
+    if (effective_qindex != qindex) {
+        fprintf(stderr,
+                "[TB] Requested qindex=%d clamps to qindex=%d; lossless TX_4X4 remains deferred.\n",
+                qindex, effective_qindex);
+    }
     if (override_first_newmv) {
         fprintf(stderr, "[TB] Writer override first NEWMV -> (%d,%d)\n",
                 override_first_newmvx, override_first_newmvy);
@@ -211,7 +218,7 @@ int main(int argc, char** argv) {
     dut->frame_num_in = 0; dut->is_keyframe_in = 0;
     dut->force_intra_in = force_intra ? 1 : 0;
     dut->dc_only_in = dc_only ? 1 : 0;
-    dut->qindex_in = qindex;
+    dut->qindex_in = effective_qindex;
     dut->ref_mem_rd_data = 128;
     dut->chr_cb_ref_rd_data = 128;
     dut->chr_cr_ref_rd_data = 128;
@@ -254,7 +261,7 @@ int main(int argc, char** argv) {
             dut->is_keyframe_in = is_key ? 1 : 0;
             dut->force_intra_in = force_intra ? 1 : 0;
             dut->dc_only_in = dc_only ? 1 : 0;
-            dut->qindex_in = qindex;
+            dut->qindex_in = effective_qindex;
             current_frame_is_key = is_key;
             frame_active = true;
             frame_blocks.clear();
@@ -529,29 +536,14 @@ int main(int argc, char** argv) {
             entropy_byte_log.push_back(static_cast<uint8_t>(dut->rootp->av1_encoder_top__DOT__ec_byte_out));
         }
 
-        // Capture the RTL-owned byte stream directly from the top-level mux
-        // controls instead of reconstructing it from the debug memory address
-        // side effects. The RTL still owns the syntax and the explicit
-        // back-patch commands; the testbench only records the resulting bytes.
-        if (dut->rootp->av1_encoder_top__DOT__manual_bs_wr) {
-            const size_t patch_addr = static_cast<size_t>(dut->rootp->av1_encoder_top__DOT__manual_bs_addr);
-            if (rtl_byte_stream.size() <= patch_addr)
-                rtl_byte_stream.resize(patch_addr + 1, 0);
-            rtl_byte_stream[patch_addr] =
-                static_cast<uint8_t>(dut->rootp->av1_encoder_top__DOT__manual_bs_data);
-        } else if (dut->rootp->av1_encoder_top__DOT__bs_byte_valid) {
-            rtl_byte_stream.push_back(
-                static_cast<uint8_t>(dut->rootp->av1_encoder_top__DOT__bs_byte_out));
-        } else if (dut->rootp->av1_encoder_top__DOT__ec_byte_valid) {
-            rtl_byte_stream.push_back(
-                static_cast<uint8_t>(dut->rootp->av1_encoder_top__DOT__ec_byte_out));
-        }
-
         // Bitstream memory write
         if (dut->bs_mem_wr) {
             uint32_t addr = dut->bs_mem_addr;
             if (addr < bitstream_mem.size())
                 bitstream_mem[addr] = dut->bs_mem_data;
+            if (rtl_byte_stream.size() <= addr)
+                rtl_byte_stream.resize(static_cast<size_t>(addr) + 1, 0);
+            rtl_byte_stream[addr] = dut->bs_mem_data;
         }
 
         // Reference frame write-back
@@ -617,7 +609,10 @@ int main(int argc, char** argv) {
                             "[TB] RTL byte capture size mismatch: direct=%zu bs_bytes_written=%u\n",
                             rtl_bytes, total_bs_bytes);
                 }
-                std::vector<uint8_t> rtl_frame_payload = rtl_byte_stream;
+                std::vector<uint8_t> rtl_frame_payload(
+                    rtl_byte_stream.begin(),
+                    rtl_byte_stream.begin() +
+                        std::min(rtl_byte_stream.size(), static_cast<size_t>(total_bs_bytes)));
                 rtl_temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key,
                                               std::move(rtl_frame_payload)});
 
@@ -636,7 +631,7 @@ int main(int argc, char** argv) {
 
             // Build proper AV1 bitstream using captured coefficients
             {
-                AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
+                AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, effective_qindex);
                 writer.set_dc_only_mode(dc_only != 0);
                 writer.set_coeff_debug_mode(coeff_debug != 0);
                 writer.set_disable_cdf_update_mode(static_cdf_mode != 0);
@@ -753,7 +748,7 @@ int main(int argc, char** argv) {
             }
 
             {
-                AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
+                AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, effective_qindex);
                 writer.set_dc_only_mode(dc_only != 0);
                 writer.set_coeff_debug_mode(coeff_debug != 0);
                 writer.set_disable_cdf_update_mode(static_cdf_mode != 0);
@@ -853,7 +848,8 @@ int main(int argc, char** argv) {
                     writer.add_block(bi);
                     ++writer_block_idx;
                 }
-                temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key, writer.write_temporal_unit()});
+                auto temporal_unit = writer.write_temporal_unit();
+                temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key, std::move(temporal_unit)});
             }
 
             if (dump_blocks) {

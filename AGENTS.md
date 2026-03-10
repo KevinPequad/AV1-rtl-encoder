@@ -107,17 +107,21 @@
 - Directional intra availability for the current fixed `8x8` / `TX_8X8` raster-order subset is now partially corrected:
   - real top-right extension samples are loaded and used when the above-right block is already reconstructed
   - bottom-left extension remains intentionally disabled on this subset because it would otherwise read future not-yet-reconstructed pixels and corrupt exactness
-  - on the rebuilt live tree, the old `qindex=224` residual no longer reproduces and the synthetic AC probe is now exact across the tested `qindex` sweep down to `0`
+  - on the rebuilt live tree, the old `qindex=224` residual no longer reproduces on the verified `qindex=240` probe
   - keep directional edge upsampling disabled while `enable_intra_edge_filter = 0`; re-enable it only when the bitstream path owns and signals that sequence-header feature correctly
 - The next highest-priority ownership move is extending that reduced non-DC path:
   - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate
   - do not spend more time on the old `qindex=224` blocker unless it reappears after a real code change
-  - use a broader natural-content `16x16` crop from `data/raw_frames.yuv` to expose the next larger-magnitude tail (`coeff_br`) or less constrained dense pattern, because the synthetic AC probe is now exact across the tested `qindex` range
+  - use `output/highdc_q1/` as the strict large-DC regression guard and `data/ac_probe_16x16_1f.yuv` at `qindex=240` as the verified exact-match regression guard
   - then continue pulling partition, remaining intra/inter frame-type and mode symbols, and motion syntax onto the same RTL-owned path
-- The immediate correctness target after the direct RTL-byte capture milestone is restoring exact decoded-vs-`recon.yuv` parity on that ownership probe:
-  - the raw RTL payload bytes are now aligned with the software-owned payload
-  - the remaining mismatch is decode-vs-reconstruction on luma only (`227` differing `Y` bytes, max delta `12`, `U/V` exact)
-  - treat that luma-only drift as the next blocker to isolate before expanding scope again
+- The immediate correctness target after the raw-byte mux fix is the reference-decoder-backed syntax split:
+  - the strict non-lossless `output/highdc_q1/` bug is fixed:
+    - the software debug writer and the RTL-owned raw path now use official qctx-selected TX_8X8 coefficient tables instead of the old hardcoded `qctx=3` slice
+    - AOM inspection now parses the intended `qindex=1` large-DC blocks as `tx_size=1`, `eob=1`, with the expected Golomb tail
+    - ffmpeg decode now matches `recon.yuv` bit-for-bit on that repro
+  - `qindex=0` remains a separate deferred lossless / `TX_4X4` feature:
+    - AOM inspection shows the decoder taking the lossless `TX_4X4` path when `base_q_idx=0`
+    - until that path is implemented, requested `qindex=0` runs clamp to effective `qindex=1` in both the testbench and RTL top-level so the supported subset stays valid
 - Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
 
 ## Stop Conditions

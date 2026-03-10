@@ -197,6 +197,11 @@ module av1_encoder_top #(
         TS_PART_EMIT       = 8'd132,
         TS_PART_WAIT       = 8'd133,
         TS_DONE_COMMIT     = 8'd134,
+        TS_GEN_GOLOMB_ZERO = 8'd135,
+        TS_GEN_GOLOMB_ZW   = 8'd136,
+        TS_GEN_GOLOMB_BIT  = 8'd137,
+        TS_GEN_GOLOMB_BW   = 8'd138,
+        TS_DONE_FINISH     = 8'd139,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -305,7 +310,11 @@ module av1_encoder_top #(
     reg        cur_all_coeffs_le_14;
     reg [4:0]  dc_br_remaining;
     reg [4:0]  coeff_br_remaining;
+    reg        coeff_br_capped;
     reg [3:0]  coeff_eob_bit_idx;
+    reg [4:0]  golomb_zero_remaining;
+    reg [4:0]  golomb_bit_idx;
+    reg [15:0] golomb_x;
     reg [1:0]  part_stage;
     reg [2:0]  part_level_log2;
     reg [4:0]  part_symbol;
@@ -664,6 +673,7 @@ module av1_encoder_top #(
     endfunction
 
 `include "av1_tx8x8_coeff_helpers.vh"
+`include "av1_tx8x8_qctx_tables.vh"
 
     function [3:0] clip_max3_fn;
         input [15:0] val;
@@ -852,6 +862,21 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [4:0] bit_length16_fn;
+        input [15:0] val;
+        integer tmp;
+        begin
+            bit_length16_fn = 5'd0;
+            tmp = val;
+            while (tmp > 0) begin
+                bit_length16_fn = bit_length16_fn + 5'd1;
+                tmp = tmp >> 1;
+            end
+            if (bit_length16_fn == 5'd0)
+                bit_length16_fn = 5'd1;
+        end
+    endfunction
+
     function [2:0] coeff_base_eob_ctx_from_scan_fn;
         input [6:0] scan_idx;
         begin
@@ -932,23 +957,24 @@ module av1_encoder_top #(
     wire [255:0] cur_if_y_icdf  = if_y_mode_icdf_flat();
     wire [255:0] cur_ang_icdf   = angle_delta_icdf_flat(best_intra_mode);
     wire [255:0] cur_uv_icdf    = uv_mode_dc_icdf_flat(best_intra_mode);
-    wire [255:0] cur_txb_luma_icdf = txb_skip_luma_icdf_flat();
-    wire [255:0] cur_txb_chr_icdf  = txb_skip_chroma_icdf_flat();
+    wire [1:0]   cur_coeff_qctx = coeff_qctx_from_qindex_fn(qindex);
+    wire [255:0] cur_txb_luma_icdf = txb_skip_luma_icdf_flat_qctx(cur_coeff_qctx, 4'd0);
+    wire [255:0] cur_txb_chr_icdf  = txb_skip_chroma_icdf_flat_qctx(cur_coeff_qctx, 4'd7);
     wire [255:0] cur_intra_tx_icdf = intra_tx_type_dct_icdf_flat(best_intra_mode);
-    wire [255:0] cur_eob_multi_icdf = eob_multi64_luma_icdf_flat();
-    wire [255:0] cur_eob_extra_icdf = eob_extra_ctx0_icdf_flat();
-    wire [255:0] cur_base_eob_icdf = coeff_base_eob_ctx0_icdf_flat();
-    wire [255:0] cur_base_eob1_icdf= coeff_base_eob_ctx1_icdf_flat();
-    wire [255:0] cur_base0_icdf    = coeff_base_ctx0_icdf_flat();
-    wire [255:0] cur_base1_icdf    = coeff_base_ctx1_icdf_flat();
-    wire [255:0] cur_base2_icdf    = coeff_base_ctx2_icdf_flat();
-    wire [255:0] cur_base6_icdf    = coeff_base_ctx6_icdf_flat();
-    wire [255:0] cur_base7_icdf    = coeff_base_ctx7_icdf_flat();
+    wire [255:0] cur_eob_multi_icdf = eob_multi64_icdf_flat_qctx(cur_coeff_qctx, 1'b0);
+    wire [255:0] cur_eob_extra_icdf = eob_extra_ctx_icdf_flat_qctx(cur_coeff_qctx, 1'b0, 4'd0);
+    wire [255:0] cur_base_eob_icdf = coeff_base_eob_ctx_icdf_flat_qctx(cur_coeff_qctx, 3'd0);
+    wire [255:0] cur_base_eob1_icdf= coeff_base_eob_ctx_icdf_flat_qctx(cur_coeff_qctx, 3'd1);
+    wire [255:0] cur_base0_icdf    = coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, 6'd0);
+    wire [255:0] cur_base1_icdf    = coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, 6'd1);
+    wire [255:0] cur_base2_icdf    = coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, 6'd2);
+    wire [255:0] cur_base6_icdf    = coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, 6'd6);
+    wire [255:0] cur_base7_icdf    = coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, 6'd7);
     wire [1:0]   cur_dc_sign_ctx   = get_dc_sign_ctx_cur(blk_x, blk_y);
     wire [255:0] cur_dc_sign_icdf  = dc_sign_ctx0_icdf_flat(cur_dc_sign_ctx);
-    wire [255:0] cur_coeff_br_icdf = coeff_br_ctx0_icdf_flat();
-    wire [255:0] cur_coeff_br1_icdf = coeff_br_ctx1_icdf_flat();
-    wire [255:0] cur_eob_extra2_icdf = eob_extra_ctx2_icdf_flat();
+    wire [255:0] cur_coeff_br_icdf = coeff_br_ctx_icdf_flat_qctx(cur_coeff_qctx, 5'd0);
+    wire [255:0] cur_coeff_br1_icdf = coeff_br_ctx_icdf_flat_qctx(cur_coeff_qctx, 5'd1);
+    wire [255:0] cur_eob_extra2_icdf = eob_extra_ctx_icdf_flat_qctx(cur_coeff_qctx, 1'b0, 4'd2);
     wire [1:0]   cur_dc_sign_code =
         cur_block_has_coeff ? (qcoeff[0][15] ? 2'd1 : (qcoeff[0] != 16'sd0 ? 2'd2 : 2'd0)) : 2'd0;
     wire         cur_dc_only_coeff_path =
@@ -976,8 +1002,7 @@ module av1_encoder_top #(
     wire [3:0]   cur_generic_eob_bits = eob_offset_bits_fn(cur_generic_eob_pt);
     wire         cur_generic_coeff_path =
         cur_block_has_coeff &&
-        !use_inter &&
-        cur_all_coeffs_le_14;
+        !use_inter;
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -1244,15 +1269,9 @@ module av1_encoder_top #(
     reg [23:0] manual_bs_addr;
     reg [7:0]  manual_bs_data;
     reg [23:0] frame_obu_start_addr;
-    wire [23:0] live_bs_bytes = total_bs_bytes +
-                                (bs_byte_valid ? 24'd1 : 24'd0) +
-                                (ec_byte_valid ? 24'd1 : 24'd0);
     wire [23:0] frame_obu_payload_bytes =
         (total_bs_bytes > (frame_obu_start_addr + 24'd2)) ?
             (total_bs_bytes - frame_obu_start_addr - 24'd2) : 24'd0;
-    wire [23:0] frame_obu_payload_bytes_live =
-        (live_bs_bytes > (frame_obu_start_addr + 24'd2)) ?
-            (live_bs_bytes - frame_obu_start_addr - 24'd2) : 24'd0;
 
     // Register bitstream writes so address/data stay aligned to the same
     // sampled source-valid event.
@@ -1342,7 +1361,11 @@ module av1_encoder_top #(
             cur_all_coeffs_le_14 <= 1'b1;
             dc_br_remaining <= 5'd0;
             coeff_br_remaining <= 5'd0;
+            coeff_br_capped <= 1'b0;
             coeff_eob_bit_idx <= 4'd0;
+            golomb_zero_remaining <= 5'd0;
+            golomb_bit_idx <= 5'd0;
+            golomb_x <= 16'd0;
             part_stage <= 2'd0;
             part_level_log2 <= 3'd0;
             part_symbol <= 5'd0;
@@ -1395,7 +1418,7 @@ module av1_encoder_top #(
                 TS_IDLE: begin
                     if (start) begin
                         is_keyframe <= is_keyframe_in;
-                        qindex      <= qindex_in;
+                        qindex      <= (qindex_in == 8'd0) ? 8'd1 : qindex_in;
                         frame_num   <= frame_num_in;
                         blk_x       <= 0;
                         blk_y       <= 0;
@@ -1406,7 +1429,11 @@ module av1_encoder_top #(
                         cur_all_coeffs_le_14 <= 1'b1;
                         dc_br_remaining <= 5'd0;
                         coeff_br_remaining <= 5'd0;
+                        coeff_br_capped <= 1'b0;
                         coeff_eob_bit_idx <= 4'd0;
+                        golomb_zero_remaining <= 5'd0;
+                        golomb_bit_idx <= 5'd0;
+                        golomb_x <= 16'd0;
                         part_stage <= 2'd0;
                         part_level_log2 <= 3'd0;
                         part_symbol <= 5'd0;
@@ -1577,7 +1604,11 @@ module av1_encoder_top #(
                     cur_all_coeffs_le_14 <= 1'b1;
                     dc_br_remaining <= 5'd0;
                     coeff_br_remaining <= 5'd0;
+                    coeff_br_capped <= 1'b0;
                     coeff_eob_bit_idx <= 4'd0;
+                    golomb_zero_remaining <= 5'd0;
+                    golomb_bit_idx <= 5'd0;
+                    golomb_x <= 16'd0;
                     top_state       <= TS_WAIT_FETCH;
                 end
                 TS_WAIT_FETCH: begin
@@ -2089,7 +2120,7 @@ module av1_encoder_top #(
 
                 TS_DC_BR_WAIT: begin
                     if (ec_done) begin
-                        if (dc_br_remaining > 5'd3) begin
+                        if (dc_br_remaining >= 5'd3) begin
                             dc_br_remaining <= dc_br_remaining - 5'd3;
                             top_state <= TS_DC_BR;
                         end else begin
@@ -2206,7 +2237,7 @@ module av1_encoder_top #(
 
                 TS_AC01_BR_WAIT: begin
                     if (ec_done) begin
-                        if (dc_br_remaining > 5'd3) begin
+                        if (dc_br_remaining >= 5'd3) begin
                             dc_br_remaining <= dc_br_remaining - 5'd3;
                             top_state <= TS_AC01_BR;
                         end else begin
@@ -2506,7 +2537,7 @@ module av1_encoder_top #(
                     ec_encode_symbol <= 1;
                     ec_symbol        <= (cur_generic_eob_extra >> (cur_generic_eob_bits - 4'd1)) & 10'd1;
                     ec_nsyms         <= 5'd2;
-                    ec_icdf_flat     <= eob_extra_ctx_icdf_flat_fn(cur_generic_eob_pt - 4'd3);
+                    ec_icdf_flat     <= eob_extra_ctx_icdf_flat_qctx(cur_coeff_qctx, 1'b0, cur_generic_eob_pt - 4'd3);
                     top_state        <= TS_GEN_EOB_EXWAIT;
                 end
 
@@ -2547,12 +2578,12 @@ module av1_encoder_top #(
                         ec_symbol    <= (coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) > 16'd3) ?
                                         5'd2 : ({1'b0, coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx))[3:0]} - 5'd1);
                         ec_nsyms     <= 5'd3;
-                        ec_icdf_flat <= coeff_base_eob_ctx_icdf_flat(coeff_base_eob_ctx_from_scan_fn({1'b0, proc_idx}));
+                        ec_icdf_flat <= coeff_base_eob_ctx_icdf_flat_qctx(cur_coeff_qctx, coeff_base_eob_ctx_from_scan_fn({1'b0, proc_idx}));
                     end else begin
                         ec_symbol    <= (coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) > 16'd3) ?
                                         5'd3 : {1'b0, coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx))[3:0]};
                         ec_nsyms     <= 5'd4;
-                        ec_icdf_flat <= coeff_base_ctx_icdf_flat(get_nz_map_ctx_qcoeff(scan_8x8_pos(proc_idx)));
+                        ec_icdf_flat <= coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, get_nz_map_ctx_qcoeff(scan_8x8_pos(proc_idx)));
                     end
                     top_state <= TS_GEN_BASEW;
                 end
@@ -2560,12 +2591,20 @@ module av1_encoder_top #(
                 TS_GEN_BASEW: begin
                     if (ec_done) begin
                         if (coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) > 16'd2) begin
-                            coeff_br_remaining <= coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx))[4:0] - 5'd3;
+                            if (coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) > 16'd14) begin
+                                coeff_br_remaining <= 5'd12;
+                                coeff_br_capped    <= 1'b1;
+                            end else begin
+                                coeff_br_remaining <= coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx))[4:0] - 5'd3;
+                                coeff_br_capped    <= 1'b0;
+                            end
                             top_state <= TS_GEN_BR;
                         end else if (proc_idx > 6'd0) begin
+                            coeff_br_capped <= 1'b0;
                             proc_idx  <= proc_idx - 6'd1;
                             top_state <= TS_GEN_BASE;
                         end else begin
+                            coeff_br_capped <= 1'b0;
                             proc_idx  <= 6'd0;
                             top_state <= TS_GEN_SIGN;
                         end
@@ -2576,19 +2615,30 @@ module av1_encoder_top #(
                     ec_encode_symbol <= 1;
                     ec_symbol        <= (coeff_br_remaining > 5'd3) ? 5'd3 : coeff_br_remaining;
                     ec_nsyms         <= 5'd4;
-                    ec_icdf_flat     <= coeff_br_ctx_icdf_flat_fn(get_br_ctx_qcoeff(scan_8x8_pos(proc_idx)));
+                    ec_icdf_flat     <= coeff_br_ctx_icdf_flat_qctx(cur_coeff_qctx, get_br_ctx_qcoeff(scan_8x8_pos(proc_idx)));
                     top_state        <= TS_GEN_BRW;
                 end
 
                 TS_GEN_BRW: begin
                     if (ec_done) begin
-                        if (coeff_br_remaining > 5'd3) begin
-                            coeff_br_remaining <= coeff_br_remaining - 5'd3;
-                            top_state <= TS_GEN_BR;
+                        if (coeff_br_remaining >= 5'd3) begin
+                            if ((coeff_br_remaining == 5'd3) && coeff_br_capped) begin
+                                coeff_br_capped <= 1'b0;
+                                top_state <= (proc_idx > 6'd0) ? TS_GEN_BASE : TS_GEN_SIGN;
+                                if (proc_idx > 6'd0)
+                                    proc_idx <= proc_idx - 6'd1;
+                                else
+                                    proc_idx <= 6'd0;
+                            end else begin
+                                coeff_br_remaining <= coeff_br_remaining - 5'd3;
+                                top_state <= TS_GEN_BR;
+                            end
                         end else if (proc_idx > 6'd0) begin
+                            coeff_br_capped <= 1'b0;
                             proc_idx  <= proc_idx - 6'd1;
                             top_state <= TS_GEN_BASE;
                         end else begin
+                            coeff_br_capped <= 1'b0;
                             proc_idx  <= 6'd0;
                             top_state <= TS_GEN_SIGN;
                         end
@@ -2618,7 +2668,56 @@ module av1_encoder_top #(
 
                 TS_GEN_SIGNW: begin
                     if (ec_done) begin
-                        if (proc_idx < (cur_generic_eob[5:0] - 6'd1)) begin
+                        if (coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) > 16'd14) begin
+                            golomb_x <= coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) - 16'd14;
+                            golomb_zero_remaining <= bit_length16_fn(
+                                coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) - 16'd14) - 5'd1;
+                            golomb_bit_idx <= bit_length16_fn(
+                                coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) - 16'd14) - 5'd1;
+                            if (bit_length16_fn(coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) - 16'd14) > 5'd1)
+                                top_state <= TS_GEN_GOLOMB_ZERO;
+                            else
+                                top_state <= TS_GEN_GOLOMB_BIT;
+                        end else if (proc_idx < (cur_generic_eob[5:0] - 6'd1)) begin
+                            proc_idx  <= proc_idx + 6'd1;
+                            top_state <= TS_GEN_SIGN;
+                        end else begin
+                            top_state <= TS_TXB_SKIP_CB;
+                        end
+                    end
+                end
+
+                TS_GEN_GOLOMB_ZERO: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= 1'b0;
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_GEN_GOLOMB_ZW;
+                end
+
+                TS_GEN_GOLOMB_ZW: begin
+                    if (ec_done) begin
+                        if (golomb_zero_remaining > 5'd1) begin
+                            golomb_zero_remaining <= golomb_zero_remaining - 5'd1;
+                            top_state <= TS_GEN_GOLOMB_ZERO;
+                        end else begin
+                            top_state <= TS_GEN_GOLOMB_BIT;
+                        end
+                    end
+                end
+
+                TS_GEN_GOLOMB_BIT: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= (golomb_x >> golomb_bit_idx) & 16'd1;
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_GEN_GOLOMB_BW;
+                end
+
+                TS_GEN_GOLOMB_BW: begin
+                    if (ec_done) begin
+                        if (golomb_bit_idx > 5'd0) begin
+                            golomb_bit_idx <= golomb_bit_idx - 5'd1;
+                            top_state <= TS_GEN_GOLOMB_BIT;
+                        end else if (proc_idx < (cur_generic_eob[5:0] - 6'd1)) begin
                             proc_idx  <= proc_idx + 6'd1;
                             top_state <= TS_GEN_SIGN;
                         end else begin
@@ -2884,18 +2983,21 @@ module av1_encoder_top #(
                     // idle-before-flush as completion or the last entropy
                     // bytes can be dropped from the owned raw stream.
                     if (ec_done) begin
-                        // Back-patch the frame OBU size byte for the current
-                        // reduced single-byte LEB128 debug path. This keeps
-                        // the RTL-owned raw stream aligned with the emitted
-                        // frame payload length on the small bring-up cases.
-                        manual_bs_wr   <= 1;
-                        manual_bs_addr <= frame_obu_start_addr + 24'd1;
-                        manual_bs_data <= frame_obu_payload_bytes_live[7:0];
                         top_state <= TS_DONE_COMMIT;
                     end
                 end
 
                 TS_DONE_COMMIT: begin
+                    // Back-patch the frame OBU size byte only after the final
+                    // entropy byte has had a full cycle to commit into the
+                    // unified output mux and byte counters.
+                    manual_bs_wr   <= 1;
+                    manual_bs_addr <= frame_obu_start_addr + 24'd1;
+                    manual_bs_data <= frame_obu_payload_bytes[7:0];
+                    top_state      <= TS_DONE_FINISH;
+                end
+
+                TS_DONE_FINISH: begin
                     done      <= 1;
                     top_state <= TS_IDLE;
                 end

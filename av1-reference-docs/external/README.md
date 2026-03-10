@@ -74,6 +74,16 @@ syntax or verification blocker.
 - `libaom-pred_common.h`
   - Source: `https://aomedia.googlesource.com/aom/`
   - Purpose: supporting declarations and access helpers for prediction contexts.
+- local upstream AOM reference clone and `inspect` build
+  - Source: `https://aomedia.googlesource.com/aom/`
+  - Purpose: strict decoder/accounting validation with `CONFIG_ACCOUNTING=1`
+    and `CONFIG_INSPECTION=1` when ffmpeg/libdav1d smoke decode is not
+    sufficient to trust a syntax path.
+- local `av1/common/token_cdfs.h` dump from the upstream AOM clone
+  - Source: `https://aomedia.googlesource.com/aom/`
+  - Purpose: exact official TX_8X8 and TX_4X4 coefficient CDF source used by
+    `scripts/gen_av1_tx8x8_qctx_tables.py` to regenerate qctx-selected tables
+    for the software debug writer and the RTL-owned coeff path.
 
 ## Current Findings
 
@@ -163,6 +173,35 @@ syntax or verification blocker.
   - candidate SAD must include the final sample before best-match update
   - valid search bounds can be derived directly from frame geometry instead of
     spending cycles on impossible candidates
+- The local upstream AOM `inspect` build is now the strict syntax oracle for
+  the current coeff/tile mismatch:
+  - it rejects some streams that ffmpeg/libdav1d will still smoke-decode
+  - use it before trusting any new exact-match claim on a broadened syntax path
+- The official qctx-selected coefficient tables matter on the current reduced
+  TX_8X8 path:
+  - the older hardcoded `qctx=3` tables in both the software debug writer and
+    the RTL-owned generic coeff path were the root cause of the strict
+    `output/highdc_q1/` first-block mismatch
+  - regenerating those tables from upstream AOM `token_cdfs.h` and selecting
+    them from `qindex` fixed the `qindex=1` large-DC repro
+  - AOM inspection now parses all four intended `highdc_q1` blocks as
+    `tx_size=1`, `eob=1`, with the expected Golomb tail
+  - ffmpeg decode now matches `recon.yuv` bit-for-bit on that strict repro
+- The stricter AOM decoder now splits the remaining blockers into two separate
+  issues:
+  - `qindex=0`:
+    - AOM inspection shows `tx_size=0` (`TX_4X4`) on the failing cases
+    - the current reduced encoder path still emits `TX_8X8` coefficient syntax
+    - treat `qindex=0` as a separate lossless / `TX_4X4` implementation gap
+    - until that path is implemented, requested `qindex=0` runs clamp to
+      effective `qindex=1` in both the testbench and RTL top-level so the
+      supported reduced subset stays valid
+  - `qindex=1+`:
+    - the old `highdc_q1` first-block mismatch is fixed, so it should now be
+      used as a strict large-DC regression guard, not as the active blocker
+    - the remaining work is extending the current reduced generic-coeff subset
+      beyond the verified exact-match probes into less constrained dense blocks,
+      then continuing the same ownership move into broader block syntax
 
 ## Active Debug Focus
 
@@ -174,6 +213,8 @@ syntax or verification blocker.
     the exhaustive ME block remains expensive at `64x64` and above
   - move more final syntax ownership out of `tb/av1_bitstream_writer.h` and
     into the RTL bitstream path without regressing decoder cleanliness
+  - use `data/ac_probe_16x16_1f.yuv` at `qindex=240` as the first exact-match
+    regression gate and `output/highdc_q1/` as the strict large-DC guard
   - extend the current reduced non-DC ownership subset into larger-magnitude
-    coefficient tails and less constrained dense blocks using the same reference
-    traces before touching broader tile grammar
+    coefficient tails and less constrained dense blocks using the same
+    reference traces before touching broader tile grammar
