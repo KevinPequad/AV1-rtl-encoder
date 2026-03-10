@@ -106,6 +106,14 @@ module av1_encoder_top #(
         TS_TXB_SKIP_CBW= 6'd50,
         TS_TXB_SKIP_CR = 6'd51,
         TS_TXB_SKIP_CRW= 6'd52,
+        TS_DC_TX_TYPE  = 6'd53,
+        TS_DC_TX_WAIT  = 6'd54,
+        TS_DC_EOB      = 6'd55,
+        TS_DC_EOB_WAIT = 6'd56,
+        TS_DC_BASE     = 6'd57,
+        TS_DC_BASE_WAIT= 6'd58,
+        TS_DC_SIGN     = 6'd59,
+        TS_DC_SIGN_WAIT= 6'd60,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -203,6 +211,7 @@ module av1_encoder_top #(
     reg        skip_left      [0:MI_ROWS-1];
     reg [3:0]  mode_above     [0:MI_COLS-1];
     reg [3:0]  mode_left      [0:MI_ROWS-1];
+    reg        cur_only_dc_nonzero;
 
     function [3:0] intra_mode_from_idx;
         input [3:0] idx;
@@ -402,6 +411,53 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [255:0] intra_tx_type_dct_icdf_flat;
+        input [3:0] mode;
+        begin
+            case (mode)
+                4'd0:    intra_tx_type_dct_icdf_flat = {224'd0,16'd13742,16'd1870};
+                4'd1:    intra_tx_type_dct_icdf_flat = {224'd0,16'd8796,16'd326};
+                4'd2:    intra_tx_type_dct_icdf_flat = {224'd0,16'd7576,16'd484};
+                4'd3:    intra_tx_type_dct_icdf_flat = {224'd0,16'd15340,16'd1126};
+                4'd4:    intra_tx_type_dct_icdf_flat = {224'd0,16'd4854,16'd655};
+                4'd5:    intra_tx_type_dct_icdf_flat = {224'd0,16'd6458,16'd1299};
+                4'd6:    intra_tx_type_dct_icdf_flat = {224'd0,16'd5295,16'd311};
+                4'd7:    intra_tx_type_dct_icdf_flat = {224'd0,16'd8059,16'd883};
+                4'd8:    intra_tx_type_dct_icdf_flat = {224'd0,16'd7580,16'd741};
+                4'd9:    intra_tx_type_dct_icdf_flat = {224'd0,16'd7406,16'd110};
+                4'd10:   intra_tx_type_dct_icdf_flat = {224'd0,16'd7974,16'd363};
+                4'd11:   intra_tx_type_dct_icdf_flat = {224'd0,16'd7647,16'd153};
+                4'd12:   intra_tx_type_dct_icdf_flat = {224'd0,16'd6332,16'd3511};
+                default: intra_tx_type_dct_icdf_flat = {224'd0,16'd13742,16'd1870};
+            endcase
+        end
+    endfunction
+
+    function [255:0] eob_multi64_luma_eob1_icdf_flat;
+        begin
+            eob_multi64_luma_eob1_icdf_flat = {240'd0,16'd6307};
+        end
+    endfunction
+
+    function [255:0] coeff_base_eob_ctx0_icdf_flat;
+        begin
+            coeff_base_eob_ctx0_icdf_flat = {208'd0,16'd32768,16'd31043,16'd21457};
+        end
+    endfunction
+
+    function [255:0] dc_sign_ctx0_icdf_flat;
+        begin
+            dc_sign_ctx0_icdf_flat = {224'd0,16'd32768,16'd16000};
+        end
+    endfunction
+
+    function [15:0] abs16;
+        input signed [15:0] val;
+        begin
+            abs16 = val[15] ? -val : val;
+        end
+    endfunction
+
     wire [1:0] cur_skip_ctx = get_skip_ctx_cur(blk_x, blk_y);
     wire       cur_block_skip = ~cur_block_has_coeff;
     wire [2:0] cur_kf_above_ctx = get_kf_mode_above_ctx_cur(blk_x, blk_y);
@@ -412,6 +468,12 @@ module av1_encoder_top #(
     wire [255:0] cur_uv_icdf    = uv_mode_dc_icdf_flat(best_intra_mode);
     wire [255:0] cur_txb_luma_icdf = txb_skip_luma_icdf_flat();
     wire [255:0] cur_txb_chr_icdf  = txb_skip_chroma_icdf_flat();
+    wire [255:0] cur_intra_tx_icdf = intra_tx_type_dct_icdf_flat(best_intra_mode);
+    wire [255:0] cur_eob1_icdf     = eob_multi64_luma_eob1_icdf_flat();
+    wire [255:0] cur_base_eob_icdf = coeff_base_eob_ctx0_icdf_flat();
+    wire [255:0] cur_dc_sign_icdf  = dc_sign_ctx0_icdf_flat();
+    wire         cur_small_dc_only_coeff =
+        cur_block_has_coeff && cur_only_dc_nonzero && (abs16(qcoeff[0]) <= 16'd3);
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -721,6 +783,7 @@ module av1_encoder_top #(
             ec_nsyms <= 5'd0;
             ec_icdf_flat <= 256'd0;
             cur_block_has_coeff <= 1'b0;
+            cur_only_dc_nonzero <= 1'b1;
             best_intra_mode <= AV1_DC_PRED;
             intra_eval_idx  <= 4'd0;
             intra_best_sad  <= 18'h3FFFF;
@@ -772,6 +835,7 @@ module av1_encoder_top #(
                         blk_x       <= 0;
                         blk_y       <= 0;
                         cur_block_has_coeff <= 1'b0;
+                        cur_only_dc_nonzero <= 1'b1;
                         for (i = 0; i < MI_COLS; i = i + 1) begin
                             part_ctx_above[i] <= 8'd0;
                             skip_above[i] <= 1'b0;
@@ -829,6 +893,7 @@ module av1_encoder_top #(
                     fetch_blk_x     <= blk_x;
                     fetch_blk_y     <= blk_y;
                     cur_block_has_coeff <= 1'b0;
+                    cur_only_dc_nonzero <= 1'b1;
                     top_state       <= TS_WAIT_FETCH;
                 end
                 TS_WAIT_FETCH: begin
@@ -1111,8 +1176,11 @@ module av1_encoder_top #(
                 TS_QCOEFF_WAIT: begin
                     if (quant_done) begin
                         qcoeff[proc_idx] <= (dc_only_in && proc_idx != 0) ? 16'sd0 : quant_coeff_out;
-                        if (((dc_only_in && proc_idx != 0) ? 16'sd0 : quant_coeff_out) != 16'sd0)
+                        if (((dc_only_in && proc_idx != 0) ? 16'sd0 : quant_coeff_out) != 16'sd0) begin
                             cur_block_has_coeff <= 1'b1;
+                            if (proc_idx != 0)
+                                cur_only_dc_nonzero <= 1'b0;
+                        end
                         if (proc_idx == 0)
                             dequant_dc <= quant_dequant_out;
                         else if (proc_idx == 1)
@@ -1214,9 +1282,65 @@ module av1_encoder_top #(
 
                 TS_TXB_SKIP_YW: begin
                     if (ec_done) begin
-                        proc_idx  <= 0;
-                        top_state <= TS_COEFF_SYM;
+                        if (!use_inter && cur_small_dc_only_coeff)
+                            top_state <= TS_DC_TX_TYPE;
+                        else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_COEFF_SYM;
+                        end
                     end
+                end
+
+                TS_DC_TX_TYPE: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd1; // DCT_DCT intra tx_type
+                    ec_nsyms         <= 5'd7;
+                    ec_icdf_flat     <= cur_intra_tx_icdf;
+                    top_state        <= TS_DC_TX_WAIT;
+                end
+
+                TS_DC_TX_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_DC_EOB;
+                end
+
+                TS_DC_EOB: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // eob_pt - 1 for eob=1
+                    ec_nsyms         <= 5'd7;
+                    ec_icdf_flat     <= cur_eob1_icdf;
+                    top_state        <= TS_DC_EOB_WAIT;
+                end
+
+                TS_DC_EOB_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_DC_BASE;
+                end
+
+                TS_DC_BASE: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= abs16(qcoeff[0])[1:0] - 2'd1; // level-1 for coeff_base_eob
+                    ec_nsyms         <= 5'd3;
+                    ec_icdf_flat     <= cur_base_eob_icdf;
+                    top_state        <= TS_DC_BASE_WAIT;
+                end
+
+                TS_DC_BASE_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_DC_SIGN;
+                end
+
+                TS_DC_SIGN: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= qcoeff[0][15] ? 5'd1 : 5'd0;
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= cur_dc_sign_icdf;
+                    top_state        <= TS_DC_SIGN_WAIT;
+                end
+
+                TS_DC_SIGN_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_TXB_SKIP_CB;
                 end
 
                 TS_COEFF_SYM: begin
