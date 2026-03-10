@@ -97,11 +97,15 @@ Inventory of the current repo state:
   - testbench-side preservation of the raw RTL byte stream into per-frame `rtl_frames/*.obu` files plus a concatenated `*_rtl_raw.obu`
   - RTL reduced still-picture sequence header and keyframe header emission now matches the software writer's header prefix on the fast all-key debug case
   - RTL raw frame OBU size byte is now back-patched to the actual emitted raw payload length at frame completion
+  - `rtl/av1_entropy.v` now uses a real AV1-style range coder for the existing bool, literal, and generic symbol interface instead of the old debug bit-packer
+  - standalone entropy reference-check harness in `tb/test_entropy.cpp` and `make entropy-check`
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
   - `16x16` 2-frame IP output decodes in both `ffmpeg`/`libdav1d` and `aomdec`
   - decoded output matches `recon.yuv` exactly on that `16x16` inter case
+  - `make entropy-check THREADS=24 BUILD_JOBS=24` passes in WSL and matches the C++ `AV1RangeCoder` byte-for-byte for bool, literal, and symbol cases
+  - the `16x16` 1-frame all-key top-level smoke still decodes and matches `recon.yuv` exactly after the entropy-core upgrade
   - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -122,6 +126,9 @@ Inventory of the current repo state:
 - The current `tb/` writer remains a debug and bring-up tool, not the acceptable final ownership model.
 - The preserved `*_rtl_raw.obu` artifacts are debug ownership checkpoints only; they are not yet completion-ready AV1 streams.
 - The current RTL raw keyframe stream now owns its still-picture header fields and raw frame-size patching, but it still diverges from the valid software-owned stream at the tile / payload syntax boundary because the emitted raw payload is not yet full AV1 tile-group syntax.
+- The entropy foundation is no longer the active blocker for tile ownership:
+  - `av1_entropy.v` can now encode reference-matching bools, literals, and generic CDF symbols
+  - the remaining ownership gap is moving real partition, mode, motion, and coefficient syntax sequencing onto the RTL top-level path
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
@@ -165,6 +172,13 @@ Focused verification flow:
 cd tb
 make THREADS=24 BUILD_JOBS=24 WIDTH=64 HEIGHT=64
 ./Vav1_encoder_top +frames=1 +qindex=128 +dc_only=0 +input=../data/raw_frames.yuv +output=../output/encoded.obu
+```
+
+Standalone entropy verification:
+
+```bash
+cd tb
+make entropy-check THREADS=24 BUILD_JOBS=24
 ```
 
 For exact reconstruction checks, decode the generated IVF and compare it against `output/recon.yuv`.

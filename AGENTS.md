@@ -56,6 +56,16 @@
 6. Do not stop while major baseline feature gaps are still open.
 7. After each meaningful implementation step, update docs, push progress, and continue unless fully blocked.
 
+## Current Focus
+- The reduced still-picture header and raw frame-size ownership checkpoints are already on the RTL byte path.
+- The entropy foundation now includes reference-matching bool, literal, and generic CDF symbol coding in `rtl/av1_entropy.v`.
+- The next highest-priority ownership move is to drive real tile-group syntax from `rtl/av1_encoder_top.v` through that coder:
+  - partition symbols
+  - skip and mode symbols
+  - motion symbols
+  - coefficient syntax in the same ordering as the AV1 tile grammar
+- Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
+
 ## Stop Conditions
 - Milestones are not stop conditions.
 - Progress updates are not stop conditions.

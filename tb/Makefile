@@ -19,11 +19,15 @@ LINK            ?= $(CXX)
 AR              ?= ar
 TOP_MODULE      := av1_encoder_top
 TB_CPP          := tb_av1_encoder.cpp
+ENTROPY_TOP     := av1_entropy
+ENTROPY_TB_CPP  := test_entropy.cpp
 RTL_DIR         := ../rtl
 OBJ_DIR         := obj_dir
 TRACE_OBJ_DIR   := obj_dir_trace
 SIM_BIN         := V$(TOP_MODULE)
 TRACE_SIM_BIN   := V$(TOP_MODULE)_trace
+ENTROPY_OBJ_DIR := obj_dir_entropy
+ENTROPY_SIM_BIN := V$(ENTROPY_TOP)
 
 # Resolution (override on command line for different sizes)
 WIDTH           ?= 1280
@@ -64,7 +68,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave clean help
+.PHONY: all run wave entropy-check clean help
 
 all: $(SIM_BIN)
 
@@ -88,6 +92,23 @@ $(TRACE_SIM_BIN): $(TB_CPP) $(RTL_SRCS)
 	@echo ""
 	@echo "Build complete: ./$(TRACE_SIM_BIN)"
 
+$(ENTROPY_SIM_BIN): $(ENTROPY_TB_CPP) $(RTL_DIR)/av1_entropy.v av1_bitstream_writer.h
+	$(VERILATOR) --cc --exe \
+		-Wall -Wno-fatal \
+		--build-jobs $(BUILD_JOBS) \
+		--threads $(THREADS) \
+		--top-module $(ENTROPY_TOP) \
+		-I$(RTL_DIR) \
+		-Mdir $(ENTROPY_OBJ_DIR) \
+		-CFLAGS "-O2 -std=c++17" \
+		$(RTL_DIR)/av1_entropy.v \
+		$(ENTROPY_TB_CPP) \
+		-o $(ENTROPY_SIM_BIN)
+	$(MAKE) -C $(ENTROPY_OBJ_DIR) -f V$(ENTROPY_TOP).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
+	@cp -f $(ENTROPY_OBJ_DIR)/$(ENTROPY_SIM_BIN) ./$(ENTROPY_SIM_BIN) 2>/dev/null || true
+	@echo ""
+	@echo "Build complete: ./$(ENTROPY_SIM_BIN)"
+
 run: $(SIM_BIN)
 	@mkdir -p $(dir $(OBU_OUTPUT))
 	./$(SIM_BIN) \
@@ -109,14 +130,18 @@ wave: $(TRACE_SIM_BIN)
 		+trace \
 		$(EXTRA_PLUSARGS)
 
+entropy-check: $(ENTROPY_SIM_BIN)
+	./$(ENTROPY_SIM_BIN)
+
 clean:
-	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) *.vcd
+	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) *.vcd
 
 help:
 	@echo "Targets:"
 	@echo "  all    (default) Build simulator binary"
 	@echo "  run    Build and run (FRAMES=1)"
 	@echo "  wave   Build and run with VCD tracing"
+	@echo "  entropy-check  Build and run the standalone av1_entropy reference check"
 	@echo "  clean  Remove build artifacts"
 	@echo ""
 	@echo "Variables (override on command line):"
