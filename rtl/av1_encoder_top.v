@@ -935,6 +935,79 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [4:0] coeff_base_eob_sym_from_level;
+        input [15:0] level;
+        begin
+            if (level <= 16'd1)
+                coeff_base_eob_sym_from_level = 5'd0;
+            else if (level == 16'd2)
+                coeff_base_eob_sym_from_level = 5'd1;
+            else
+                coeff_base_eob_sym_from_level = 5'd2;
+        end
+    endfunction
+
+    function [5:0] morton3_from_xy;
+        input [2:0] x;
+        input [2:0] y;
+        begin
+            morton3_from_xy = {y[2], x[2], y[1], x[1], y[0], x[0]};
+        end
+    endfunction
+
+    function [2:0] morton3_to_x;
+        input [5:0] morton;
+        begin
+            morton3_to_x = {morton[4], morton[2], morton[0]};
+        end
+    endfunction
+
+    function [2:0] morton3_to_y;
+        input [5:0] morton;
+        begin
+            morton3_to_y = {morton[5], morton[3], morton[1]};
+        end
+    endfunction
+
+    function [20:0] next_blk_morton_packed;
+        input [9:0] cur_blk_x_in;
+        input [9:0] cur_blk_y_in;
+        integer sbx_scan;
+        integer sby_scan;
+        integer morton_scan;
+        integer start_morton;
+        integer cur_sbx;
+        integer cur_sby;
+        integer cand_x;
+        integer cand_y;
+        reg found;
+        begin
+            cur_sbx = cur_blk_x_in >> 3;
+            cur_sby = cur_blk_y_in >> 3;
+            next_blk_morton_packed = 21'd0;
+            found = 1'b0;
+            for (sby_scan = cur_sby; sby_scan < SB_ROWS; sby_scan = sby_scan + 1) begin
+                for (sbx_scan = 0; sbx_scan < SB_COLS; sbx_scan = sbx_scan + 1) begin
+                    if (!found &&
+                        ((sby_scan > cur_sby) || ((sby_scan == cur_sby) && (sbx_scan >= cur_sbx)))) begin
+                        if ((sby_scan == cur_sby) && (sbx_scan == cur_sbx))
+                            start_morton = morton3_from_xy(cur_blk_x_in[2:0], cur_blk_y_in[2:0]) + 1;
+                        else
+                            start_morton = 0;
+                        for (morton_scan = start_morton; morton_scan < 64; morton_scan = morton_scan + 1) begin
+                            cand_x = (sbx_scan << 3) + morton3_to_x(morton_scan[5:0]);
+                            cand_y = (sby_scan << 3) + morton3_to_y(morton_scan[5:0]);
+                            if (!found && (cand_x < BLK_COLS) && (cand_y < BLK_ROWS)) begin
+                                next_blk_morton_packed = {1'b1, cand_y[9:0], cand_x[9:0]};
+                                found = 1'b1;
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    endfunction
+
     function signed [15:0] round_shift16;
         input signed [15:0] val;
         input integer shift;
@@ -1000,6 +1073,10 @@ module av1_encoder_top #(
     wire [3:0]   cur_generic_eob_pt = get_eob_pos_token_fn(cur_generic_eob);
     wire [9:0]   cur_generic_eob_extra = get_eob_extra_fn(cur_generic_eob, cur_generic_eob_pt);
     wire [3:0]   cur_generic_eob_bits = eob_offset_bits_fn(cur_generic_eob_pt);
+    wire [20:0]  next_blk_morton = next_blk_morton_packed(blk_x, blk_y);
+    wire         has_next_blk_morton = next_blk_morton[20];
+    wire [9:0]   next_blk_y_morton = next_blk_morton[19:10];
+    wire [9:0]   next_blk_x_morton = next_blk_morton[9:0];
     wire         cur_generic_coeff_path =
         cur_block_has_coeff &&
         !use_inter;
@@ -2093,7 +2170,7 @@ module av1_encoder_top #(
 
                 TS_DC_BASE: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= abs16(qcoeff[0])[1:0] - 2'd1; // level-1 for coeff_base_eob
+                    ec_symbol        <= coeff_base_eob_sym_from_level(abs16(qcoeff[0]));
                     ec_nsyms         <= 5'd3;
                     ec_icdf_flat     <= cur_base_eob_icdf;
                     top_state        <= TS_DC_BASE_WAIT;
@@ -2960,20 +3037,15 @@ module av1_encoder_top #(
 
                 // Advance to next block
                 TS_NEXT_BLK: begin
-                    if (blk_x < BLK_COLS - 1) begin
-                        blk_x    <= blk_x + 1;
+                    if (has_next_blk_morton) begin
+                        blk_x    <= next_blk_x_morton;
+                        blk_y    <= next_blk_y_morton;
                         top_state <= TS_PART_PREP;
                     end else begin
-                        blk_x <= 0;
-                        if (blk_y < BLK_ROWS - 1) begin
-                            blk_y     <= blk_y + 1;
-                            top_state <= TS_PART_PREP;
-                        end else begin
-                            // All blocks processed
-                            // Finalize entropy coder
-                            ec_finalize <= 1;
-                            top_state   <= TS_DONE;
-                        end
+                        // All blocks processed
+                        // Finalize entropy coder
+                        ec_finalize <= 1;
+                        top_state   <= TS_DONE;
                     end
                 end
 
