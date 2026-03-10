@@ -106,6 +106,7 @@ Inventory of the current repo state:
   - RTL raw payload now also emits intra-block `y_mode`, zero `angle_delta`, and deterministic `UV_DC_PRED` syntax for keyframe and intra-only blocks before the placeholder coefficient stream
   - RTL raw payload now emits the luma `txb_skip=0` entry symbol and the deterministic zero-chroma `txb_skip=1` symbols before reconstruction, while still using the older placeholder luma coefficient-presence stream behind them
   - RTL raw payload now emits a first real luma coefficient syntax slice for intra DC-only 8x8 blocks with `eob=1` and `|qcoeff[0]| <= 14`: intra `tx_type`, `eob`, `coeff_base_eob`, bounded `coeff_br`, and neighbor-aware DC sign
+  - RTL raw payload now emits the first verified sparse low-order AC luma slice for intra 8x8 blocks where only `qcoeff[0]` and `qcoeff[1]` are nonzero, `qcoeff[8] == 0`, `|qcoeff[0]| <= 2`, and `|qcoeff[1]| == 1`: full `eob_multi64` symbol `2`, `eob_extra=0`, `coeff_base_eob` at scan `c=2`, zero base at scan `c=1`, DC base, DC sign, and AC sign
   - software-writer coefficient scan order now matches the official libaom `default_scan_8x8` table
   - RTL luma reconstruction now transposes the dequantized 8x8 coefficient matrix into the decoder-consistent flat-index orientation before the inverse 2D transform
   - non-directional intra prediction now matches AV1's one-sided edge fallback rules for left-only and top-only blocks instead of forcing both missing sides to `128`
@@ -129,6 +130,8 @@ Inventory of the current repo state:
     - correcting `tb/av1_bitstream_writer.h` to libaom's real `default_scan_8x8`
     - transposing the RTL inverse-path 8x8 coefficient matrix before IDCT
     - fixing left-only / top-only non-directional intra edge fallback in `rtl/av1_intra_pred.v`
+  - the same focused `16x16` `data/ac_probe_16x16_1f.yuv` check at `qindex=240` still decodes and matches `recon.yuv` exactly after moving the first sparse low-order AC subset onto the RTL raw path
+  - on that sparse-AC check, the preserved RTL raw payload is now `35` bytes and both `aomdec` and `ffmpeg` decode outputs match `recon.yuv` bit-for-bit
   - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -155,8 +158,8 @@ Inventory of the current repo state:
   - the raw RTL path now also owns keyframe and intra-only `y_mode`, zero `angle_delta`, and deterministic `uv_mode`
   - the raw RTL path now also owns luma/chroma `txb_skip` entry symbols for the current reduced 8x8/4x4 transform subset
   - the raw RTL path now also owns a real DC-only luma coefficient slice for intra blocks with `eob=1`, bounded `coeff_br`, and neighbor-conditioned DC-sign context
-  - the software-owned debug path is now exact again on the first sparse low-order AC still-picture probe, so the active ownership gap is no longer "make the reduced AC case round-trip"; it is "move that now-verified sparse AC syntax subset onto the RTL raw path"
-  - the remaining ownership gap is moving real partition, inter/intra frame-type gating, motion, non-DC coefficient syntax, larger-magnitude coefficient tails, and the broader tile grammar onto the RTL top-level path
+  - the raw RTL path now also owns the first sparse low-order AC subset for the exact-match `qindex=240` still-picture probe: `eob=3`, `eob_extra=0`, EOB coeff at flat index `1`, zero base at flat index `8`, and the corresponding DC/AC signs
+  - the remaining ownership gap is extending that reduced non-DC path into denser low-order blocks, larger-magnitude coefficient tails, real partition/inter syntax, and the broader tile grammar on the RTL top-level path
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
@@ -164,7 +167,7 @@ Inventory of the current repo state:
   - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - expanding beyond the current reduced single-reference subset once the ownership path is real
-  - moving the now-verified sparse low-order AC still-picture subset from the software writer into the RTL-owned raw path before tackling denser non-DC blocks
+  - extending the newly RTL-owned sparse low-order AC subset into denser non-DC blocks and larger-magnitude coefficient tails before tackling broader block syntax
 - A lightweight debug probe now exists in the testbench:
   - `+dump_inter_summary=1` prints captured inter blocks, MVs, and nonzero counts after each frame
   - `+dump_blocks=1` on the synthetic `data/ac_probe_16x16_1f.yuv` case shows the next non-DC step cleanly:
@@ -221,7 +224,7 @@ If a syntax blocker appears, check `av1-reference-docs/external/README.md` first
 For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
 If the ME block dominates runtime, drop to the `16x16` 2-frame debug clips first to validate inter correctness before retrying `64x64` and larger cases.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
-For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` at `qindex=240` in the loop. It is now a verified exact-match probe for the software-owned path and should be the first regression check when moving low-order AC syntax onto the RTL raw path.
+For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` at `qindex=240` in the loop. It is now a verified exact-match probe for both the software-owned path and the first RTL-owned sparse AC subset, and it should stay the first regression check before extending into denser non-DC blocks.
 
 ## Verification Rules
 
