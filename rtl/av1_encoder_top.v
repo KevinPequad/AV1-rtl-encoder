@@ -94,6 +94,12 @@ module av1_encoder_top #(
         TS_SYNTAX_WAIT  = 6'd38,
         TS_COEFF_SYM    = 6'd39,
         TS_COEFF_WAIT   = 6'd40,
+        TS_SYNTAX_YMODE = 6'd41,
+        TS_SYNTAX_YWAIT = 6'd42,
+        TS_SYNTAX_ANGLE = 6'd43,
+        TS_SYNTAX_AWAIT = 6'd44,
+        TS_SYNTAX_UVMODE= 6'd45,
+        TS_SYNTAX_UVWAIT= 6'd46,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -240,8 +246,152 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [2:0] intra_mode_context_from_mode;
+        input [3:0] mode;
+        begin
+            case (mode)
+                AV1_V_PRED:      intra_mode_context_from_mode = 3'd1;
+                AV1_H_PRED:      intra_mode_context_from_mode = 3'd2;
+                AV1_D45_PRED:    intra_mode_context_from_mode = 3'd3;
+                AV1_D135_PRED:   intra_mode_context_from_mode = 3'd4;
+                AV1_D113_PRED:   intra_mode_context_from_mode = 3'd4;
+                AV1_D157_PRED:   intra_mode_context_from_mode = 3'd4;
+                AV1_D203_PRED:   intra_mode_context_from_mode = 3'd4;
+                AV1_D67_PRED:    intra_mode_context_from_mode = 3'd3;
+                AV1_SMOOTH_PRED: intra_mode_context_from_mode = 3'd0;
+                AV1_PAETH_PRED:  intra_mode_context_from_mode = 3'd0;
+                default:         intra_mode_context_from_mode = 3'd0;
+            endcase
+        end
+    endfunction
+
+    function is_directional_mode;
+        input [3:0] mode;
+        begin
+            case (mode)
+                AV1_V_PRED,
+                AV1_H_PRED,
+                AV1_D45_PRED,
+                AV1_D135_PRED,
+                AV1_D113_PRED,
+                AV1_D157_PRED,
+                AV1_D203_PRED,
+                AV1_D67_PRED: is_directional_mode = 1'b1;
+                default:      is_directional_mode = 1'b0;
+            endcase
+        end
+    endfunction
+
+    function [2:0] get_kf_mode_above_ctx_cur;
+        input [9:0] cur_blk_x;
+        input [9:0] cur_blk_y;
+        integer mi_col;
+        begin
+            mi_col = cur_blk_x << 1;
+            if ((cur_blk_y > 0) && (mi_col < MI_COLS))
+                get_kf_mode_above_ctx_cur = intra_mode_context_from_mode(mode_above[mi_col]);
+            else
+                get_kf_mode_above_ctx_cur = 3'd0;
+        end
+    endfunction
+
+    function [2:0] get_kf_mode_left_ctx_cur;
+        input [9:0] cur_blk_x;
+        input [9:0] cur_blk_y;
+        integer mi_row;
+        begin
+            mi_row = cur_blk_y << 1;
+            if ((cur_blk_x > 0) && (mi_row < MI_ROWS))
+                get_kf_mode_left_ctx_cur = intra_mode_context_from_mode(mode_left[mi_row]);
+            else
+                get_kf_mode_left_ctx_cur = 3'd0;
+        end
+    endfunction
+
+    function [255:0] kf_y_mode_icdf_flat;
+        input [2:0] above_ctx;
+        input [2:0] left_ctx;
+        begin
+            case ({above_ctx, left_ctx})
+                6'd0:  kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd30466,16'd29093,16'd28165,16'd24189,16'd23244,16'd21825,16'd21110,16'd20682,16'd20218,16'd19338,16'd17027,16'd15588};
+                6'd1:  kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd31409,16'd30172,16'd28658,16'd24434,16'd23032,16'd21888,16'd21444,16'd20719,16'd20303,16'd19516,16'd18066,16'd12016};
+                6'd2:  kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd31567,16'd29929,16'd29336,16'd26160,16'd25620,16'd24133,16'd23239,16'd23055,16'd22788,16'd22296,16'd10771,16'd10052};
+                6'd3:  kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32462,16'd30958,16'd29585,16'd24746,16'd22096,16'd19998,16'd19546,16'd19136,16'd18808,16'd16442,16'd15406,16'd14091};
+                6'd4:  kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32475,16'd31073,16'd30261,16'd26437,16'd25583,16'd22391,16'd20033,16'd18609,16'd16501,16'd15603,16'd13265,16'd12122};
+                6'd8:  kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd31436,16'd30482,16'd29014,16'd25381,16'd24023,16'd23089,16'd22760,16'd21832,16'd21440,16'd20848,16'd19585,16'd10023};
+                6'd9:  kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd31794,16'd31276,16'd29905,16'd27610,16'd26423,16'd25913,16'd25795,16'd25066,16'd24886,16'd24560,16'd24099,16'd5983};
+                6'd10: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd30492,16'd29090,16'd27915,16'd24469,16'd23405,16'd22170,16'd21607,16'd21077,16'd20728,16'd20177,16'd12781,16'd7444};
+                6'd11: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32210,16'd31096,16'd29153,16'd24649,16'd19825,16'd18408,16'd18172,16'd17408,16'd17087,16'd15432,16'd14689,16'd8537};
+                6'd12: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd31994,16'd30981,16'd29675,16'd26001,16'd24516,16'd21984,16'd20717,16'd17905,16'd16195,16'd15496,16'd14231,16'd7543};
+                6'd16: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32077,16'd30305,16'd29538,16'd25729,16'd25055,16'd23401,16'd22577,16'd22312,16'd22004,16'd21383,16'd13591,16'd12613};
+                6'd17: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd30907,16'd29211,16'd27743,16'd23219,16'd22062,16'd20695,16'd20147,16'd19604,16'd19230,16'd18506,16'd13470,16'd9687};
+                6'd18: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32086,16'd30794,16'd30467,16'd28555,16'd28354,16'd27082,16'd26434,16'd26366,16'd26252,16'd26024,16'd6505,16'd6183};
+                6'd19: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32252,16'd30287,16'd28975,16'd23878,16'd21523,16'd18561,16'd17924,16'd17565,16'd17224,16'd14954,16'd11734,16'd10718};
+                6'd20: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32463,16'd30737,16'd30072,16'd26561,16'd25961,16'd21563,16'd19171,16'd18424,16'd17263,16'd16501,16'd9858,16'd9194};
+                6'd24: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32409,16'd30917,16'd29696,16'd25060,16'd21419,16'd19724,16'd19315,16'd18778,16'd18381,16'd15488,16'd14399,16'd12602};
+                6'd25: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32342,16'd31158,16'd29485,16'd25225,16'd19468,16'd18404,16'd18131,16'd17439,16'd17105,16'd14524,16'd13821,16'd8203};
+                6'd26: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32018,16'd30078,16'd29118,16'd24605,16'd21538,16'd19070,16'd18425,16'd18012,16'd17643,16'd15004,16'd9731,16'd8451};
+                6'd27: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32528,16'd31536,16'd30389,16'd26743,16'd18767,16'd17153,16'd16994,16'd16817,16'd16667,16'd9516,16'd9048,16'd7714};
+                6'd28: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32485,16'd30983,16'd29953,16'd25769,16'd22718,16'd19108,16'd17943,16'd16652,16'd15317,16'd11496,16'd10280,16'd8843};
+                6'd32: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32477,16'd31150,16'd30214,16'd26219,16'd25449,16'd22989,16'd20913,16'd19075,16'd16834,16'd15979,16'd13671,16'd12578};
+                6'd33: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32277,16'd31143,16'd29653,16'd25380,16'd24236,16'd22207,16'd20863,16'd17756,16'd15892,16'd15080,16'd13626,16'd9563};
+                6'd34: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32261,16'd30523,16'd29900,16'd26466,16'd25947,16'd22598,16'd20106,16'd19350,16'd18256,16'd17616,16'd8901,16'd8356};
+                6'd35: kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32482,16'd30883,16'd29489,16'd24615,16'd22753,16'd18947,16'd18039,16'd17018,16'd16042,16'd13124,16'd11815,16'd10835};
+                default:kf_y_mode_icdf_flat = {48'd0,16'd32768,16'd32593,16'd31802,16'd31355,16'd29180,16'd28776,16'd22903,16'd18657,16'd15386,16'd10509,16'd9859,16'd8288,16'd7618};
+            endcase
+        end
+    endfunction
+
+    function [255:0] angle_delta_icdf_flat;
+        input [3:0] mode;
+        begin
+            case (mode)
+                AV1_V_PRED:    angle_delta_icdf_flat = {192'd0,16'd22776,16'd7567,16'd5032,16'd2180};
+                AV1_H_PRED:    angle_delta_icdf_flat = {192'd0,16'd23487,16'd8801,16'd5608,16'd2301};
+                AV1_D45_PRED:  angle_delta_icdf_flat = {192'd0,16'd19354,16'd13699,16'd11018,16'd3780};
+                AV1_D135_PRED: angle_delta_icdf_flat = {192'd0,16'd17138,16'd15147,16'd11226,16'd4581};
+                AV1_D113_PRED: angle_delta_icdf_flat = {192'd0,16'd19588,16'd14509,16'd10927,16'd1737};
+                AV1_D157_PRED: angle_delta_icdf_flat = {192'd0,16'd17650,16'd12485,16'd10176,16'd2664};
+                AV1_D203_PRED: angle_delta_icdf_flat = {192'd0,16'd20341,16'd15453,16'd11096,16'd2240};
+                default:       angle_delta_icdf_flat = {192'd0,16'd17676,16'd12459,16'd10428,16'd3605};
+            endcase
+        end
+    endfunction
+
+    function [255:0] if_y_mode_icdf_flat;
+        begin
+            if_y_mode_icdf_flat = {48'd0,16'd32768,16'd30852,16'd29984,16'd29701,16'd28152,16'd27364,16'd25527,16'd24649,16'd23950,16'd23318,16'd22631,16'd19845,16'd18673};
+        end
+    endfunction
+
+    function [255:0] uv_mode_dc_icdf_flat;
+        input [3:0] y_mode;
+        begin
+            case (y_mode)
+                AV1_DC_PRED:     uv_mode_dc_icdf_flat = {240'd0,16'd10407};
+                AV1_V_PRED:      uv_mode_dc_icdf_flat = {240'd0,16'd4532};
+                AV1_H_PRED:      uv_mode_dc_icdf_flat = {240'd0,16'd5273};
+                AV1_D45_PRED:    uv_mode_dc_icdf_flat = {240'd0,16'd6740};
+                AV1_D135_PRED:   uv_mode_dc_icdf_flat = {240'd0,16'd4987};
+                AV1_D113_PRED:   uv_mode_dc_icdf_flat = {240'd0,16'd5370};
+                AV1_D157_PRED:   uv_mode_dc_icdf_flat = {240'd0,16'd4816};
+                AV1_D203_PRED:   uv_mode_dc_icdf_flat = {240'd0,16'd6608};
+                AV1_D67_PRED:    uv_mode_dc_icdf_flat = {240'd0,16'd5998};
+                AV1_SMOOTH_PRED: uv_mode_dc_icdf_flat = {240'd0,16'd10660};
+                AV1_PAETH_PRED:  uv_mode_dc_icdf_flat = {240'd0,16'd3144};
+                default:         uv_mode_dc_icdf_flat = {240'd0,16'd10407};
+            endcase
+        end
+    endfunction
+
     wire [1:0] cur_skip_ctx = get_skip_ctx_cur(blk_x, blk_y);
     wire       cur_block_skip = ~cur_block_has_coeff;
+    wire [2:0] cur_kf_above_ctx = get_kf_mode_above_ctx_cur(blk_x, blk_y);
+    wire [2:0] cur_kf_left_ctx  = get_kf_mode_left_ctx_cur(blk_x, blk_y);
+    wire [255:0] cur_kf_y_icdf  = kf_y_mode_icdf_flat(cur_kf_above_ctx, cur_kf_left_ctx);
+    wire [255:0] cur_if_y_icdf  = if_y_mode_icdf_flat();
+    wire [255:0] cur_ang_icdf   = angle_delta_icdf_flat(best_intra_mode);
+    wire [255:0] cur_uv_icdf    = uv_mode_dc_icdf_flat(best_intra_mode);
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -971,6 +1121,58 @@ module av1_encoder_top #(
                 end
 
                 TS_SYNTAX_WAIT: begin
+                    if (ec_done) begin
+                        if (!use_inter) begin
+                            top_state <= TS_SYNTAX_YMODE;
+                        end else if (cur_block_skip) begin
+                            proc_idx  <= 0;
+                            top_state <= TS_IQ_START;
+                        end else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_COEFF_SYM;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_YMODE: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= {1'b0, best_intra_mode};
+                    ec_nsyms         <= 5'd13;
+                    ec_icdf_flat     <= is_keyframe ? cur_kf_y_icdf : cur_if_y_icdf;
+                    top_state        <= TS_SYNTAX_YWAIT;
+                end
+
+                TS_SYNTAX_YWAIT: begin
+                    if (ec_done) begin
+                        if (is_directional_mode(best_intra_mode))
+                            top_state <= TS_SYNTAX_ANGLE;
+                        else
+                            top_state <= TS_SYNTAX_UVMODE;
+                    end
+                end
+
+                TS_SYNTAX_ANGLE: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd3; // angle_delta = 0
+                    ec_nsyms         <= 5'd7;
+                    ec_icdf_flat     <= cur_ang_icdf;
+                    top_state        <= TS_SYNTAX_AWAIT;
+                end
+
+                TS_SYNTAX_AWAIT: begin
+                    if (ec_done)
+                        top_state <= TS_SYNTAX_UVMODE;
+                end
+
+                TS_SYNTAX_UVMODE: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // UV_DC_PRED
+                    ec_nsyms         <= 5'd14;
+                    ec_icdf_flat     <= cur_uv_icdf;
+                    top_state        <= TS_SYNTAX_UVWAIT;
+                end
+
+                TS_SYNTAX_UVWAIT: begin
                     if (ec_done) begin
                         if (cur_block_skip) begin
                             proc_idx  <= 0;

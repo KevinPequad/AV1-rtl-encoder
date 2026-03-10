@@ -28,6 +28,18 @@
 - Keep `README.md` updated as a living project status document while implementation is in progress. Do not wait until the end of the project to refresh it.
 - After each meaningful implementation or verification change, update `README.md` with the current supported subset, verification status, known gaps, and the current recommended run flow.
 - After each meaningful implementation or correctness fix, update `AGENTS.md`, the relevant detailed status or inventory doc, create a focused git commit, push current progress, and continue working.
+- Continuously update both `AGENTS.md` and `README.md` during active work. Do not wait only for milestones.
+- Treat documentation updates as required implementation work whenever there is new information worth preserving.
+- Update the docs after any of the following:
+  - a feature is implemented or materially expanded
+  - a verification result changes confidence or scope
+  - a blocker is clarified, removed, or replaced by a narrower blocker
+  - a root cause or important discovery is found
+  - RTL ownership moves from software debug paths onto the raw RTL path
+  - a roadmap item is re-scoped, deferred, or unlocked
+  - a new external reference materially changes the implementation plan
+- `README.md` must capture current status, supported behavior, verification state, blockers, and discoveries worth preserving.
+- `AGENTS.md` must capture durable execution rules, current focus, active ownership boundary, and any new working rules discovered during implementation.
 - After each verified milestone, create a git commit that captures the completed work and push it to the configured remote before continuing.
 - Use non-interactive git commands only. Do not stop at the commit or push; continue directly to the next backlog item after the push succeeds.
 - When a blocker, ambiguity, or spec mismatch appears, do not stop at local guesswork. Pull authoritative external references into `av1-reference-docs/external/`, record the relevant findings there, and keep implementing from those materials.
@@ -59,12 +71,12 @@
 ## Current Focus
 - The reduced still-picture header and raw frame-size ownership checkpoints are already on the RTL byte path.
 - The entropy foundation now includes reference-matching bool, literal, and generic CDF symbol coding in `rtl/av1_entropy.v`.
-- The top-level now mirrors the writer's 8x8 neighborhood syntax context state and emits the real AV1 skip symbol on the raw RTL path.
+- The top-level now mirrors the writer's 8x8 neighborhood syntax context state and emits the real AV1 skip symbol plus intra `y_mode`, zero `angle_delta`, and deterministic `uv_mode` on the raw RTL path for keyframe/intra-only blocks.
 - The next highest-priority ownership move is to drive real tile-group syntax from `rtl/av1_encoder_top.v` through that coder:
   - partition symbols
-  - intra/inter mode symbols
+  - remaining intra/inter frame-type and mode symbols
   - motion symbols
-  - coefficient syntax in the same ordering as the AV1 tile grammar
+  - coefficient and txb syntax in the same ordering as the AV1 tile grammar
 - Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
 
 ## Stop Conditions
@@ -72,21 +84,37 @@
 - Progress updates are not stop conditions.
 - Partial verification is not a stop condition.
 - A clean checkpoint is not a stop condition.
+- The end of a turn is not a stop condition by itself.
+- A convenient place to summarize is not a stop condition.
+- "This is a good place to stop" is not a valid reason to stop work.
 - A successful build, decode, or single feature bring-up is not a stop condition by itself.
 - After any milestone, commit and push the verified work, then continue immediately to the next highest-priority remaining task.
 - Only stop and reply when:
   - the full acceptance criteria are complete, or
-  - a hard blocker is reached that cannot be resolved locally with the available code, files, tools, network access, and permissions
+  - a hard blocker is reached that cannot be resolved locally with the available code, files, tools, network access, and permissions, or
+  - continuing without stopping would be materially detrimental to the project
+    - examples: destructive-risk changes without confirmation, unverifiable guesswork that would likely corrupt the ownership path, or resource/time usage that would clearly damage reproducibility without producing useful signal
 
 ## Reporting Policy
 - Do not reply just because a milestone was reached.
 - Do not pause for progress summaries or routine check-ins.
 - If a milestone is reached, commit it, push it, and keep working without waiting for confirmation.
-- Keep `README.md` current instead of using milestone replies as the main status log.
+- Keep `README.md` and `AGENTS.md` current instead of using milestone replies as the main status log.
+- Do not reply only because the work reached a natural pause point.
+- Do not reply only because a push or doc update just completed.
+- After documentation updates, milestone commits, pushes, or verification wins, continue directly into the next highest-priority task.
 - If a hard blocker is reached, report only:
   - the exact blocker
   - the last verified working state
   - the immediate next step once unblocked
+
+## Documentation Discipline
+- Documentation drift is not allowed.
+- When progress changes what is true about the project, update the docs in the same work cycle.
+- Do not leave important discoveries only in commit messages, terminal logs, or assistant replies.
+- If a discovery is important enough to affect the next implementation step, it is important enough to record in `README.md` and, when it changes agent behavior, in `AGENTS.md`.
+- `README.md` is the living engineering status file.
+- `AGENTS.md` is the living execution-policy and current-focus file.
 
 ## Git Policy
 - Treat each verified milestone as a required git sync point.
