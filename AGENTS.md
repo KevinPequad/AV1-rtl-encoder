@@ -13,6 +13,14 @@
 - Default behavior: continue work autonomously across implementation, build, simulation, debug, verification, and the next backlog item without waiting for confirmation between routine substeps.
 - Do not stop for milestones, progress updates, partial success, or clean checkpoints.
 - Do not stop at analysis, plans, documentation, or a single successful build if code changes and verification work are still possible.
+- Do not treat a user-requested side task or maintenance task as a terminal event if the main encoder roadmap is still active.
+- Examples of non-terminal side tasks:
+  - updating `.gitignore`
+  - updating `README.md` or `AGENTS.md`
+  - cleaning build scripts or helper scripts
+  - adding local debug utilities
+  - small workflow, tooling, or repo-hygiene fixes
+- After completing a side task, immediately resume the highest-priority remaining encoder work in the same turn unless the user explicitly said to stop after that task.
 - Preserve the same discipline, ownership rules, documentation habits, and validation rigor used in the completed H.264 RTL encoder project, but adapt them to AV1 syntax and workflow.
 - Use the normal loop on every turn unless blocked:
   1. inspect current repo state
@@ -85,10 +93,12 @@
 - Progress updates are not stop conditions.
 - Partial verification is not a stop condition.
 - A clean checkpoint is not a stop condition.
+- A completed side task or maintenance request is not a stop condition.
 - The end of a turn is not a stop condition by itself.
 - A convenient place to summarize is not a stop condition.
 - "This is a good place to stop" is not a valid reason to stop work.
 - A successful build, decode, or single feature bring-up is not a stop condition by itself.
+- Finishing `.gitignore`, docs, scripts, cleanup, or other repo-maintenance work is not a valid reason to stop if roadmap work still remains.
 - After any milestone, commit and push the verified work, then continue immediately to the next highest-priority remaining task.
 - Only stop and reply when:
   - the full acceptance criteria are complete, or
@@ -101,9 +111,10 @@
 - Do not pause for progress summaries or routine check-ins.
 - If a milestone is reached, commit it, push it, and keep working without waiting for confirmation.
 - Keep `README.md` and `AGENTS.md` current instead of using milestone replies as the main status log.
+- Do not reply only because a side-task request was completed if active encoder implementation work still remains.
 - Do not reply only because the work reached a natural pause point.
 - Do not reply only because a push or doc update just completed.
-- After documentation updates, milestone commits, pushes, or verification wins, continue directly into the next highest-priority task.
+- After documentation updates, side-task completions, milestone commits, pushes, or verification wins, continue directly into the next highest-priority task.
 - If a hard blocker is reached, report only:
   - the exact blocker
   - the last verified working state
