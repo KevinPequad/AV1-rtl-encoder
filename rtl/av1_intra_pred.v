@@ -115,6 +115,70 @@ module av1_intra_pred (
         end
     endfunction
 
+    function [7:0] interp_w32;
+        input [7:0] a;
+        input [7:0] b;
+        input [5:0] shift;
+        reg [15:0] acc;
+        begin
+            acc = a * (6'd32 - shift) + b * shift;
+            interp_w32 = (acc + 16'd16) >> 5;
+        end
+    endfunction
+
+    function [8:0] mode_to_angle;
+        input [3:0] pred_mode;
+        begin
+            case (pred_mode)
+                V_PRED:    mode_to_angle = 9'd90;
+                H_PRED:    mode_to_angle = 9'd180;
+                D45_PRED:  mode_to_angle = 9'd45;
+                D135_PRED: mode_to_angle = 9'd135;
+                D113_PRED: mode_to_angle = 9'd113;
+                D157_PRED: mode_to_angle = 9'd157;
+                D203_PRED: mode_to_angle = 9'd203;
+                D67_PRED:  mode_to_angle = 9'd67;
+                default:   mode_to_angle = 9'd0;
+            endcase
+        end
+    endfunction
+
+    function [10:0] dr_intra_derivative;
+        input [8:0] angle;
+        begin
+            case (angle)
+                9'd3:  dr_intra_derivative = 11'd1023;
+                9'd6:  dr_intra_derivative = 11'd547;
+                9'd9:  dr_intra_derivative = 11'd372;
+                9'd14: dr_intra_derivative = 11'd273;
+                9'd17: dr_intra_derivative = 11'd215;
+                9'd20: dr_intra_derivative = 11'd178;
+                9'd23: dr_intra_derivative = 11'd151;
+                9'd26: dr_intra_derivative = 11'd132;
+                9'd29: dr_intra_derivative = 11'd116;
+                9'd32: dr_intra_derivative = 11'd102;
+                9'd36: dr_intra_derivative = 11'd90;
+                9'd39: dr_intra_derivative = 11'd80;
+                9'd42: dr_intra_derivative = 11'd71;
+                9'd45: dr_intra_derivative = 11'd64;
+                9'd48: dr_intra_derivative = 11'd57;
+                9'd51: dr_intra_derivative = 11'd51;
+                9'd54: dr_intra_derivative = 11'd45;
+                9'd58: dr_intra_derivative = 11'd40;
+                9'd61: dr_intra_derivative = 11'd35;
+                9'd64: dr_intra_derivative = 11'd31;
+                9'd67: dr_intra_derivative = 11'd27;
+                9'd70: dr_intra_derivative = 11'd23;
+                9'd74: dr_intra_derivative = 11'd19;
+                9'd77: dr_intra_derivative = 11'd15;
+                9'd80: dr_intra_derivative = 11'd11;
+                9'd84: dr_intra_derivative = 11'd7;
+                9'd87: dr_intra_derivative = 11'd3;
+                default: dr_intra_derivative = 11'd0;
+            endcase
+        end
+    endfunction
+
     function [7:0] smooth_predict;
         input [3:0] size;
         input [3:0] r;
@@ -130,18 +194,10 @@ module av1_intra_pred (
             w_row = smooth_weight(size, r);
             w_col = smooth_weight(size, c);
             acc = w_row * top_px +
-                  (8'd255 - w_row) * below_px +
+                  (9'd256 - w_row) * below_px +
                   w_col * left_px +
-                  (8'd255 - w_col) * right_px;
+                  (9'd256 - w_col) * right_px;
             smooth_predict = (acc + 19'd256) >> 9;
-        end
-    endfunction
-
-    function [5:0] scaled_offset;
-        input [9:0] mult;
-        input [4:0] step;
-        begin
-            scaled_offset = (mult * step + 10'd128) >> 8;
         end
     endfunction
 
@@ -155,6 +211,26 @@ module av1_intra_pred (
     reg signed [6:0] proj_idx;
     reg [5:0] dir_off;
     reg [5:0] left_idx;
+    reg [7:0] above_ref [0:16];
+    reg [7:0] left_ref [0:16];
+    reg [4:0] max_base;
+    reg [4:0] num_top_ref;
+    reg [4:0] num_left_ref;
+    reg [8:0] p_angle;
+    reg        need_above_ref;
+    reg        need_left_ref;
+    reg        need_above_left_ref;
+    reg        need_right_ref;
+    reg        need_bottom_ref;
+    reg [10:0] dx;
+    reg [10:0] dy;
+    reg signed [12:0] dir_x;
+    reg signed [12:0] dir_y;
+    reg signed [8:0] base_x;
+    reg signed [8:0] base_y;
+    reg [5:0] shift_amt;
+    reg [7:0] samp_a;
+    reg [7:0] samp_b;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -203,125 +279,177 @@ module av1_intra_pred (
                         right_px = has_top ? top[blk_size - 1] : 8'd128;
                         below_px = has_left ? left[blk_size - 1] : 8'd128;
                         top_left_px = (has_top && has_left) ? top_left : 8'd128;
+                        max_base = (blk_size << 1) - 1;
+                        p_angle = mode_to_angle(mode);
+                        need_above_ref = 1'b0;
+                        need_left_ref = 1'b0;
+                        need_above_left_ref = 1'b0;
+                        need_right_ref = 1'b0;
+                        need_bottom_ref = 1'b0;
+                        num_top_ref = blk_size;
+                        num_left_ref = blk_size;
+                        dx = 11'd0;
+                        dy = 11'd0;
+
+                        for (i = 0; i < 17; i = i + 1) begin
+                            above_ref[i] = 8'd128;
+                            left_ref[i] = 8'd128;
+                        end
+
+                        if (mode == V_PRED || mode == H_PRED || mode == D45_PRED ||
+                            mode == D135_PRED || mode == D113_PRED ||
+                            mode == D157_PRED || mode == D203_PRED ||
+                            mode == D67_PRED) begin
+                            if (p_angle <= 9'd90) begin
+                                need_above_ref = 1'b1;
+                                need_left_ref = 1'b0;
+                            end else if (p_angle < 9'd180) begin
+                                need_above_ref = 1'b1;
+                                need_left_ref = 1'b1;
+                            end else begin
+                                need_above_ref = 1'b0;
+                                need_left_ref = 1'b1;
+                            end
+                            need_above_left_ref = 1'b1;
+                            need_right_ref = (p_angle < 9'd90);
+                            need_bottom_ref = (p_angle > 9'd180);
+                            num_top_ref = blk_size + (need_right_ref ? blk_size : 0);
+                            num_left_ref = blk_size + (need_bottom_ref ? blk_size : 0);
+
+                            if (p_angle < 9'd90)
+                                dx = dr_intra_derivative(p_angle);
+                            else if (p_angle > 9'd90 && p_angle < 9'd180)
+                                dx = dr_intra_derivative(9'd180 - p_angle);
+                            else
+                                dx = 11'd0;
+
+                            if (p_angle > 9'd90 && p_angle < 9'd180)
+                                dy = dr_intra_derivative(p_angle - 9'd90);
+                            else if (p_angle > 9'd180)
+                                dy = dr_intra_derivative(9'd270 - p_angle);
+                            else
+                                dy = 11'd0;
+
+                            if (need_above_ref) begin
+                                if (has_top) begin
+                                    for (i = 0; i < 16; i = i + 1) begin
+                                        if (i < num_top_ref) begin
+                                            if (i < blk_size)
+                                                above_ref[i + 1] = top[i];
+                                            else
+                                                above_ref[i + 1] = top[blk_size - 1];
+                                        end
+                                    end
+                                end else if (has_left) begin
+                                    for (i = 0; i < 16; i = i + 1) begin
+                                        if (i < num_top_ref)
+                                            above_ref[i + 1] = left[0];
+                                    end
+                                end else begin
+                                    for (i = 0; i < 16; i = i + 1) begin
+                                        if (i < num_top_ref)
+                                            above_ref[i + 1] = 8'd127;
+                                    end
+                                end
+                            end
+
+                            if (need_left_ref) begin
+                                if (has_left) begin
+                                    for (i = 0; i < 16; i = i + 1) begin
+                                        if (i < num_left_ref) begin
+                                            if (i < blk_size)
+                                                left_ref[i + 1] = left[i];
+                                            else
+                                                left_ref[i + 1] = left[blk_size - 1];
+                                        end
+                                    end
+                                end else if (has_top) begin
+                                    for (i = 0; i < 16; i = i + 1) begin
+                                        if (i < num_left_ref)
+                                            left_ref[i + 1] = top[0];
+                                    end
+                                end else begin
+                                    for (i = 0; i < 16; i = i + 1) begin
+                                        if (i < num_left_ref)
+                                            left_ref[i + 1] = 8'd129;
+                                    end
+                                end
+                            end
+
+                            if (need_above_left_ref) begin
+                                if (has_top && has_left)
+                                    above_ref[0] = top_left;
+                                else if (has_top)
+                                    above_ref[0] = top[0];
+                                else if (has_left)
+                                    above_ref[0] = left[0];
+                                else
+                                    above_ref[0] = 8'd128;
+                                left_ref[0] = above_ref[0];
+                            end
+                        end
 
                         for (i = 0; i < 8; i = i + 1) begin
                             if (i < blk_size) begin
                                 top_px = has_top ? top[i] : 8'd128;
                                 left_px = has_left ? left[row] : 8'd128;
 
-                                case (mode)
+                                if (mode == V_PRED || mode == H_PRED || mode == D45_PRED ||
+                                    mode == D135_PRED || mode == D113_PRED ||
+                                    mode == D157_PRED || mode == D203_PRED ||
+                                    mode == D67_PRED) begin
+                                    if (p_angle < 9'd90) begin
+                                        dir_x = ($signed({4'b0, row}) + 13'sd1) *
+                                                $signed({2'b0, dx});
+                                        base_x = ($signed(dir_x) >>> 6) + $signed({5'b0, i[3:0]});
+                                        shift_amt = (dir_x >>> 1) & 6'h1F;
+                                        if (base_x < max_base)
+                                            pred[row * blk_size + i] <= interp_w32(
+                                                above_ref[base_x + 1],
+                                                above_ref[base_x + 2],
+                                                shift_amt
+                                            );
+                                        else
+                                            pred[row * blk_size + i] <= above_ref[max_base + 1];
+                                    end else if (p_angle > 9'd90 && p_angle < 9'd180) begin
+                                        dir_x = ($signed({5'b0, i[3:0]}) <<< 6) -
+                                                (($signed({4'b0, row}) + 13'sd1) * $signed({2'b0, dx}));
+                                        base_x = $signed(dir_x) >>> 6;
+                                        if (base_x >= -1) begin
+                                            shift_amt = (dir_x >>> 1) & 6'h1F;
+                                            pred[row * blk_size + i] <= interp_w32(
+                                                above_ref[base_x + 1],
+                                                above_ref[base_x + 2],
+                                                shift_amt
+                                            );
+                                        end else begin
+                                            dir_y = ($signed({4'b0, row}) <<< 6) -
+                                                    (($signed({5'b0, i[3:0]}) + 13'sd1) * $signed({2'b0, dy}));
+                                            base_y = $signed(dir_y) >>> 6;
+                                            shift_amt = (dir_y >>> 1) & 6'h1F;
+                                            pred[row * blk_size + i] <= interp_w32(
+                                                left_ref[base_y + 1],
+                                                left_ref[base_y + 2],
+                                                shift_amt
+                                            );
+                                        end
+                                    end else if (p_angle > 9'd180) begin
+                                        dir_y = (($signed({5'b0, i[3:0]}) + 13'sd1) * $signed({2'b0, dy}));
+                                        base_y = ($signed(dir_y) >>> 6) + $signed({4'b0, row});
+                                        shift_amt = (dir_y >>> 1) & 6'h1F;
+                                        pred[row * blk_size + i] <= interp_w32(
+                                            left_ref[base_y + 1],
+                                            left_ref[base_y + 2],
+                                            shift_amt
+                                        );
+                                    end else if (p_angle == 9'd90) begin
+                                        pred[row * blk_size + i] <= above_ref[i + 1];
+                                    end else begin
+                                        pred[row * blk_size + i] <= left_ref[row + 1];
+                                    end
+                                end else case (mode)
                                     DC_PRED: begin
                                         pred[row * blk_size + i] <= dc_val;
-                                    end
-
-                                    V_PRED: begin
-                                        pred[row * blk_size + i] <= top_px;
-                                    end
-
-                                    H_PRED: begin
-                                        pred[row * blk_size + i] <= left_px;
-                                    end
-
-                                    D45_PRED: begin
-                                        dir_off = row + 1'b1;
-                                        proj_idx = $signed({3'b0, i[3:0]}) + $signed({2'b0, dir_off});
-                                        if (has_top) begin
-                                            if (proj_idx >= blk_size)
-                                                pred[row * blk_size + i] <= top[blk_size - 1];
-                                            else
-                                                pred[row * blk_size + i] <= top[proj_idx[3:0]];
-                                        end else if (has_left) begin
-                                            pred[row * blk_size + i] <= left[0];
-                                        end else begin
-                                            pred[row * blk_size + i] <= 8'd128;
-                                        end
-                                    end
-
-                                    D67_PRED: begin
-                                        dir_off = scaled_offset(10'd106, {2'b0, row} + 5'd1);
-                                        proj_idx = $signed({3'b0, i[3:0]}) + $signed({1'b0, dir_off});
-                                        if (has_top) begin
-                                            if (proj_idx >= blk_size)
-                                                pred[row * blk_size + i] <= top[blk_size - 1];
-                                            else
-                                                pred[row * blk_size + i] <= top[proj_idx[3:0]];
-                                        end else if (has_left) begin
-                                            pred[row * blk_size + i] <= left[0];
-                                        end else begin
-                                            pred[row * blk_size + i] <= 8'd128;
-                                        end
-                                    end
-
-                                    D113_PRED: begin
-                                        dir_off = scaled_offset(10'd106, {2'b0, row} + 5'd1);
-                                        proj_idx = $signed({3'b0, i[3:0]}) - $signed({1'b0, dir_off});
-                                        if (proj_idx >= 0 && has_top) begin
-                                            pred[row * blk_size + i] <= top[proj_idx[3:0]];
-                                        end else if (has_left) begin
-                                            left_idx = (proj_idx < 0) ? (-proj_idx - 1'b1) : 6'd0;
-                                            if (left_idx >= blk_size)
-                                                pred[row * blk_size + i] <= left[blk_size - 1];
-                                            else
-                                                pred[row * blk_size + i] <= left[left_idx[3:0]];
-                                        end else if (has_top) begin
-                                            pred[row * blk_size + i] <= top[0];
-                                        end else begin
-                                            pred[row * blk_size + i] <= 8'd128;
-                                        end
-                                    end
-
-                                    D135_PRED: begin
-                                        dir_off = row + 1'b1;
-                                        proj_idx = $signed({3'b0, i[3:0]}) - $signed({2'b0, dir_off});
-                                        if (proj_idx >= 0 && has_top) begin
-                                            pred[row * blk_size + i] <= top[proj_idx[3:0]];
-                                        end else if (has_left) begin
-                                            left_idx = (proj_idx < 0) ? (-proj_idx - 1'b1) : 6'd0;
-                                            if (left_idx >= blk_size)
-                                                pred[row * blk_size + i] <= left[blk_size - 1];
-                                            else
-                                                pred[row * blk_size + i] <= left[left_idx[3:0]];
-                                        end else if (has_top) begin
-                                            pred[row * blk_size + i] <= top[0];
-                                        end else begin
-                                            pred[row * blk_size + i] <= 8'd128;
-                                        end
-                                    end
-
-                                    D157_PRED: begin
-                                        dir_off = scaled_offset(10'd603, {2'b0, row} + 5'd1);
-                                        proj_idx = $signed({3'b0, i[3:0]}) - $signed({1'b0, dir_off});
-                                        if (proj_idx >= 0 && has_top) begin
-                                            if (proj_idx >= blk_size)
-                                                pred[row * blk_size + i] <= top[blk_size - 1];
-                                            else
-                                                pred[row * blk_size + i] <= top[proj_idx[3:0]];
-                                        end else if (has_left) begin
-                                            left_idx = (proj_idx < 0) ? (-proj_idx - 1'b1) : 6'd0;
-                                            if (left_idx >= blk_size)
-                                                pred[row * blk_size + i] <= left[blk_size - 1];
-                                            else
-                                                pred[row * blk_size + i] <= left[left_idx[3:0]];
-                                        end else if (has_top) begin
-                                            pred[row * blk_size + i] <= top[0];
-                                        end else begin
-                                            pred[row * blk_size + i] <= 8'd128;
-                                        end
-                                    end
-
-                                    D203_PRED: begin
-                                        dir_off = scaled_offset(10'd106, {1'b0, i[3:0]} + 5'd1);
-                                        left_idx = row + dir_off;
-                                        if (has_left) begin
-                                            if (left_idx >= blk_size)
-                                                pred[row * blk_size + i] <= left[blk_size - 1];
-                                            else
-                                                pred[row * blk_size + i] <= left[left_idx[3:0]];
-                                        end else if (has_top) begin
-                                            pred[row * blk_size + i] <= top[0];
-                                        end else begin
-                                            pred[row * blk_size + i] <= 8'd128;
-                                        end
                                     end
 
                                     PAETH_PRED: begin

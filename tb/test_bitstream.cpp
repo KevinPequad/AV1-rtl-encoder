@@ -14,6 +14,47 @@ static void write_file(const char* path, const std::vector<uint8_t>& data) {
     fprintf(stderr, "Wrote %zu bytes to %s\n", data.size(), path);
 }
 
+static void emit_case(const char* label, const char* path,
+                      const std::initializer_list<std::pair<int, int16_t>>& coeffs,
+                      bool coeff_debug = false) {
+    fprintf(stderr, "\n=== %s ===\n", label);
+    const int w = 64, h = 64;
+    AV1BitstreamWriter writer(w, h, 128);
+    writer.set_coeff_debug_mode(coeff_debug);
+    const int blk_cols = w / 8, blk_rows = h / 8;
+    for (int i = 0; i < blk_cols * blk_rows; i++) {
+        AV1BitstreamWriter::BlockInfo bi = {};
+        memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
+        if (i == 0) {
+            for (const auto& coeff : coeffs) bi.qcoeff[coeff.first] = coeff.second;
+        }
+        bi.pred_mode = 0;
+        bi.is_inter = false;
+        writer.add_block(bi);
+    }
+    auto ivf = writer.write_ivf_frame();
+    write_file(path, ivf);
+}
+
+static void emit_case_size(const char* label, const char* path, int w, int h,
+                           const std::initializer_list<std::pair<int, int16_t>>& coeffs) {
+    fprintf(stderr, "\n=== %s ===\n", label);
+    AV1BitstreamWriter writer(w, h, 128);
+    const int blk_cols = w / 8, blk_rows = h / 8;
+    for (int i = 0; i < blk_cols * blk_rows; i++) {
+        AV1BitstreamWriter::BlockInfo bi = {};
+        memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
+        if (i == 0) {
+            for (const auto& coeff : coeffs) bi.qcoeff[coeff.first] = coeff.second;
+        }
+        bi.pred_mode = 0;
+        bi.is_inter = false;
+        writer.add_block(bi);
+    }
+    auto ivf = writer.write_ivf_frame();
+    write_file(path, ivf);
+}
+
 // Test 1: All-skip frame (should produce flat gray)
 static void test_allskip() {
     fprintf(stderr, "\n=== Test 1: All-skip 64x64 frame ===\n");
@@ -33,44 +74,54 @@ static void test_allskip() {
 
 // Test 2: Single DC coefficient in first block
 static void test_single_dc() {
-    fprintf(stderr, "\n=== Test 2: Single DC coeff 64x64 frame ===\n");
-    int w = 64, h = 64;
-    AV1BitstreamWriter writer(w, h, 128);
-    int blk_cols = w / 8, blk_rows = h / 8;
-    for (int i = 0; i < blk_cols * blk_rows; i++) {
-        AV1BitstreamWriter::BlockInfo bi = {};
-        memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
-        if (i == 0) {
-            bi.qcoeff[0] = 5;  // DC = 5
-        }
-        bi.pred_mode = 0;
-        bi.is_inter = false;
-        writer.add_block(bi);
-    }
-    auto ivf = writer.write_ivf_frame();
-    write_file("test_single_dc.ivf", ivf);
+    emit_case("Test 2: Single DC coeff 64x64 frame", "test_single_dc.ivf", {
+        {0, 5},
+    });
+    emit_case("Test 2a: Single DC=10 coeff 64x64 frame", "test_single_dc10.ivf", {
+        {0, 10},
+    }, true);
+    emit_case("Test 2b: Single DC=15 coeff 64x64 frame", "test_single_dc15.ivf", {
+        {0, 15},
+    });
 }
 
 // Test 3: A few coefficients in first block
 static void test_few_coeffs() {
-    fprintf(stderr, "\n=== Test 3: Few coeffs 64x64 frame ===\n");
-    int w = 64, h = 64;
-    AV1BitstreamWriter writer(w, h, 128);
-    int blk_cols = w / 8, blk_rows = h / 8;
-    for (int i = 0; i < blk_cols * blk_rows; i++) {
-        AV1BitstreamWriter::BlockInfo bi = {};
-        memset(bi.qcoeff, 0, sizeof(bi.qcoeff));
-        if (i == 0) {
-            bi.qcoeff[0] = 10;  // DC
-            bi.qcoeff[1] = -3;
-            bi.qcoeff[8] = 2;
-        }
-        bi.pred_mode = 0;
-        bi.is_inter = false;
-        writer.add_block(bi);
-    }
-    auto ivf = writer.write_ivf_frame();
-    write_file("test_few_coeffs.ivf", ivf);
+    emit_case("Test 3: Few coeffs 64x64 frame", "test_few_coeffs.ivf", {
+        {0, 10},
+        {1, -3},
+        {8, 2},
+    });
+}
+
+static void test_single_ac_cases() {
+    emit_case("Test 3a: DC + AC@1 level1", "test_dc_ac1_pos1.ivf", {
+        {0, 10},
+        {1, 1},
+    }, true);
+    emit_case("Test 3b: DC + AC@8 level1", "test_dc_ac1_pos8.ivf", {
+        {0, 10},
+        {8, 1},
+    });
+    emit_case("Test 3c: DC + AC@1 level3", "test_dc_ac3_pos1.ivf", {
+        {0, 10},
+        {1, 3},
+    });
+    emit_case("Test 3d: DC + AC@8 level3", "test_dc_ac3_pos8.ivf", {
+        {0, 10},
+        {8, 3},
+    });
+    emit_case("Test 3e: Real block0 shape", "test_real_block0.ivf", {
+        {0, 15},
+        {8, -1},
+    });
+    emit_case_size("Test 3f: 8x8 DC=10", "test_8x8_dc10.ivf", 8, 8, {
+        {0, 10},
+    });
+    emit_case_size("Test 3g: 8x8 DC=10 + AC@1", "test_8x8_dc10_ac1.ivf", 8, 8, {
+        {0, 10},
+        {1, 1},
+    });
 }
 
 // Test 4: First block has skip=0 but all txb_skip=1 (should look like skip=1)
@@ -155,6 +206,7 @@ int main() {
     test_allskip();
     test_single_dc();
     test_few_coeffs();
+    test_single_ac_cases();
     test_skip0_empty_txb();
     test_force_skip0();
     test_256_allskip();

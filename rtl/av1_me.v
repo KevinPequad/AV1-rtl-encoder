@@ -43,13 +43,90 @@ module av1_me #(
     localparam S_DONE      = 5'd7;
 
     reg signed [8:0] mv_x, mv_y;
+    reg signed [8:0] mv_x_min, mv_x_max;
+    reg signed [8:0] mv_y_min, mv_y_max;
     reg [5:0]  pix_idx;       // 0..63 within 8x8 block
     reg [17:0] cur_sad;
+    reg [17:0] sad_after_pixel;
     reg [7:0]  ref_pixel;
     reg [10:0] ref_x, ref_y;
+    reg        zero_mv_pending;
+
+    localparam signed [11:0] SEARCH_RANGE_S = SEARCH_RANGE;
+    localparam signed [11:0] BLOCK_SIZE_S   = 12'sd8;
+    localparam signed [11:0] FRAME_WIDTH_S  = FRAME_WIDTH;
+    localparam signed [11:0] FRAME_HEIGHT_S = FRAME_HEIGHT;
 
     wire signed [10:0] cand_x = $signed({1'b0, cur_x}) + mv_x;
     wire signed [10:0] cand_y = $signed({1'b0, cur_y}) + mv_y;
+    wire signed [11:0] cur_x_s = $signed({1'b0, cur_x});
+    wire signed [11:0] cur_y_s = $signed({1'b0, cur_y});
+    wire signed [11:0] valid_min_x_w =
+        (cur_x_s < SEARCH_RANGE_S) ? -cur_x_s : -SEARCH_RANGE_S;
+    wire signed [11:0] valid_min_y_w =
+        (cur_y_s < SEARCH_RANGE_S) ? -cur_y_s : -SEARCH_RANGE_S;
+    wire signed [11:0] valid_max_x_w =
+        ((cur_x_s + BLOCK_SIZE_S + SEARCH_RANGE_S) > FRAME_WIDTH_S) ?
+            (FRAME_WIDTH_S - BLOCK_SIZE_S - cur_x_s) : SEARCH_RANGE_S;
+    wire signed [11:0] valid_max_y_w =
+        ((cur_y_s + BLOCK_SIZE_S + SEARCH_RANGE_S) > FRAME_HEIGHT_S) ?
+            (FRAME_HEIGHT_S - BLOCK_SIZE_S - cur_y_s) : SEARCH_RANGE_S;
+    wire zero_mv_valid_w =
+        (valid_min_x_w <= 0 && valid_max_x_w >= 0 &&
+         valid_min_y_w <= 0 && valid_max_y_w >= 0);
+    wire [7:0] abs_diff_w =
+        (cur_blk[pix_idx] > ref_mem_data) ?
+            (cur_blk[pix_idx] - ref_mem_data) :
+            (ref_mem_data - cur_blk[pix_idx]);
+    wire [17:0] cur_sad_next_w = cur_sad + abs_diff_w;
+
+    function [17:0] advance_raster_pair;
+        input signed [8:0] cur_mv_x;
+        input signed [8:0] cur_mv_y;
+        input signed [8:0] min_mv_x;
+        input signed [8:0] max_mv_x;
+        reg signed [8:0] next_mv_x;
+        reg signed [8:0] next_mv_y;
+        begin
+            if (cur_mv_x < max_mv_x) begin
+                next_mv_x = cur_mv_x + 1'b1;
+                next_mv_y = cur_mv_y;
+            end else begin
+                next_mv_x = min_mv_x;
+                next_mv_y = cur_mv_y + 1'b1;
+            end
+            advance_raster_pair = {next_mv_y, next_mv_x};
+        end
+    endfunction
+
+    function [17:0] advance_raster_skip_zero;
+        input signed [8:0] cur_mv_x;
+        input signed [8:0] cur_mv_y;
+        input signed [8:0] min_mv_x;
+        input signed [8:0] max_mv_x;
+        input              skip_zero;
+        reg [17:0] pair;
+        reg signed [8:0] next_mv_x;
+        reg signed [8:0] next_mv_y;
+        begin
+            pair = advance_raster_pair(cur_mv_x, cur_mv_y, min_mv_x, max_mv_x);
+            next_mv_y = pair[17:9];
+            next_mv_x = pair[8:0];
+            if (skip_zero && next_mv_x == 0 && next_mv_y == 0)
+                pair = advance_raster_pair(next_mv_x, next_mv_y, min_mv_x, max_mv_x);
+            advance_raster_skip_zero = pair;
+        end
+    endfunction
+
+    wire [17:0] next_mv_pair_w =
+        advance_raster_skip_zero(mv_x, mv_y, mv_x_min, mv_x_max, 1'b1);
+    wire signed [8:0] next_mv_x_w = next_mv_pair_w[8:0];
+    wire signed [8:0] next_mv_y_w = next_mv_pair_w[17:9];
+    wire [17:0] first_scan_pair_w =
+        advance_raster_skip_zero(mv_x_min, mv_y_min, mv_x_min, mv_x_max, 1'b1);
+    wire signed [8:0] first_scan_x_w = first_scan_pair_w[8:0];
+    wire signed [8:0] first_scan_y_w = first_scan_pair_w[17:9];
+    wire single_candidate_w = (mv_x_min == mv_x_max) && (mv_y_min == mv_y_max);
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -58,6 +135,13 @@ module av1_me #(
             best_mvx <= 0;
             best_mvy <= 0;
             best_sad <= 18'h3FFFF;
+            mv_x_min <= 0;
+            mv_x_max <= 0;
+            mv_y_min <= 0;
+            mv_y_max <= 0;
+            cur_sad  <= 0;
+            sad_after_pixel <= 0;
+            zero_mv_pending <= 0;
         end else begin
             done <= 0;
 
@@ -65,24 +149,24 @@ module av1_me #(
                 S_IDLE: begin
                     if (start) begin
                         state    <= S_INIT;
-                        mv_x     <= -SEARCH_RANGE;
-                        mv_y     <= -SEARCH_RANGE;
+                        mv_x_min <= valid_min_x_w[8:0];
+                        mv_x_max <= valid_max_x_w[8:0];
+                        mv_y_min <= valid_min_y_w[8:0];
+                        mv_y_max <= valid_max_y_w[8:0];
+                        mv_x     <= zero_mv_valid_w ? 9'sd0 : valid_min_x_w[8:0];
+                        mv_y     <= zero_mv_valid_w ? 9'sd0 : valid_min_y_w[8:0];
                         best_sad <= 18'h3FFFF;
                         best_mvx <= 0;
                         best_mvy <= 0;
+                        zero_mv_pending <= zero_mv_valid_w;
                     end
                 end
 
                 S_INIT: begin
-                    // Check bounds
-                    if (cand_x < 0 || cand_y < 0 ||
-                        cand_x + 8 > FRAME_WIDTH || cand_y + 8 > FRAME_HEIGHT) begin
-                        state <= S_NEXT_MV;
-                    end else begin
-                        pix_idx <= 0;
-                        cur_sad <= 0;
-                        state   <= S_FETCH_REF;
-                    end
+                    pix_idx <= 0;
+                    cur_sad <= 0;
+                    sad_after_pixel <= 0;
+                    state   <= S_FETCH_REF;
                 end
 
                 S_FETCH_REF: begin
@@ -102,21 +186,19 @@ module av1_me #(
                 S_COMPUTE: begin
                     // Accumulate SAD
                     ref_pixel <= ref_mem_data;
-                    if (cur_blk[pix_idx] > ref_mem_data)
-                        cur_sad <= cur_sad + (cur_blk[pix_idx] - ref_mem_data);
-                    else
-                        cur_sad <= cur_sad + (ref_mem_data - cur_blk[pix_idx]);
+                    cur_sad <= cur_sad_next_w;
+                    sad_after_pixel <= cur_sad_next_w;
                     state <= S_NEXT_PIX;
                 end
 
                 S_NEXT_PIX: begin
                     // Early termination if SAD already exceeds best
-                    if (cur_sad >= best_sad) begin
+                    if (sad_after_pixel >= best_sad) begin
                         state <= S_NEXT_MV;
                     end else if (pix_idx == 6'd63) begin
                         // Finished all 64 pixels
-                        if (cur_sad < best_sad) begin
-                            best_sad <= cur_sad;
+                        if (sad_after_pixel < best_sad) begin
+                            best_sad <= sad_after_pixel;
                             best_mvx <= mv_x;
                             best_mvy <= mv_y;
                         end
@@ -128,15 +210,27 @@ module av1_me #(
                 end
 
                 S_NEXT_MV: begin
-                    if (mv_x == SEARCH_RANGE && mv_y == SEARCH_RANGE) begin
+                    if (best_sad == 18'd0) begin
+                        state <= S_DONE;
+                        zero_mv_pending <= 0;
+                    end else if (zero_mv_pending) begin
+                        zero_mv_pending <= 0;
+                        if (single_candidate_w) begin
+                            state <= S_DONE;
+                        end else if (mv_x_min == 9'sd0 && mv_y_min == 9'sd0) begin
+                            mv_x  <= first_scan_x_w;
+                            mv_y  <= first_scan_y_w;
+                            state <= S_INIT;
+                        end else begin
+                            mv_x  <= mv_x_min;
+                            mv_y  <= mv_y_min;
+                            state <= S_INIT;
+                        end
+                    end else if (mv_x == mv_x_max && mv_y == mv_y_max) begin
                         state <= S_DONE;
                     end else begin
-                        if (mv_x < SEARCH_RANGE)
-                            mv_x <= mv_x + 1;
-                        else begin
-                            mv_x <= -SEARCH_RANGE;
-                            mv_y <= mv_y + 1;
-                        end
+                        mv_x <= next_mv_x_w;
+                        mv_y <= next_mv_y_w;
                         state <= S_INIT;
                     end
                 end

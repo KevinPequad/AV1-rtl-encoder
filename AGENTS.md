@@ -1,14 +1,19 @@
 # AV1 RTL Encoder - Project Rules
 
 ## Mission
-- The mission of this repo is to implement the complete AV1 encoder feature roadmap defined in `av1-reference-docs/svt-av1-feature-inventory.md`.
-- Work through the roadmap phase by phase until the encoder is feature-complete, decoded successfully, and visually verified.
-- Do not stop at partial bring-up, partial syntax support, or documentation-only progress if there is still an implementation path available.
-- Only stop early when blocked by a concrete external limitation such as a missing tool, missing dependency, or irreconcilable ambiguity, and document the exact blocker before stopping.
+- The mission of this repo is to finish a full RTL AV1 encoder.
+- The finished encoder must generate a decodable AV1 bitstream from the RTL byte path itself.
+- The testbench may dump bytes, package media, and run decode and comparison checks, but it must not author the final AV1 syntax on behalf of the RTL for project completion.
+- Do not mark the encoder complete until the decoded AV1 output has been verified and the bitstream came from the RTL output path.
+- Do not stop at subset milestones, decode-only smoke wins, or documentation updates while major feature or ownership gaps remain.
+- Work through the roadmap in `av1-reference-docs/svt-av1-feature-inventory.md` phase by phase until the encoder is complete or a concrete technical blocker is reached and documented precisely.
 
 ## Execution Policy
+- Continue from the current repo state until the full encoder roadmap is complete.
 - Default behavior: continue work autonomously across implementation, build, simulation, debug, verification, and the next backlog item without waiting for confirmation between routine substeps.
+- Do not stop for milestones, progress updates, partial success, or clean checkpoints.
 - Do not stop at analysis, plans, documentation, or a single successful build if code changes and verification work are still possible.
+- Preserve the same discipline, ownership rules, documentation habits, and validation rigor used in the completed H.264 RTL encoder project, but adapt them to AV1 syntax and workflow.
 - Use the normal loop on every turn unless blocked:
   1. inspect current repo state
   2. implement the next highest-priority feature or fix
@@ -19,13 +24,19 @@
   7. continue to the next roadmap item
 - After one item is working and verified, proceed directly to the next in-scope item from `av1-reference-docs/svt-av1-feature-inventory.md`.
 - Do not ask for confirmation between normal coding, build, simulation, debug, or verification steps.
+- Treat `av1-reference-docs/svt-av1-feature-inventory.md` as the live implementation backlog and keep moving to the next remaining item until the roadmap is complete.
 - Keep `README.md` updated as a living project status document while implementation is in progress. Do not wait until the end of the project to refresh it.
 - After each meaningful implementation or verification change, update `README.md` with the current supported subset, verification status, known gaps, and the current recommended run flow.
+- After each meaningful implementation or correctness fix, update `AGENTS.md`, the relevant detailed status or inventory doc, create a focused git commit, push current progress, and continue working.
 - After each verified milestone, create a git commit that captures the completed work and push it to the configured remote before continuing.
 - Use non-interactive git commands only. Do not stop at the commit or push; continue directly to the next backlog item after the push succeeds.
 - When a blocker, ambiguity, or spec mismatch appears, do not stop at local guesswork. Pull authoritative external references into `av1-reference-docs/external/`, record the relevant findings there, and keep implementing from those materials.
 - Prefer official sources for external references: AOMedia AV1 spec/material, FFmpeg documentation/source, and other primary project docs directly tied to the tool being used.
+- During any active syntax, entropy-coding, motion-vector, frame-header, tile, or decode mismatch blocker, search the web for the current official source material before making more local guesses.
+- Download or mirror the exact official pages, source files, or PDFs that are relevant to the blocker into `av1-reference-docs/external/` so the repo keeps a local working set for the next debug step.
+- Treat `av1-reference-docs/external/` as a required working area during active blockers, not an optional notes folder.
 - Keep `av1-reference-docs/external/README.md` current with the downloaded source files, why they were pulled, and what they clarified for the active blocker.
+- Keep `README.md` current with which official external references were needed for the current blocker and what they changed in the implementation/debug plan.
 - Only stop to ask the user when required for:
   - missing credentials or private external resources
   - destructive actions outside normal build/test flow
@@ -36,8 +47,18 @@
   - the last verified working state
   - the next step to resume from once the blocker is removed
 
+## Workflow Priorities
+1. Keep the encoder end to end through the RTL-owned bitstream path.
+2. Fix correctness before adding more scope.
+3. Start with the smallest valid case that proves the current issue.
+4. Scale to longer clips only after decode and visual checks pass on smaller cases.
+5. Preserve or improve reproducibility of the build and verification flow.
+6. Do not stop while major baseline feature gaps are still open.
+7. After each meaningful implementation step, update docs, push progress, and continue unless fully blocked.
+
 ## Stop Conditions
 - Milestones are not stop conditions.
+- Progress updates are not stop conditions.
 - Partial verification is not a stop condition.
 - A clean checkpoint is not a stop condition.
 - A successful build, decode, or single feature bring-up is not a stop condition by itself.
@@ -71,20 +92,26 @@ The H.264 RTL encoder was already completed and is located at `av1-reference-doc
 - **SVT-AV1 feature inventory**: `av1-reference-docs/svt-av1-feature-inventory.md` - Use this as the implementation roadmap and feature triage document before adding new encoder functionality.
 - **AV1 specification**: `av1-reference-docs/av1-spec.pdf` - The official spec sheet is available for detailed reference.
 - **External official references**: `av1-reference-docs/external/README.md` - Keep downloaded official web docs and source references here when the active blocker needs more than the local spec snapshot and SVT code.
+- **AV1 reference software**: use local or mirrored `libaom` source as the practical bitstream and entropy-coding reference.
+- **Software baseline**: use `SVT-AV1` and/or `libaom` reference encodes to sanity-check behavior against a mature software encoder.
 - **Do NOT guess.** If you need help understanding AV1 encoding stages, syntax elements, transforms, or anything else, reference the SVT-AV1 source code, the feature inventory, and the spec. Never fabricate implementation details.
+- Always prefer primary references over memory. Download and keep needed spec sheets and reference material available locally.
+- If an inference is unavoidable, mark it as temporary and verify it as soon as possible against the spec or reference software.
 
 ## Test Video
 - **Big Buck Bunny** at **720p** is the reference video for all testing and verification.
-- **Final deliverable**: First **10 seconds** of Big Buck Bunny, encoded by our RTL AV1 encoder, decoded, and output as an MP4.
+- **Final deliverable**: First **10 seconds** of Big Buck Bunny at **1280x720 @ 24 fps**, encoded by the RTL AV1 encoder, decoded, visually verified, and delivered as a playable MP4 derived from the RTL-generated AV1 stream.
 - During initial development and verification, you do not need to encode all 10 seconds - use smaller clips or single frames to validate. The full 10-second encode is the final project milestone.
 
 ## Simulation Environment
-- All RTL simulation must be run inside a **Docker Ubuntu** container.
+- Prefer Linux flow via **WSL Ubuntu** or **Docker Ubuntu**.
 - Docker configuration and simulation scripts go in the Docker Ubuntu folder.
 - For Verilator builds and simulation, use the maximum available host threads by default unless a specific debugging task requires fewer threads.
 - On this machine, the default target is `24` threads and `24` build jobs.
 - If the environment does not reliably expose all CPUs through `nproc`, explicitly set `THREADS=24` and `BUILD_JOBS=24`.
 - Do not quietly fall back to reduced parallelism for normal runs.
+- Be wary of simulation times. Do not jump to long or high-resolution runs until smaller cases decode and look sane.
+- After RTL edits, prefer clean rebuilds so stale simulator outputs do not mask changes.
 
 ## Encoding Configuration
 - **Chroma subsampling**: 4:2:0
@@ -145,21 +172,49 @@ The H.264 RTL encoder was already completed and is located at `av1-reference-doc
 - If a feature is not covered by the current phase, document it and defer it instead of partially guessing an implementation.
 
 ## Verification - NON-NEGOTIABLE
+- The RTL-generated stream must decode successfully in FFmpeg or another standards-compliant AV1 decoder.
 - You must **visually confirm** that the encoder works.
 - The **decoded output must look like the input** to verify that encoding and decoding are functioning correctly.
 - Use **ffmpeg** to compare input vs output (e.g., PSNR/SSIM metrics, frame extraction for visual diff).
 - **Always compare your RTL encoder output against ffmpeg's own AV1 encode** of the same source to sanity-check correctness. If your output diverges significantly from what ffmpeg produces, something is wrong - investigate before moving on.
-- **Do not stop until this is confirmed.** The encoder is not done until a frame has been encoded, decoded, and visually verified against the original.
+- Preserve simulator logs and cycle counts for repeatable validation runs.
+- Keep the decoded output on a valid path toward the final RTL-generated bitstream requirement.
+- **Do not stop until this is confirmed.** The encoder is not done until the RTL path has encoded, decoded, and been visually verified against the original.
+
+## RTL Ownership Requirement
+- The RTL must own the final AV1 syntax generation needed for project completion, including as appropriate to the implemented stage:
+  - sequence header / sequence header OBU generation
+  - frame header / frame OBU generation
+  - tile group syntax generation
+  - entropy coding on the RTL path
+  - partition syntax
+  - intra/inter mode syntax
+  - motion syntax
+  - transform syntax
+  - coefficient syntax
+  - trailing, alignment, and packing rules required for a valid AV1 stream
+- The testbench may:
+  - feed raw YUV input
+  - capture RTL byte output
+  - decode output
+  - package the bitstream into a playable container
+  - compute PSNR / SSIM
+  - generate side-by-side comparisons
+- The testbench must not:
+  - build the final AV1 syntax in software
+  - replace the RTL bitstream writer with a helper-generated final stream
 
 ## Acceptance Criteria
 - Do not treat the project as complete until all in-scope planned features from `av1-reference-docs/svt-av1-feature-inventory.md` are implemented or explicitly re-scoped in this file.
 - Completion requires more than code written. It requires:
-  - supported AV1 syntax implemented in RTL and emitted in a decodable bitstream
-  - decoded output matching intended RTL reconstruction for supported tools and modes
-  - intra and inter paths both verified on project test content
+  - the AV1 stream is produced by the RTL byte path
+  - supported AV1 syntax is implemented in RTL and emitted in a decodable bitstream
+  - decoded output matches intended RTL reconstruction for supported tools and modes
+  - the stream is visually verified against the source
+  - intra and inter paths are both verified on project test content
   - comparison against `ffmpeg` AV1 reference output for sanity checking
-  - normal regression/build flow run on this machine with `THREADS=24` and `BUILD_JOBS=24`
-  - final Big Buck Bunny deliverable produced according to the project rules
+  - normal regression/build flow is run on this machine with `THREADS=24` and `BUILD_JOBS=24`
+  - the final Big Buck Bunny deliverable is produced at `1280x720 @ 24 fps` according to the project rules
 - Finishing one phase does not count as overall completion. Move to the next phase automatically until all required phases are complete or a concrete local blocker is reached.
 
 ## Agent Rules
@@ -168,6 +223,14 @@ The H.264 RTL encoder was already completed and is located at `av1-reference-doc
 - Continue implementing features until the encoder reaches full planned feature coverage and verification, not just the first successful frame.
 - Do not declare completion while proposed roadmap features remain unimplemented unless the project rules are explicitly changed.
 - If blocked, record the blocker concretely and resume from the highest-priority remaining feature as soon as the blocker is removed.
+- If the repo already contains partial AV1 RTL, first inventory it and classify it as:
+  - implemented
+  - validated
+  - missing
+  - broken
+  - placeholder or debug-only
+  - not RTL-owned yet
+- Then close the highest-leverage correctness and ownership gaps first.
 
 ## Workflow
 1. Reference the H.264 encoder repo for file structure and conventions.
