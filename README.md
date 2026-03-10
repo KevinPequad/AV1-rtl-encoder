@@ -138,6 +138,10 @@ Inventory of the current repo state:
   - on that exact-match probe, the preserved RTL raw payload dropped again from `35` bytes to `29`, which indicates the last remaining dense luma block on that clip moved off the placeholder coefficient bool stream and onto the real coefficient path
   - after a clean rebuild of the current live tree, the same `16x16` `data/ac_probe_16x16_1f.yuv` probe now decodes and matches `recon.yuv` exactly across the full tested `qindex` sweep from `240` down to `0`
   - the earlier `qindex=224` residual no longer reproduces on the rebuilt live tree, so that probe is now a stable exact-match regression gate rather than an active blocker
+  - the video-keyframe path on that same `16x16` `data/ac_probe_16x16_1f.yuv` probe is now exact again, not just the reduced still-picture path:
+    - the missing `refresh_frame_context` bit in the non-still frame header was restored before `tile_info`
+    - the remaining `22`-byte luma drift was traced to a predictor/config mismatch, not coefficients: the sequence header advertises `enable_intra_edge_filter=0`, so libaom disables both directional edge filtering and directional edge upsampling
+    - the RTL directional predictor now keeps edge upsampling disabled on the current bitstream configuration, which restores bit-exact decoded-vs-`recon.yuv` matching on both the still-picture and video-keyframe outputs of the focused AC probe
   - the exact-match range is no longer limited to the synthetic AC probe:
     - sampled natural-content `16x16` crops from the first Big Buck Bunny raw frame also round-trip exactly against `recon.yuv` at `qindex=0` on the current software-owned debug path
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
@@ -168,15 +172,18 @@ Inventory of the current repo state:
   - the raw RTL path now also owns a real DC-only luma coefficient slice for intra blocks with `eob=1`, bounded `coeff_br`, and neighbor-conditioned DC-sign context
   - the raw RTL path now also owns the first sparse low-order AC subset for the exact-match `qindex=240` still-picture probe: `eob=3`, `eob_extra=0`, EOB coeff at flat index `1`, zero base at flat index `8`, and the corresponding DC/AC signs
   - the raw RTL path now also owns the first dense low-order AC subset on that same probe: `eob=9`, `eob_extra=0`, nonzeros at flat indices `0`, `8`, `1`, and `10`, the intervening zero bases, and the corresponding DC/AC signs
+  - the current software-owned exact-match path now also has its video-keyframe header and directional predictor configuration back in sync with the decoder:
+    - non-still frame headers now emit `refresh_frame_context` before `tile_info`
+    - the predictor no longer applies directional edge upsampling while the bitstream still advertises `enable_intra_edge_filter=0`
   - the remaining ownership gap is extending that reduced non-DC path into larger-magnitude coefficient tails, less constrained dense blocks, real partition/inter syntax, and the broader tile grammar on the RTL top-level path
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
-  - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
+  - extending the newly RTL-owned low-order AC subsets into larger-magnitude coefficient tails and less constrained dense blocks on a broader natural-content `16x16` crop before tackling broader block syntax
+  - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
   - expanding beyond the current reduced single-reference subset once the ownership path is real
-  - extending the newly RTL-owned low-order AC subsets into larger-magnitude coefficient tails and less constrained dense blocks before tackling broader block syntax
 - A lightweight debug probe now exists in the testbench:
   - `+dump_inter_summary=1` prints captured inter blocks, MVs, and nonzero counts after each frame
   - `+dump_blocks=1` on the synthetic `data/ac_probe_16x16_1f.yuv` case is now a stable exact-match regression check across the tested `qindex` range

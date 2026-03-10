@@ -98,10 +98,14 @@
   - `tb/av1_bitstream_writer.h` uses the official libaom `default_scan_8x8`
   - `rtl/av1_encoder_top.v` transposes the dequantized 8x8 coefficient matrix into decoder-consistent orientation before inverse transform
   - `rtl/av1_intra_pred.v` now matches the reference left-only / top-only edge fill rules for non-directional intra modes
+- The video-keyframe debug path is also back in sync on that same exact-match probe:
+  - `tb/av1_bitstream_writer.h` now emits the missing non-still `refresh_frame_context` bit before `tile_info`
+  - the current sequence header still advertises `enable_intra_edge_filter = 0`, so the directional predictor must not apply directional edge upsampling on the RTL reconstruction path until that syntax bit is owned and enabled
 - Directional intra availability for the current fixed `8x8` / `TX_8X8` raster-order subset is now partially corrected:
   - real top-right extension samples are loaded and used when the above-right block is already reconstructed
   - bottom-left extension remains intentionally disabled on this subset because it would otherwise read future not-yet-reconstructed pixels and corrupt exactness
   - on the rebuilt live tree, the old `qindex=224` residual no longer reproduces and the synthetic AC probe is now exact across the tested `qindex` sweep down to `0`
+  - keep directional edge upsampling disabled while `enable_intra_edge_filter = 0`; re-enable it only when the bitstream path owns and signals that sequence-header feature correctly
 - The next highest-priority ownership move is extending that reduced non-DC path:
   - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate
   - do not spend more time on the old `qindex=224` blocker unless it reappears after a real code change
