@@ -276,9 +276,13 @@ module av1_intra_pred (
                     end
 
                     2'd2: begin
-                        right_px = has_top ? top[blk_size - 1] : 8'd128;
-                        below_px = has_left ? left[blk_size - 1] : 8'd128;
-                        top_left_px = (has_top && has_left) ? top_left : 8'd128;
+                        right_px = has_top ? top[blk_size - 1] :
+                                   (has_left ? left[0] : 8'd127);
+                        below_px = has_left ? left[blk_size - 1] :
+                                   (has_top ? top[0] : 8'd129);
+                        top_left_px = (has_top && has_left) ? top_left :
+                                      (has_top ? top[0] :
+                                      (has_left ? left[0] : 8'd128));
                         max_base = (blk_size << 1) - 1;
                         p_angle = mode_to_angle(mode);
                         need_above_ref = 1'b0;
@@ -391,8 +395,10 @@ module av1_intra_pred (
 
                         for (i = 0; i < 8; i = i + 1) begin
                             if (i < blk_size) begin
-                                top_px = has_top ? top[i] : 8'd128;
-                                left_px = has_left ? left[row] : 8'd128;
+                                top_px = has_top ? top[i] :
+                                         (has_left ? left[0] : 8'd127);
+                                left_px = has_left ? left[row] :
+                                          (has_top ? top[0] : 8'd129);
 
                                 if (mode == V_PRED || mode == H_PRED || mode == D45_PRED ||
                                     mode == D135_PRED || mode == D113_PRED ||

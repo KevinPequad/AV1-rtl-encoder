@@ -80,12 +80,15 @@
 - The reduced still-picture header and raw frame-size ownership checkpoints are already on the RTL byte path.
 - The entropy foundation now includes reference-matching bool, literal, and generic CDF symbol coding in `rtl/av1_entropy.v`.
 - The top-level now mirrors the writer's 8x8 neighborhood syntax context state and emits the real AV1 skip symbol, intra `y_mode`, zero `angle_delta`, deterministic `uv_mode`, reduced luma/chroma `txb_skip` entry symbols, and a bounded DC-only real coefficient slice on the raw RTL path for the small keyframe/intra subset.
-- The next highest-priority ownership move is to drive real tile-group syntax from `rtl/av1_encoder_top.v` through that coder:
-  - partition symbols
-  - remaining intra/inter frame-type and mode symbols
-  - motion symbols
-  - sparse low-order AC coefficient syntax first, using the `16x16` `ac_probe_16x16_1f.yuv` case as the next bring-up target
-  - then full coefficient syntax in the same ordering as the AV1 tile grammar, replacing the temporary per-coefficient bool stream on denser non-DC blocks and adding larger-magnitude coefficient tails beyond the current bounded DC-only slice
+- The reduced software-owned path is now exact again on the first sparse AC still-picture probe:
+  - `tb/av1_bitstream_writer.h` uses the official libaom `default_scan_8x8`
+  - `rtl/av1_encoder_top.v` transposes the dequantized 8x8 coefficient matrix into decoder-consistent orientation before inverse transform
+  - `rtl/av1_intra_pred.v` now matches the reference left-only / top-only edge fill rules for non-directional intra modes
+- The next highest-priority ownership move is to drive that same verified sparse low-order AC subset from `rtl/av1_encoder_top.v` through the raw RTL byte path:
+  - keep the `16x16` `data/ac_probe_16x16_1f.yuv` `qindex=240` exact-match case as the first regression gate
+  - replace the remaining temporary per-coefficient bool stream on sparse non-DC intra blocks with real AV1 coefficient syntax on the RTL path
+  - then extend into denser non-DC blocks and larger-magnitude tails in the same ordering as the AV1 tile grammar
+  - continue pulling partition, remaining intra/inter frame-type and mode symbols, and motion syntax onto the same RTL-owned path
 - Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
 
 ## Stop Conditions
