@@ -100,6 +100,12 @@ module av1_encoder_top #(
         TS_SYNTAX_AWAIT = 6'd44,
         TS_SYNTAX_UVMODE= 6'd45,
         TS_SYNTAX_UVWAIT= 6'd46,
+        TS_TXB_SKIP_Y  = 6'd47,
+        TS_TXB_SKIP_YW = 6'd48,
+        TS_TXB_SKIP_CB = 6'd49,
+        TS_TXB_SKIP_CBW= 6'd50,
+        TS_TXB_SKIP_CR = 6'd51,
+        TS_TXB_SKIP_CRW= 6'd52,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -384,6 +390,18 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [255:0] txb_skip_luma_icdf_flat;
+        begin
+            txb_skip_luma_icdf_flat = {224'd0,16'd32768,16'd31903};
+        end
+    endfunction
+
+    function [255:0] txb_skip_chroma_icdf_flat;
+        begin
+            txb_skip_chroma_icdf_flat = {224'd0,16'd32768,16'd2713};
+        end
+    endfunction
+
     wire [1:0] cur_skip_ctx = get_skip_ctx_cur(blk_x, blk_y);
     wire       cur_block_skip = ~cur_block_has_coeff;
     wire [2:0] cur_kf_above_ctx = get_kf_mode_above_ctx_cur(blk_x, blk_y);
@@ -392,6 +410,8 @@ module av1_encoder_top #(
     wire [255:0] cur_if_y_icdf  = if_y_mode_icdf_flat();
     wire [255:0] cur_ang_icdf   = angle_delta_icdf_flat(best_intra_mode);
     wire [255:0] cur_uv_icdf    = uv_mode_dc_icdf_flat(best_intra_mode);
+    wire [255:0] cur_txb_luma_icdf = txb_skip_luma_icdf_flat();
+    wire [255:0] cur_txb_chr_icdf  = txb_skip_chroma_icdf_flat();
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -1129,7 +1149,7 @@ module av1_encoder_top #(
                             top_state <= TS_IQ_START;
                         end else begin
                             proc_idx  <= 0;
-                            top_state <= TS_COEFF_SYM;
+                            top_state <= TS_TXB_SKIP_Y;
                         end
                     end
                 end
@@ -1179,8 +1199,23 @@ module av1_encoder_top #(
                             top_state <= TS_IQ_START;
                         end else begin
                             proc_idx  <= 0;
-                            top_state <= TS_COEFF_SYM;
+                            top_state <= TS_TXB_SKIP_Y;
                         end
+                    end
+                end
+
+                TS_TXB_SKIP_Y: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // luma txb_skip = 0, coefficients present
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= cur_txb_luma_icdf;
+                    top_state        <= TS_TXB_SKIP_YW;
+                end
+
+                TS_TXB_SKIP_YW: begin
+                    if (ec_done) begin
+                        proc_idx  <= 0;
+                        top_state <= TS_COEFF_SYM;
                     end
                 end
 
@@ -1198,8 +1233,36 @@ module av1_encoder_top #(
                             top_state <= TS_COEFF_SYM;
                         end else begin
                             proc_idx  <= 0;
-                            top_state <= TS_IQ_START;
+                            top_state <= TS_TXB_SKIP_CB;
                         end
+                    end
+                end
+
+                TS_TXB_SKIP_CB: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd1; // Cb txb_skip = 1, all zero
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= cur_txb_chr_icdf;
+                    top_state        <= TS_TXB_SKIP_CBW;
+                end
+
+                TS_TXB_SKIP_CBW: begin
+                    if (ec_done)
+                        top_state <= TS_TXB_SKIP_CR;
+                end
+
+                TS_TXB_SKIP_CR: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd1; // Cr txb_skip = 1, all zero
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= cur_txb_chr_icdf;
+                    top_state        <= TS_TXB_SKIP_CRW;
+                end
+
+                TS_TXB_SKIP_CRW: begin
+                    if (ec_done) begin
+                        proc_idx  <= 0;
+                        top_state <= TS_IQ_START;
                     end
                 end
 
