@@ -429,11 +429,19 @@ module av1_encoder_top #(
     // ====================================================================
     reg [23:0] total_bs_bytes;
     reg [23:0] bs_wr_addr;
+    reg        manual_bs_wr;
+    reg [23:0] manual_bs_addr;
+    reg [7:0]  manual_bs_data;
+    reg [23:0] frame_obu_start_addr;
+    wire [23:0] frame_obu_payload_bytes =
+        (total_bs_bytes > (frame_obu_start_addr + 24'd2)) ?
+            (total_bs_bytes - frame_obu_start_addr - 24'd2) : 24'd0;
 
     // Mux bitstream and entropy coder output to memory
-    assign bs_mem_wr   = bs_byte_valid | ec_byte_valid;
-    assign bs_mem_data = bs_byte_valid ? bs_byte_out : ec_byte_out;
-    assign bs_mem_addr = bs_wr_addr;
+    assign bs_mem_wr   = manual_bs_wr | bs_byte_valid | ec_byte_valid;
+    assign bs_mem_data = manual_bs_wr ? manual_bs_data :
+                         (bs_byte_valid ? bs_byte_out : ec_byte_out);
+    assign bs_mem_addr = manual_bs_wr ? manual_bs_addr : bs_wr_addr;
     assign bs_bytes_written = total_bs_bytes;
 
     always @(posedge clk or negedge rst_n) begin
@@ -481,10 +489,12 @@ module av1_encoder_top #(
             chr_cr_ref_wr_en <= 0;
             neigh_rd_active <= 0;
             inter_rd_active <= 0;
+            manual_bs_wr <= 0;
             best_intra_mode <= AV1_DC_PRED;
             intra_eval_idx  <= 4'd0;
             intra_best_sad  <= 18'h3FFFF;
             intra_cand_sad  <= 18'd0;
+            frame_obu_start_addr <= 24'd0;
         end else begin
             done <= 0;
 
@@ -506,6 +516,7 @@ module av1_encoder_top #(
             ref_mem_wr_en   <= 0;
             chr_cb_ref_wr_en <= 0;
             chr_cr_ref_wr_en <= 0;
+            manual_bs_wr <= 0;
 
             case (top_state)
                 TS_IDLE: begin
@@ -543,6 +554,7 @@ module av1_encoder_top #(
 
                 // Write frame header
                 TS_WRITE_FRM: begin
+                    frame_obu_start_addr <= bs_wr_addr;
                     bs_write_frm <= 1;
                     ec_init      <= 1;  // Initialize entropy coder
                     top_state    <= TS_WAIT_FRM;
@@ -1044,6 +1056,13 @@ module av1_encoder_top #(
 
                 TS_DONE: begin
                     if (ec_done || !ec_busy) begin
+                        // Back-patch the frame OBU size byte for the current
+                        // reduced single-byte LEB128 debug path. This keeps
+                        // the RTL-owned raw stream aligned with the emitted
+                        // frame payload length on the small bring-up cases.
+                        manual_bs_wr   <= 1;
+                        manual_bs_addr <= frame_obu_start_addr + 24'd1;
+                        manual_bs_data <= frame_obu_payload_bytes[7:0];
                         done      <= 1;
                         top_state <= TS_IDLE;
                     end
