@@ -48,6 +48,165 @@ module av1_bitstream #(
     // Latch frame header inputs
     reg        lat_is_keyframe;
     reg [7:0]  lat_qindex;
+    integer    bw_byte_idx;
+    integer    bw_bit_pos;
+    integer    w_bits;
+    integer    h_bits;
+    integer    mi_cols_aligned;
+    integer    mi_rows_aligned;
+    integer    sb_cols;
+    integer    sb_rows;
+    integer    max_log2_tile_cols;
+    integer    max_log2_tile_rows;
+    integer    min_log2_tile_cols;
+    integer    min_log2_tiles;
+    integer    min_log2_tile_rows;
+    integer    tile_cols_log2;
+    integer    tile_rows_log2;
+    integer    payload_len;
+    integer    j;
+
+    function integer bits_needed;
+        input integer val;
+        integer tmp;
+        begin
+            bits_needed = 0;
+            tmp = val - 1;
+            while (tmp > 0) begin
+                bits_needed = bits_needed + 1;
+                tmp = tmp >> 1;
+            end
+            if (bits_needed < 1)
+                bits_needed = 1;
+        end
+    endfunction
+
+    function integer tile_log2;
+        input integer blk_size;
+        input integer target;
+        integer k;
+        begin
+            k = 0;
+            while ((blk_size << k) < target)
+                k = k + 1;
+            tile_log2 = k;
+        end
+    endfunction
+
+    task bw_reset;
+        input integer start_idx;
+        begin
+            bw_byte_idx = start_idx;
+            bw_bit_pos  = 0;
+        end
+    endtask
+
+    task bw_write_bit;
+        input integer b;
+        begin
+            if (bw_bit_pos == 0)
+                obuf[bw_byte_idx] = 8'd0;
+            obuf[bw_byte_idx] = obuf[bw_byte_idx] | ((b & 1) << (7 - bw_bit_pos));
+            if (bw_bit_pos == 7) begin
+                bw_bit_pos  = 0;
+                bw_byte_idx = bw_byte_idx + 1;
+            end else begin
+                bw_bit_pos = bw_bit_pos + 1;
+            end
+        end
+    endtask
+
+    task bw_write_bits;
+        input integer val;
+        input integer nbits;
+        integer k;
+        begin
+            for (k = nbits - 1; k >= 0; k = k - 1)
+                bw_write_bit((val >> k) & 1);
+        end
+    endtask
+
+    task bw_write_trailing_bits;
+        begin
+            bw_write_bit(1);
+            while (bw_bit_pos != 0)
+                bw_write_bit(0);
+        end
+    endtask
+
+    task bw_flush_zero_pad;
+        begin
+            if (bw_bit_pos != 0) begin
+                bw_byte_idx = bw_byte_idx + 1;
+                bw_bit_pos  = 0;
+            end
+        end
+    endtask
+
+    task bw_write_color_config;
+        begin
+            bw_write_bit(0);
+            bw_write_bit(0);
+            bw_write_bit(0);
+            bw_write_bit(0);
+            bw_write_bits(0, 2);
+            bw_write_bit(0);
+        end
+    endtask
+
+    task bw_write_tile_info;
+        integer sb_cols_min;
+        integer sb_rows_min;
+        begin
+            mi_cols_aligned = ((FRAME_WIDTH / 4) + 15) & ~15;
+            mi_rows_aligned = ((FRAME_HEIGHT / 4) + 15) & ~15;
+            sb_cols = mi_cols_aligned >> 4;
+            sb_rows = mi_rows_aligned >> 4;
+
+            min_log2_tile_cols = tile_log2(64, sb_cols);
+            sb_cols_min = (sb_cols < 64) ? sb_cols : 64;
+            sb_rows_min = (sb_rows < 64) ? sb_rows : 64;
+            max_log2_tile_cols = tile_log2(1, sb_cols_min);
+            max_log2_tile_rows = tile_log2(1, sb_rows_min);
+            min_log2_tiles = tile_log2(576, sb_cols * sb_rows);
+            if (min_log2_tile_cols > min_log2_tiles)
+                min_log2_tiles = min_log2_tile_cols;
+
+            bw_write_bit(1);  // uniform_tile_spacing_flag
+
+            tile_cols_log2 = min_log2_tile_cols;
+            if (tile_cols_log2 < max_log2_tile_cols)
+                bw_write_bit(0);
+
+            min_log2_tile_rows = min_log2_tiles - tile_cols_log2;
+            if (min_log2_tile_rows < 0)
+                min_log2_tile_rows = 0;
+            tile_rows_log2 = min_log2_tile_rows;
+            if (tile_rows_log2 < max_log2_tile_rows)
+                bw_write_bit(0);
+        end
+    endtask
+
+    task bw_write_quantization_params;
+        input [7:0] qidx;
+        begin
+            bw_write_bits(qidx, 8);
+            bw_write_bit(0);
+            bw_write_bit(0);
+            bw_write_bit(0);
+            bw_write_bit(0);
+            bw_write_bit(0);
+        end
+    endtask
+
+    task bw_write_loop_filter_params;
+        begin
+            bw_write_bits(0, 6);
+            bw_write_bits(0, 6);
+            bw_write_bits(0, 3);
+            bw_write_bit(0);
+        end
+    endtask
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -89,40 +248,67 @@ module av1_bitstream #(
 
                 S_BUILD: begin
                     obuf_idx <= 0;
+                    for (j = 0; j < 64; j = j + 1)
+                        obuf[j] = 8'd0;
 
                     if (build_cmd == CMD_SEQ) begin
-                        // Sequence Header OBU (simplified placeholder)
-                        // OBU header: type=1(seq_hdr), has_size=1
-                        // 0b0_0001_0_1_0 = 0x0A
-                        obuf[0]  <= 8'h0A;
-                        obuf[1]  <= 8'd16;  // size in leb128 (placeholder)
-                        obuf[2]  <= 8'h00;
-                        obuf[3]  <= 8'h00;
-                        obuf[4]  <= 8'h00;
-                        obuf[5]  <= 8'h00;
-                        obuf[6]  <= 8'h40;
-                        obuf[7]  <= 8'h00;
-                        obuf[8]  <= FRAME_WIDTH[15:8];
-                        obuf[9]  <= FRAME_WIDTH[7:0];
-                        obuf[10] <= FRAME_HEIGHT[15:8];
-                        obuf[11] <= FRAME_HEIGHT[7:0];
-                        obuf[12] <= 8'h00;
-                        obuf[13] <= 8'h00;
-                        obuf[14] <= 8'h00;
-                        obuf[15] <= 8'h00;
-                        obuf[16] <= 8'h00;
-                        obuf[17] <= 8'h00;
-                        obuf_len <= 6'd18;
+                        // Reduced still-picture sequence header matching the
+                        // current software writer's main-profile 8-bit 4:2:0
+                        // subset for the all-key bring-up path.
+                        obuf[0] = 8'h0A;
+                        bw_reset(2);
+                        bw_write_bits(0, 3);
+                        bw_write_bit(1);   // still_picture
+                        bw_write_bit(1);   // reduced_still_picture_header
+                        bw_write_bits(4, 5);  // seq_level_idx
+                        w_bits = bits_needed(FRAME_WIDTH);
+                        h_bits = bits_needed(FRAME_HEIGHT);
+                        bw_write_bits(w_bits - 1, 4);
+                        bw_write_bits(h_bits - 1, 4);
+                        bw_write_bits(FRAME_WIDTH - 1, w_bits);
+                        bw_write_bits(FRAME_HEIGHT - 1, h_bits);
+                        bw_write_bit(0);   // use_128x128_superblock
+                        bw_write_bit(0);   // enable_filter_intra
+                        bw_write_bit(0);   // enable_intra_edge_filter
+                        bw_write_bit(0);   // enable_superres
+                        bw_write_bit(0);   // enable_cdef
+                        bw_write_bit(0);   // enable_restoration
+                        bw_write_color_config();
+                        bw_write_bit(0);   // film_grain_params_present
+                        bw_write_trailing_bits();
+                        payload_len = bw_byte_idx - 2;
+                        obuf[1] = payload_len[7:0];
+                        obuf_len <= bw_byte_idx[5:0];
                     end else begin
-                        // Frame OBU header: type=6(FRAME), has_size=1
-                        // 0b0_0110_0_1_0 = 0x32
-                        obuf[0]  <= 8'h32;
-                        obuf[1]  <= 8'h04;  // size placeholder
-                        obuf[2]  <= lat_is_keyframe ? 8'h10 : 8'h20;
-                        obuf[3]  <= lat_qindex;
-                        obuf[4]  <= 8'h00;
-                        obuf[5]  <= 8'h00;
-                        obuf_len <= 6'd6;
+                        // Keep the non-key path as a reduced placeholder for
+                        // now. For keyframes, emit the software writer's
+                        // reduced still-picture header fields so the RTL raw
+                        // bytes move closer to the owned all-key path.
+                        obuf[0] = 8'h32;
+                        if (lat_is_keyframe) begin
+                            bw_reset(2);
+                            bw_write_bit(1);   // disable_cdf_update
+                            bw_write_bit(0);   // allow_screen_content_tools
+                            bw_write_bit(0);   // render_and_frame_size_different
+                            bw_write_tile_info();
+                            bw_write_quantization_params(lat_qindex);
+                            bw_write_bit(0);   // segmentation_enabled
+                            bw_write_bit(0);   // delta_q_present
+                            bw_write_loop_filter_params();
+                            bw_write_bit(0);   // tx_mode_select
+                            bw_write_bit(0);   // reduced_tx_set
+                            bw_flush_zero_pad();
+                            payload_len = bw_byte_idx - 2;
+                            obuf[1] = payload_len[7:0];
+                            obuf_len <= bw_byte_idx[5:0];
+                        end else begin
+                            obuf[1]  <= 8'h04;  // size placeholder
+                            obuf[2]  <= 8'h20;
+                            obuf[3]  <= lat_qindex;
+                            obuf[4]  <= 8'h00;
+                            obuf[5]  <= 8'h00;
+                            obuf_len <= 6'd6;
+                        end
                     end
 
                     state <= S_OUT;
