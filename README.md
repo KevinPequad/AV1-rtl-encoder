@@ -113,12 +113,23 @@ Inventory of the current repo state:
   - RTL luma reconstruction now transposes the dequantized 8x8 coefficient matrix into the decoder-consistent flat-index orientation before the inverse 2D transform
   - non-directional intra prediction now matches AV1's one-sided edge fallback rules for left-only and top-only blocks instead of forcing both missing sides to `128`
   - directional intra prediction now has a real top-right extension path for the current `8x8` raster-order subset instead of always repeating the last top sample
+  - RTL raw block syntax on non-key frames now emits the real `intra_inter` symbol before block-mode syntax instead of falling straight from `skip` to keyframe-style `y_mode`
+  - `rtl/av1_bitstream.v` no longer emits a placeholder non-key frame header; it now writes a reduced video `INTER_FRAME` header matching the current software reference subset
+  - the raw-path inter bring-up is now explicitly clamped to the zero-motion subset until `NEARESTMV` / `NEWMV` syntax and MV payload ownership are implemented:
+    - the ME decision now keeps `use_inter=1` only for zero-MV matches on the RTL-owned path
+    - the top-level now tracks reduced inter neighborhood state (`inter`, `ref`, reduced inter mode) needed for the next inter-syntax steps
+  - standalone `rtl/av1_bitstream.v` regression harness in `tb/test_rtl_bitstream.cpp` and `make bitstream-check`
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
   - `16x16` 2-frame IP output decodes in both `ffmpeg`/`libdav1d` and `aomdec`
   - decoded output matches `recon.yuv` exactly on that `16x16` inter case
   - `make entropy-check THREADS=24 BUILD_JOBS=24` passes in WSL and matches the C++ `AV1RangeCoder` byte-for-byte for bool, literal, and symbol cases
+  - `make bitstream-check THREADS=24 BUILD_JOBS=24 WIDTH=16 HEIGHT=16` now passes in WSL:
+    - sequence header bytes match the reduced reference model exactly
+    - video keyframe header bytes match the reduced reference model exactly
+    - the new video inter-frame header bytes match the reduced reference model exactly
+  - after adding non-key `intra_inter`, reduced inter-header ownership, and zero-motion inter scaffolding, the `16x16` top-level build still advances cleanly on the small all-key smoke path
   - the `16x16` 1-frame all-key top-level smoke still decodes and matches `recon.yuv` exactly after the entropy-core upgrade
   - the same `16x16` smoke still decodes and matches `recon.yuv` after moving the skip symbol onto the RTL raw path
   - the same `16x16` smoke still decodes and matches `recon.yuv` after moving intra `y_mode`, zero `angle_delta`, and `uv_mode=DC` symbols onto the RTL raw path
@@ -184,6 +195,7 @@ Inventory of the current repo state:
 - The entropy foundation is no longer the active blocker for tile ownership:
   - `av1_entropy.v` can now encode reference-matching bools, literals, and generic CDF symbols
   - the raw RTL path now also owns the block skip symbol
+  - the raw RTL path now also owns the non-key `intra_inter` block symbol
   - the raw RTL path now also owns keyframe and intra-only `y_mode`, zero `angle_delta`, and deterministic `uv_mode`
   - the raw RTL path now also owns luma/chroma `txb_skip` entry symbols for the current reduced 8x8/4x4 transform subset
   - the raw RTL path now also owns a real DC-only luma coefficient slice for intra blocks with `eob=1`, bounded `coeff_br`, and neighbor-conditioned DC-sign context
@@ -199,8 +211,8 @@ Inventory of the current repo state:
     - the raw RTL path now advances blocks in the same recursive partition-tree / Morton order that the writer and decoder expect inside each superblock
     - this removed the first `32x32` payload divergence that appeared once the frame needed more than the original `16x16` exact-match traversal
   - the remaining ownership gap is extending that reduced non-DC path and matching syntax ownership beyond the current single-frame keyframe subset:
-    - real multi-frame / non-key ownership
-    - real inter syntax and motion signaling on the RTL path
+    - full multi-frame / non-key ownership beyond the current reduced non-key header and `intra_inter` checkpoints
+    - full inter syntax and motion signaling on the RTL path beyond the current zero-motion `GLOBALMV` ownership scaffold
     - less constrained dense and higher-energy coefficient shapes beyond the current regression clips
 - The current active exactness regression is now reference-decoder-backed:
   - the strict `output/highdc_q1/` first-block bug is now fixed:
@@ -211,6 +223,7 @@ Inventory of the current repo state:
     - AOM reference inspection shows the decoder entering the lossless `TX_4X4` path (`tx_size=0`) when `base_q_idx=0`
     - until that separate lossless path is implemented, the testbench and RTL clamp requested `qindex=0` runs to effective `qindex=1` so the current subset does not emit invalid streams
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
+- The current raw-path inter subset is temporarily restricted to zero-motion decisions only while `NEARESTMV` / `NEWMV`, reference-MV stack derivation, and MV payload syntax are still missing.
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
@@ -257,6 +270,13 @@ Focused verification flow:
 cd tb
 make THREADS=24 BUILD_JOBS=24 WIDTH=64 HEIGHT=64
 ./Vav1_encoder_top +frames=1 +qindex=128 +dc_only=0 +input=../data/raw_frames.yuv +output=../output/encoded.obu
+```
+
+Fast header regression:
+
+```bash
+cd tb
+make THREADS=24 BUILD_JOBS=24 WIDTH=16 HEIGHT=16 bitstream-check
 ```
 
 Standalone entropy verification:

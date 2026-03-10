@@ -98,6 +98,7 @@ int main(int argc, char** argv) {
     int trace_bs = 0;
     int trace_entropy_shadow = 0;
     int trace_writer_entropy = 0;
+    uint64_t progress_every = 0;
     std::string input_file = "data/raw_frames.yuv";
     std::string output_file = "output/encoded.obu";
     uint64_t timeout_cycles = 500000000;
@@ -160,6 +161,8 @@ int main(int argc, char** argv) {
             trace_entropy_shadow = std::atoi(arg.c_str() + 22);
         } else if (arg.rfind("+trace_writer_entropy=", 0) == 0) {
             trace_writer_entropy = std::atoi(arg.c_str() + 22);
+        } else if (arg.rfind("+progress_every=", 0) == 0) {
+            progress_every = std::strtoull(arg.c_str() + 16, nullptr, 10);
         }
     }
 
@@ -237,6 +240,7 @@ int main(int argc, char** argv) {
     AV1RangeCoder entropy_live_shadow;
     bool entropy_live_shadow_valid = false;
     bool entropy_state_mismatch = false;
+    uint64_t next_progress_cycle = 0;
 
     // FSM state constants (must match av1_encoder_top.v)
     constexpr int TS_PREDICT = 11;
@@ -274,8 +278,10 @@ int main(int argc, char** argv) {
             entropy_live_shadow.init();
             entropy_live_shadow_valid = true;
             entropy_state_mismatch = false;
+            next_progress_cycle = progress_every ? (cycle + progress_every) : 0;
             fprintf(stderr, "[TB] Frame %d (%s) start @ cycle %llu\n",
                     frame_idx, is_key ? "KEY" : "INTER", (unsigned long long)cycle);
+            std::fflush(stderr);
         }
 
         dut->clk = 1;
@@ -312,6 +318,26 @@ int main(int argc, char** argv) {
 
         dut->eval();
         if (dut->start) dut->start = 0;
+        if (progress_every && frame_active && cycle >= next_progress_cycle) {
+            auto* root = dut->rootp;
+            fprintf(stderr,
+                    "[TB] progress frame=%d/%d cycle=%llu state=%d blk=(%d,%d) key=%d force_intra=%d use_inter=%d me_mv=(%d,%d) done=%d\n",
+                    frame_idx, num_frames,
+                    (unsigned long long)cycle,
+                    root->av1_encoder_top__DOT__top_state,
+                    root->av1_encoder_top__DOT__blk_x,
+                    root->av1_encoder_top__DOT__blk_y,
+                    dut->is_keyframe_in ? 1 : 0,
+                    dut->force_intra_in ? 1 : 0,
+                    root->av1_encoder_top__DOT__use_inter ? 1 : 0,
+                    sign_extend_9(root->av1_encoder_top__DOT__me_mvx),
+                    sign_extend_9(root->av1_encoder_top__DOT__me_mvy),
+                    dut->done ? 1 : 0);
+            std::fflush(stderr);
+            do {
+                next_progress_cycle += progress_every;
+            } while (next_progress_cycle <= cycle);
+        }
 
         // Capture block metadata once the luma writeback phase is complete.
         // Capturing on entry to TS_REF_WR was too early for some AC terms,

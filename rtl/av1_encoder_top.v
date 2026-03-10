@@ -202,6 +202,18 @@ module av1_encoder_top #(
         TS_GEN_GOLOMB_BIT  = 8'd137,
         TS_GEN_GOLOMB_BW   = 8'd138,
         TS_DONE_FINISH     = 8'd139,
+        TS_SYNTAX_II       = 8'd140,
+        TS_SYNTAX_IIWAIT   = 8'd141,
+        TS_SYNTAX_REF1     = 8'd142,
+        TS_SYNTAX_REF1W    = 8'd143,
+        TS_SYNTAX_REF2     = 8'd144,
+        TS_SYNTAX_REF2W    = 8'd145,
+        TS_SYNTAX_REF3     = 8'd146,
+        TS_SYNTAX_REF3W    = 8'd147,
+        TS_SYNTAX_NEWMV    = 8'd148,
+        TS_SYNTAX_NEWMVW   = 8'd149,
+        TS_SYNTAX_ZEROMV   = 8'd150,
+        TS_SYNTAX_ZEROMVW  = 8'd151,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -300,8 +312,15 @@ module av1_encoder_top #(
     reg [7:0]  part_ctx_left  [0:MI_ROWS-1];
     reg        skip_above     [0:MI_COLS-1];
     reg        skip_left      [0:MI_ROWS-1];
+    reg        inter_above    [0:MI_COLS-1];
+    reg        inter_left     [0:MI_ROWS-1];
+    reg [2:0]  ref_above      [0:MI_COLS-1];
+    reg [2:0]  ref_left       [0:MI_ROWS-1];
     reg [3:0]  mode_above     [0:MI_COLS-1];
     reg [3:0]  mode_left      [0:MI_ROWS-1];
+    reg        blk_inter_coded[0:BLK_COLS*BLK_ROWS-1];
+    reg [2:0]  blk_ref0       [0:BLK_COLS*BLK_ROWS-1];
+    reg [1:0]  blk_inter_mode [0:BLK_COLS*BLK_ROWS-1];
     reg [1:0]  dc_sign_above  [0:MI_COLS-1];
     reg [1:0]  dc_sign_left   [0:MI_ROWS-1];
     reg        cur_only_dc_nonzero;
@@ -319,6 +338,24 @@ module av1_encoder_top #(
     reg [2:0]  part_level_log2;
     reg [4:0]  part_symbol;
     reg [4:0]  part_nsyms;
+
+    localparam [2:0]
+        REF_LAST    = 3'd0,
+        REF_LAST2   = 3'd1,
+        REF_LAST3   = 3'd2,
+        REF_GOLDEN  = 3'd3,
+        REF_BWDREF  = 3'd4,
+        REF_ALTREF2 = 3'd5,
+        REF_ALTREF  = 3'd6,
+        REF_NONE    = 3'd7;
+
+    localparam [1:0]
+        REDUCED_INTER_NONE     = 2'd0,
+        REDUCED_INTER_GLOBALMV = 2'd1,
+        REDUCED_INTER_NEWMV    = 2'd2;
+
+    localparam integer AV1_GLOBALMV_OFFSET = 3;
+    localparam integer AV1_REFMV_OFFSET = 4;
 
     function [3:0] intra_mode_from_idx;
         input [3:0] idx;
@@ -364,6 +401,285 @@ module av1_encoder_top #(
                 2'd0: skip_icdf_flat = {224'd0, 16'd0, 16'd1097};
                 2'd1: skip_icdf_flat = {224'd0, 16'd0, 16'd16253};
                 default: skip_icdf_flat = {224'd0, 16'd0, 16'd28192};
+            endcase
+        end
+    endfunction
+
+    function [1:0] get_intra_inter_ctx_cur;
+        input [9:0] cur_blk_x;
+        input [9:0] cur_blk_y;
+        integer mi_col;
+        integer mi_row;
+        integer has_above;
+        integer has_left;
+        integer above_intra;
+        integer left_intra;
+        begin
+            mi_col = cur_blk_x << 1;
+            mi_row = cur_blk_y << 1;
+            has_above = (cur_blk_y > 0) && (mi_col < MI_COLS);
+            has_left = (cur_blk_x > 0) && (mi_row < MI_ROWS);
+            above_intra = has_above ? !inter_above[mi_col] : 0;
+            left_intra = has_left ? !inter_left[mi_row] : 0;
+            if (has_above && has_left) begin
+                if (left_intra && above_intra)
+                    get_intra_inter_ctx_cur = 2'd3;
+                else if (left_intra || above_intra)
+                    get_intra_inter_ctx_cur = 2'd1;
+                else
+                    get_intra_inter_ctx_cur = 2'd0;
+            end else if (has_above || has_left) begin
+                get_intra_inter_ctx_cur = (has_above ? above_intra : left_intra) ? 2'd2 : 2'd0;
+            end else begin
+                get_intra_inter_ctx_cur = 2'd0;
+            end
+        end
+    endfunction
+
+    function [255:0] intra_inter_icdf_flat;
+        input [1:0] ctx;
+        begin
+            case (ctx)
+                2'd0: intra_inter_icdf_flat = {224'd0, 16'd0, 16'd31962};
+                2'd1: intra_inter_icdf_flat = {224'd0, 16'd0, 16'd16106};
+                2'd2: intra_inter_icdf_flat = {224'd0, 16'd0, 16'd12582};
+                default: intra_inter_icdf_flat = {224'd0, 16'd0, 16'd6230};
+            endcase
+        end
+    endfunction
+
+    function [1:0] compare_ref_counts_fn;
+        input integer a;
+        input integer b;
+        begin
+            if (a == b)
+                compare_ref_counts_fn = 2'd1;
+            else
+                compare_ref_counts_fn = (a < b) ? 2'd0 : 2'd2;
+        end
+    endfunction
+
+    function ref_is_forward_fn;
+        input [2:0] ref_frame;
+        begin
+            case (ref_frame)
+                REF_LAST,
+                REF_LAST2,
+                REF_LAST3,
+                REF_GOLDEN: ref_is_forward_fn = 1'b1;
+                default:    ref_is_forward_fn = 1'b0;
+            endcase
+        end
+    endfunction
+
+    function ref_is_backward_fn;
+        input [2:0] ref_frame;
+        begin
+            case (ref_frame)
+                REF_BWDREF,
+                REF_ALTREF2,
+                REF_ALTREF: ref_is_backward_fn = 1'b1;
+                default:    ref_is_backward_fn = 1'b0;
+            endcase
+        end
+    endfunction
+
+    function block_has_matching_ref_fn;
+        input integer blk_x_in;
+        input integer blk_y_in;
+        input [2:0] ref_frame;
+        integer blk_idx_fn;
+        begin
+            if (blk_x_in < 0 || blk_y_in < 0 || blk_x_in >= BLK_COLS || blk_y_in >= BLK_ROWS) begin
+                block_has_matching_ref_fn = 1'b0;
+            end else begin
+                blk_idx_fn = blk_y_in * BLK_COLS + blk_x_in;
+                block_has_matching_ref_fn =
+                    blk_inter_coded[blk_idx_fn] && (blk_ref0[blk_idx_fn] == ref_frame);
+            end
+        end
+    endfunction
+
+    function block_uses_newmv_fn;
+        input integer blk_x_in;
+        input integer blk_y_in;
+        input [2:0] ref_frame;
+        integer blk_idx_fn;
+        begin
+            if (!block_has_matching_ref_fn(blk_x_in, blk_y_in, ref_frame)) begin
+                block_uses_newmv_fn = 1'b0;
+            end else begin
+                blk_idx_fn = blk_y_in * BLK_COLS + blk_x_in;
+                block_uses_newmv_fn = (blk_inter_mode[blk_idx_fn] == REDUCED_INTER_NEWMV);
+            end
+        end
+    endfunction
+
+    function block_has_top_right_fn;
+        input integer blk_x_in;
+        input integer blk_y_in;
+        integer bs;
+        integer mask_row;
+        integer mask_col;
+        reg has_tr;
+        begin
+            if (blk_x_in < 0 || blk_y_in < 0 || blk_x_in >= BLK_COLS || blk_y_in >= BLK_ROWS) begin
+                block_has_top_right_fn = 1'b0;
+            end else begin
+                bs = 1;
+                mask_row = blk_y_in & 7;
+                mask_col = blk_x_in & 7;
+                has_tr = !((mask_row & bs) && (mask_col & bs));
+                while (bs < 8) begin
+                    if (mask_col & bs) begin
+                        if ((mask_col & (2 * bs)) && (mask_row & (2 * bs))) begin
+                            has_tr = 1'b0;
+                            bs = 8;
+                        end else begin
+                            bs = bs << 1;
+                        end
+                    end else begin
+                        bs = 8;
+                    end
+                end
+                block_has_top_right_fn = has_tr && (blk_y_in > 0) && (blk_x_in + 1 < BLK_COLS);
+            end
+        end
+    endfunction
+
+    function block_has_row_match_fn;
+        input integer blk_x_in;
+        input integer blk_y_in;
+        input [2:0] ref_frame;
+        input integer include_top_right;
+        integer dy;
+        begin
+            block_has_row_match_fn = 1'b0;
+            if (block_has_matching_ref_fn(blk_x_in, blk_y_in - 1, ref_frame))
+                block_has_row_match_fn = 1'b1;
+            else if (include_top_right && block_has_matching_ref_fn(blk_x_in + 1, blk_y_in - 1, ref_frame))
+                block_has_row_match_fn = 1'b1;
+            else if (block_has_matching_ref_fn(blk_x_in - 1, blk_y_in - 1, ref_frame))
+                block_has_row_match_fn = 1'b1;
+            else begin
+                for (dy = 2; dy <= 4; dy = dy + 1)
+                    if (block_has_matching_ref_fn(blk_x_in, blk_y_in - dy, ref_frame))
+                        block_has_row_match_fn = 1'b1;
+            end
+        end
+    endfunction
+
+    function block_has_col_match_fn;
+        input integer blk_x_in;
+        input integer blk_y_in;
+        input [2:0] ref_frame;
+        integer dx;
+        begin
+            block_has_col_match_fn = 1'b0;
+            if (block_has_matching_ref_fn(blk_x_in - 1, blk_y_in, ref_frame))
+                block_has_col_match_fn = 1'b1;
+            else if (block_has_matching_ref_fn(blk_x_in - 1, blk_y_in - 1, ref_frame))
+                block_has_col_match_fn = 1'b1;
+            else begin
+                for (dx = 2; dx <= 4; dx = dx + 1)
+                    if (block_has_matching_ref_fn(blk_x_in - dx, blk_y_in, ref_frame))
+                        block_has_col_match_fn = 1'b1;
+            end
+        end
+    endfunction
+
+    function [7:0] get_reduced_single_ref_mode_ctx_fn;
+        input integer blk_x_in;
+        input integer blk_y_in;
+        input [2:0] ref_frame;
+        integer has_tr;
+        integer row_match;
+        integer col_match;
+        integer newmv_count;
+        integer row_ref_match;
+        integer col_ref_match;
+        integer nearest_match;
+        integer ref_match;
+        begin
+            has_tr = block_has_top_right_fn(blk_x_in, blk_y_in);
+            row_match = block_has_matching_ref_fn(blk_x_in, blk_y_in - 1, ref_frame) ||
+                        (has_tr && block_has_matching_ref_fn(blk_x_in + 1, blk_y_in - 1, ref_frame));
+            col_match = block_has_matching_ref_fn(blk_x_in - 1, blk_y_in, ref_frame);
+            newmv_count = 0;
+            if (block_uses_newmv_fn(blk_x_in, blk_y_in - 1, ref_frame))
+                newmv_count = newmv_count + 1;
+            if (has_tr && block_uses_newmv_fn(blk_x_in + 1, blk_y_in - 1, ref_frame))
+                newmv_count = newmv_count + 1;
+            if (block_uses_newmv_fn(blk_x_in - 1, blk_y_in, ref_frame))
+                newmv_count = newmv_count + 1;
+
+            row_ref_match = block_has_row_match_fn(blk_x_in, blk_y_in, ref_frame, has_tr);
+            col_ref_match = block_has_col_match_fn(blk_x_in, blk_y_in, ref_frame);
+            nearest_match = row_match + col_match;
+            ref_match = row_ref_match + col_ref_match;
+            get_reduced_single_ref_mode_ctx_fn = 8'd0;
+            case (nearest_match)
+                0: begin
+                    get_reduced_single_ref_mode_ctx_fn[2:0] = ref_match >= 1 ? 3'd1 : 3'd0;
+                    if (ref_match == 1)
+                        get_reduced_single_ref_mode_ctx_fn[7:4] = 4'd1;
+                    else if (ref_match >= 2)
+                        get_reduced_single_ref_mode_ctx_fn[7:4] = 4'd2;
+                end
+                1: begin
+                    get_reduced_single_ref_mode_ctx_fn[2:0] = newmv_count > 0 ? 3'd2 : 3'd3;
+                    if (ref_match == 1)
+                        get_reduced_single_ref_mode_ctx_fn[7:4] = 4'd3;
+                    else if (ref_match >= 2)
+                        get_reduced_single_ref_mode_ctx_fn[7:4] = 4'd4;
+                end
+                default: begin
+                    get_reduced_single_ref_mode_ctx_fn[2:0] = newmv_count >= 1 ? 3'd4 : 3'd5;
+                    get_reduced_single_ref_mode_ctx_fn[7:4] = 4'd5;
+                end
+            endcase
+        end
+    endfunction
+
+    function [255:0] single_ref_icdf_flat;
+        input [1:0] cmp_ctx;
+        input [1:0] branch_sel;
+        begin
+            case ({cmp_ctx, branch_sel})
+                4'd0: single_ref_icdf_flat = {224'd0, 16'd0, 16'd27871};
+                4'd1: single_ref_icdf_flat = {224'd0, 16'd0, 16'd15795};
+                4'd2: single_ref_icdf_flat = {224'd0, 16'd0, 16'd18781};
+                4'd4: single_ref_icdf_flat = {224'd0, 16'd0, 16'd15795};
+                4'd5: single_ref_icdf_flat = {224'd0, 16'd0, 16'd16017};
+                4'd6: single_ref_icdf_flat = {224'd0, 16'd0, 16'd12921};
+                4'd8: single_ref_icdf_flat = {224'd0, 16'd0, 16'd5024};
+                4'd9: single_ref_icdf_flat = {224'd0, 16'd0, 16'd4489};
+                4'd10:single_ref_icdf_flat = {224'd0, 16'd0, 16'd1274};
+                default: single_ref_icdf_flat = {224'd0, 16'd0, 16'd15795};
+            endcase
+        end
+    endfunction
+
+    function [255:0] newmv_icdf_flat;
+        input [2:0] ctx;
+        begin
+            case (ctx)
+                3'd0: newmv_icdf_flat = {224'd0, 16'd0, 16'd8733};
+                3'd1: newmv_icdf_flat = {224'd0, 16'd0, 16'd16138};
+                3'd2: newmv_icdf_flat = {224'd0, 16'd0, 16'd17429};
+                3'd3: newmv_icdf_flat = {224'd0, 16'd0, 16'd24382};
+                3'd4: newmv_icdf_flat = {224'd0, 16'd0, 16'd20546};
+                default: newmv_icdf_flat = {224'd0, 16'd0, 16'd28092};
+            endcase
+        end
+    endfunction
+
+    function [255:0] zeromv_icdf_flat;
+        input [1:0] ctx;
+        begin
+            case (ctx)
+                2'd0: zeromv_icdf_flat = {224'd0, 16'd0, 16'd30593};
+                default: zeromv_icdf_flat = {224'd0, 16'd0, 16'd31714};
             endcase
         end
     endfunction
@@ -1023,6 +1339,7 @@ module av1_encoder_top #(
     endfunction
 
     wire [1:0] cur_skip_ctx = get_skip_ctx_cur(blk_x, blk_y);
+    wire [1:0] cur_intra_inter_ctx = get_intra_inter_ctx_cur(blk_x, blk_y);
     wire       cur_block_skip = ~cur_block_has_coeff;
     wire [2:0] cur_kf_above_ctx = get_kf_mode_above_ctx_cur(blk_x, blk_y);
     wire [2:0] cur_kf_left_ctx  = get_kf_mode_left_ctx_cur(blk_x, blk_y);
@@ -1455,14 +1772,23 @@ module av1_encoder_top #(
             for (i = 0; i < MI_COLS; i = i + 1) begin
                 part_ctx_above[i] <= 8'd0;
                 skip_above[i] <= 1'b0;
+                inter_above[i] <= 1'b0;
+                ref_above[i] <= REF_NONE;
                 mode_above[i] <= AV1_DC_PRED;
                 dc_sign_above[i] <= 2'd0;
             end
             for (i = 0; i < MI_ROWS; i = i + 1) begin
                 part_ctx_left[i] <= 8'd0;
                 skip_left[i] <= 1'b0;
+                inter_left[i] <= 1'b0;
+                ref_left[i] <= REF_NONE;
                 mode_left[i] <= AV1_DC_PRED;
                 dc_sign_left[i] <= 2'd0;
+            end
+            for (i = 0; i < (BLK_COLS * BLK_ROWS); i = i + 1) begin
+                blk_inter_coded[i] <= 1'b0;
+                blk_ref0[i] <= REF_NONE;
+                blk_inter_mode[i] <= REDUCED_INTER_NONE;
             end
         end else begin
             done <= 0;
@@ -1518,14 +1844,23 @@ module av1_encoder_top #(
                         for (i = 0; i < MI_COLS; i = i + 1) begin
                             part_ctx_above[i] <= 8'd0;
                             skip_above[i] <= 1'b0;
+                            inter_above[i] <= 1'b0;
+                            ref_above[i] <= REF_NONE;
                             mode_above[i] <= AV1_DC_PRED;
                             dc_sign_above[i] <= 2'd0;
                         end
                         for (i = 0; i < MI_ROWS; i = i + 1) begin
                             part_ctx_left[i] <= 8'd0;
                             skip_left[i] <= 1'b0;
+                            inter_left[i] <= 1'b0;
+                            ref_left[i] <= REF_NONE;
                             mode_left[i] <= AV1_DC_PRED;
                             dc_sign_left[i] <= 2'd0;
+                        end
+                        for (i = 0; i < (BLK_COLS * BLK_ROWS); i = i + 1) begin
+                            blk_inter_coded[i] <= 1'b0;
+                            blk_ref0[i] <= REF_NONE;
+                            blk_inter_mode[i] <= REDUCED_INTER_NONE;
                         end
                         top_state   <= TS_WRITE_TD;
                     end
@@ -1836,7 +2171,7 @@ module av1_encoder_top #(
                     if (neigh_cnt >= 6'd32) begin
                         // All neighbors loaded
                         neigh_rd_active <= 0;
-                        if (!is_keyframe)
+                        if (!is_keyframe && !force_intra_in)
                             top_state <= TS_ME_START;
                         else begin
                             use_inter <= 0;
@@ -1859,7 +2194,9 @@ module av1_encoder_top #(
                         me_mvy <= me_best_mvy;
                         me_sad <= me_best_sad;
                         use_inter <= force_intra_in ? 1'b0 :
-                                     (me_best_sad < INTRA_SAD_THRESHOLD);
+                                     ((me_best_sad < INTRA_SAD_THRESHOLD) &&
+                                      (me_best_mvx == 9'sd0) &&
+                                      (me_best_mvy == 9'sd0));
                         top_state <= TS_PREDICT_INIT;
                     end
                 end
@@ -2055,9 +2392,128 @@ module av1_encoder_top #(
 
                 TS_SYNTAX_WAIT: begin
                     if (ec_done) begin
-                        if (!use_inter) begin
+                        if (!is_keyframe) begin
+                            top_state <= TS_SYNTAX_II;
+                        end else if (!use_inter) begin
                             top_state <= TS_SYNTAX_YMODE;
                         end else if (cur_block_skip) begin
+                            proc_idx  <= 0;
+                            top_state <= TS_IQ_START;
+                        end else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_TXB_SKIP_Y;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_II: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= use_inter ? 5'd1 : 5'd0;
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= intra_inter_icdf_flat(cur_intra_inter_ctx);
+                    top_state        <= TS_SYNTAX_IIWAIT;
+                end
+
+                TS_SYNTAX_IIWAIT: begin
+                    if (ec_done) begin
+                        if (!use_inter) begin
+                            top_state <= TS_SYNTAX_YMODE;
+                        end else begin
+                            top_state <= TS_SYNTAX_REF1;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_REF1: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // choose forward refs
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= single_ref_icdf_flat(
+                        compare_ref_counts_fn(
+                            ((inter_above[blk_x << 1] && ref_is_forward_fn(ref_above[blk_x << 1])) ? 1 : 0) +
+                            ((inter_left[blk_y << 1] && ref_is_forward_fn(ref_left[blk_y << 1])) ? 1 : 0),
+                            ((inter_above[blk_x << 1] && ref_is_backward_fn(ref_above[blk_x << 1])) ? 1 : 0) +
+                            ((inter_left[blk_y << 1] && ref_is_backward_fn(ref_left[blk_y << 1])) ? 1 : 0)
+                        ),
+                        2'd0);
+                    top_state        <= TS_SYNTAX_REF1W;
+                end
+
+                TS_SYNTAX_REF1W: begin
+                    if (ec_done)
+                        top_state <= TS_SYNTAX_REF2;
+                end
+
+                TS_SYNTAX_REF2: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // choose LAST/LAST2 group
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= single_ref_icdf_flat(
+                        compare_ref_counts_fn(
+                            ((inter_above[blk_x << 1] && ref_above[blk_x << 1] == REF_LAST) ? 1 : 0) +
+                            ((inter_above[blk_x << 1] && ref_above[blk_x << 1] == REF_LAST2) ? 1 : 0) +
+                            ((inter_left[blk_y << 1] && ref_left[blk_y << 1] == REF_LAST) ? 1 : 0) +
+                            ((inter_left[blk_y << 1] && ref_left[blk_y << 1] == REF_LAST2) ? 1 : 0),
+                            ((inter_above[blk_x << 1] && ref_above[blk_x << 1] == REF_LAST3) ? 1 : 0) +
+                            ((inter_above[blk_x << 1] && ref_above[blk_x << 1] == REF_GOLDEN) ? 1 : 0) +
+                            ((inter_left[blk_y << 1] && ref_left[blk_y << 1] == REF_LAST3) ? 1 : 0) +
+                            ((inter_left[blk_y << 1] && ref_left[blk_y << 1] == REF_GOLDEN) ? 1 : 0)
+                        ),
+                        2'd1);
+                    top_state        <= TS_SYNTAX_REF2W;
+                end
+
+                TS_SYNTAX_REF2W: begin
+                    if (ec_done)
+                        top_state <= TS_SYNTAX_REF3;
+                end
+
+                TS_SYNTAX_REF3: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // choose LAST
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= single_ref_icdf_flat(
+                        compare_ref_counts_fn(
+                            ((inter_above[blk_x << 1] && ref_above[blk_x << 1] == REF_LAST) ? 1 : 0) +
+                            ((inter_left[blk_y << 1] && ref_left[blk_y << 1] == REF_LAST) ? 1 : 0),
+                            ((inter_above[blk_x << 1] && ref_above[blk_x << 1] == REF_LAST2) ? 1 : 0) +
+                            ((inter_left[blk_y << 1] && ref_left[blk_y << 1] == REF_LAST2) ? 1 : 0)
+                        ),
+                        2'd2);
+                    top_state        <= TS_SYNTAX_REF3W;
+                end
+
+                TS_SYNTAX_REF3W: begin
+                    if (ec_done)
+                        top_state <= TS_SYNTAX_NEWMV;
+                end
+
+                TS_SYNTAX_NEWMV: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd1; // GLOBALMV is not NEWMV
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= newmv_icdf_flat(
+                        get_reduced_single_ref_mode_ctx_fn(blk_x, blk_y, REF_LAST)[2:0]);
+                    top_state        <= TS_SYNTAX_NEWMVW;
+                end
+
+                TS_SYNTAX_NEWMVW: begin
+                    if (ec_done)
+                        top_state <= TS_SYNTAX_ZEROMV;
+                end
+
+                TS_SYNTAX_ZEROMV: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // GLOBALMV
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= zeromv_icdf_flat(
+                        get_reduced_single_ref_mode_ctx_fn(blk_x, blk_y, REF_LAST)[AV1_GLOBALMV_OFFSET]);
+                    top_state        <= TS_SYNTAX_ZEROMVW;
+                end
+
+                TS_SYNTAX_ZEROMVW: begin
+                    if (ec_done) begin
+                        if (cur_block_skip) begin
                             proc_idx  <= 0;
                             top_state <= TS_IQ_START;
                         end else begin
@@ -3008,27 +3464,39 @@ module av1_encoder_top #(
                             if ((blk_x << 1) < MI_COLS) begin
                                 part_ctx_above[blk_x << 1] <= 8'd30;
                                 skip_above[blk_x << 1] <= ~cur_block_has_coeff;
+                                inter_above[blk_x << 1] <= use_inter;
+                                ref_above[blk_x << 1] <= use_inter ? REF_LAST : REF_NONE;
                                 mode_above[blk_x << 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
                                 dc_sign_above[blk_x << 1] <= cur_dc_sign_code;
                             end
                             if (((blk_x << 1) + 1) < MI_COLS) begin
                                 part_ctx_above[(blk_x << 1) + 1] <= 8'd30;
                                 skip_above[(blk_x << 1) + 1] <= ~cur_block_has_coeff;
+                                inter_above[(blk_x << 1) + 1] <= use_inter;
+                                ref_above[(blk_x << 1) + 1] <= use_inter ? REF_LAST : REF_NONE;
                                 mode_above[(blk_x << 1) + 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
                                 dc_sign_above[(blk_x << 1) + 1] <= cur_dc_sign_code;
                             end
                             if ((blk_y << 1) < MI_ROWS) begin
                                 part_ctx_left[blk_y << 1] <= 8'd30;
                                 skip_left[blk_y << 1] <= ~cur_block_has_coeff;
+                                inter_left[blk_y << 1] <= use_inter;
+                                ref_left[blk_y << 1] <= use_inter ? REF_LAST : REF_NONE;
                                 mode_left[blk_y << 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
                                 dc_sign_left[blk_y << 1] <= cur_dc_sign_code;
                             end
                             if (((blk_y << 1) + 1) < MI_ROWS) begin
                                 part_ctx_left[(blk_y << 1) + 1] <= 8'd30;
                                 skip_left[(blk_y << 1) + 1] <= ~cur_block_has_coeff;
+                                inter_left[(blk_y << 1) + 1] <= use_inter;
+                                ref_left[(blk_y << 1) + 1] <= use_inter ? REF_LAST : REF_NONE;
                                 mode_left[(blk_y << 1) + 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
                                 dc_sign_left[(blk_y << 1) + 1] <= cur_dc_sign_code;
                             end
+                            blk_inter_coded[blk_y * BLK_COLS + blk_x] <= use_inter;
+                            blk_ref0[blk_y * BLK_COLS + blk_x] <= use_inter ? REF_LAST : REF_NONE;
+                            blk_inter_mode[blk_y * BLK_COLS + blk_x] <=
+                                use_inter ? REDUCED_INTER_GLOBALMV : REDUCED_INTER_NONE;
                             // Both chroma planes done
                             top_state <= TS_NEXT_BLK;
                         end

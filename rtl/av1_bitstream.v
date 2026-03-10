@@ -313,7 +313,6 @@ module av1_bitstream #(
                             bw_write_bit(0);   // allow_screen_content_tools
                             bw_write_bit(0);   // frame_size_override_flag
                             bw_write_bit(0);   // render_and_frame_size_different
-                            bw_write_bit(1);   // refresh_frame_context = DISABLED
                             bw_write_tile_info();
                             bw_write_quantization_params(lat_qindex);
                             bw_write_bit(0);   // segmentation_enabled
@@ -326,12 +325,40 @@ module av1_bitstream #(
                             obuf[1] = payload_len[7:0];
                             obuf_len <= bw_byte_idx[5:0];
                         end else begin
-                            obuf[1]  <= 8'h04;  // size placeholder
-                            obuf[2]  <= 8'h20;
-                            obuf[3]  <= lat_qindex;
-                            obuf[4]  <= 8'h00;
-                            obuf[5]  <= 8'h00;
-                            obuf_len <= 6'd6;
+                            // Reduced video inter-frame header matching the
+                            // software reference writer's current single-ref,
+                            // integer-MV subset.
+                            bw_reset(2);
+                            bw_write_bit(0);   // show_existing_frame
+                            bw_write_bits(1, 2);   // frame_type = INTER_FRAME
+                            bw_write_bit(1);   // show_frame
+                            bw_write_bit(1);   // error_resilient_mode
+                            bw_write_bit(1);   // disable_cdf_update
+                            bw_write_bit(1);   // allow_screen_content_tools
+                            bw_write_bit(1);   // force_integer_mv
+                            bw_write_bit(0);   // frame_size_override_flag
+                            bw_write_bits(8'h01, 8);   // refresh LAST slot only
+                            for (j = 0; j < 7; j = j + 1)
+                                bw_write_bits(0, 3);   // all refs map to LAST
+                            bw_write_bit(0);   // render_and_frame_size_different
+                            bw_write_bit(0);   // interpolation_filter == SWITCHABLE
+                            bw_write_bits(0, 2);   // interpolation_filter = regular
+                            bw_write_bit(0);   // is_motion_mode_switchable
+                            bw_write_bit(1);   // refresh_frame_context = disabled
+                            bw_write_tile_info();
+                            bw_write_quantization_params(lat_qindex);
+                            bw_write_bit(0);   // segmentation_enabled
+                            bw_write_bit(0);   // delta_q_present
+                            bw_write_loop_filter_params();
+                            bw_write_bit(0);   // tx_mode_select
+                            bw_write_bit(0);   // reference_select = single reference
+                            bw_write_bit(0);   // reduced_tx_set
+                            for (j = 0; j < 7; j = j + 1)
+                                bw_write_bit(0);   // global motion type = identity
+                            bw_flush_zero_pad();
+                            payload_len = bw_byte_idx - 2;
+                            obuf[1] = payload_len[7:0];
+                            obuf_len <= bw_byte_idx[5:0];
                         end
                     end
 
