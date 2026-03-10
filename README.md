@@ -24,8 +24,10 @@ Official external debug references pulled from the web are tracked in `av1-refer
 
 - Do not wait until project completion to refresh this file.
 - Update it after meaningful implementation, simulation, decode, or verification changes.
+- Update it for milestones, discoveries, blocker changes, ownership changes, validation results, and any feature movement worth preserving.
 - Keep it aligned with `AGENTS.md` and `av1-reference-docs/svt-av1-feature-inventory.md`.
 - It must reflect the current supported feature subset, current verification status, known gaps, active blockers, and the currently recommended run flow.
+- Important findings must not live only in terminal output, replies, or commit messages. If they affect what is true about the encoder, record them here.
 
 ## Bitstream Ownership Rule
 
@@ -101,6 +103,7 @@ Inventory of the current repo state:
   - standalone entropy reference-check harness in `tb/test_entropy.cpp` and `make entropy-check`
   - RTL top-level now tracks writer-style 8x8 neighborhood syntax state (`part_ctx`, `skip`, `mode`) as groundwork for tile ownership
   - RTL raw payload now emits a real AV1 skip symbol per block before the older placeholder coefficient-bool stream
+  - RTL raw payload now also emits intra-block `y_mode`, zero `angle_delta`, and deterministic `UV_DC_PRED` syntax for keyframe and intra-only blocks before the placeholder coefficient stream
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
@@ -109,6 +112,8 @@ Inventory of the current repo state:
   - `make entropy-check THREADS=24 BUILD_JOBS=24` passes in WSL and matches the C++ `AV1RangeCoder` byte-for-byte for bool, literal, and symbol cases
   - the `16x16` 1-frame all-key top-level smoke still decodes and matches `recon.yuv` exactly after the entropy-core upgrade
   - the same `16x16` smoke still decodes and matches `recon.yuv` after moving the skip symbol onto the RTL raw path
+  - the same `16x16` smoke still decodes and matches `recon.yuv` after moving intra `y_mode`, zero `angle_delta`, and `uv_mode=DC` symbols onto the RTL raw path
+  - the preserved RTL raw payload on that smoke case increased from `52` to `53` bytes after the intra-mode syntax move, confirming the raw path changed while the software decode path stayed stable
   - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -132,7 +137,8 @@ Inventory of the current repo state:
 - The entropy foundation is no longer the active blocker for tile ownership:
   - `av1_entropy.v` can now encode reference-matching bools, literals, and generic CDF symbols
   - the raw RTL path now also owns the block skip symbol
-  - the remaining ownership gap is moving real partition, intra/inter mode, motion, UV mode, and coefficient syntax sequencing onto the RTL top-level path
+  - the raw RTL path now also owns keyframe and intra-only `y_mode`, zero `angle_delta`, and deterministic `uv_mode`
+  - the remaining ownership gap is moving real partition, inter/intra frame-type gating, motion, and coefficient syntax sequencing onto the RTL top-level path
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
@@ -192,6 +198,7 @@ For inter bring-up, use a repeated-frame `64x64` clip first so the zero-motion s
 If a syntax blocker appears, check `av1-reference-docs/external/README.md` first and refresh that folder from official sources before guessing.
 For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
 If the ME block dominates runtime, drop to the `16x16` 2-frame debug clips first to validate inter correctness before retrying `64x64` and larger cases.
+For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
 
 ## Verification Rules
 
