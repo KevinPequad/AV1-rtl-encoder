@@ -76,7 +76,8 @@
   - partition symbols
   - remaining intra/inter frame-type and mode symbols
   - motion symbols
-  - full coefficient syntax in the same ordering as the AV1 tile grammar, replacing the temporary per-coefficient bool stream on non-DC blocks and adding larger-magnitude coefficient tails beyond the current bounded DC-only slice
+  - sparse low-order AC coefficient syntax first, using the `16x16` `ac_probe_16x16_1f.yuv` case as the next bring-up target
+  - then full coefficient syntax in the same ordering as the AV1 tile grammar, replacing the temporary per-coefficient bool stream on denser non-DC blocks and adding larger-magnitude coefficient tails beyond the current bounded DC-only slice
 - Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
 
 ## Stop Conditions
