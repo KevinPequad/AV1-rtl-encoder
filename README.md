@@ -106,6 +106,9 @@ Inventory of the current repo state:
   - RTL raw payload now also emits intra-block `y_mode`, zero `angle_delta`, and deterministic `UV_DC_PRED` syntax for keyframe and intra-only blocks before the placeholder coefficient stream
   - RTL raw payload now emits the luma `txb_skip=0` entry symbol and the deterministic zero-chroma `txb_skip=1` symbols before reconstruction, while still using the older placeholder luma coefficient-presence stream behind them
   - RTL raw payload now emits a first real luma coefficient syntax slice for intra DC-only 8x8 blocks with `eob=1` and `|qcoeff[0]| <= 14`: intra `tx_type`, `eob`, `coeff_base_eob`, bounded `coeff_br`, and neighbor-aware DC sign
+  - software-writer coefficient scan order now matches the official libaom `default_scan_8x8` table
+  - RTL luma reconstruction now transposes the dequantized 8x8 coefficient matrix into the decoder-consistent flat-index orientation before the inverse 2D transform
+  - non-directional intra prediction now matches AV1's one-sided edge fallback rules for left-only and top-only blocks instead of forcing both missing sides to `128`
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
@@ -122,6 +125,10 @@ Inventory of the current repo state:
   - on that `qindex=255` smoke, the preserved RTL raw payload dropped from `28` bytes to `20`, which is consistent with replacing the old placeholder coefficient-presence stream for the lone non-skip block
   - a `16x16` 1-frame all-key smoke at `qindex=128` still decodes and matches `recon.yuv` after extending that DC-only slice through the bounded `coeff_br` path
   - on that `qindex=128` smoke, the preserved RTL raw payload dropped from `48` bytes to `28`, which indicates all four current DC-only luma blocks moved off the placeholder coefficient stream and onto the real DC-only coefficient path
+  - the focused `16x16` `data/ac_probe_16x16_1f.yuv` still-picture check at `qindex=240` now decodes and matches `recon.yuv` exactly after:
+    - correcting `tb/av1_bitstream_writer.h` to libaom's real `default_scan_8x8`
+    - transposing the RTL inverse-path 8x8 coefficient matrix before IDCT
+    - fixing left-only / top-only non-directional intra edge fallback in `rtl/av1_intra_pred.v`
   - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -148,6 +155,7 @@ Inventory of the current repo state:
   - the raw RTL path now also owns keyframe and intra-only `y_mode`, zero `angle_delta`, and deterministic `uv_mode`
   - the raw RTL path now also owns luma/chroma `txb_skip` entry symbols for the current reduced 8x8/4x4 transform subset
   - the raw RTL path now also owns a real DC-only luma coefficient slice for intra blocks with `eob=1`, bounded `coeff_br`, and neighbor-conditioned DC-sign context
+  - the software-owned debug path is now exact again on the first sparse low-order AC still-picture probe, so the active ownership gap is no longer "make the reduced AC case round-trip"; it is "move that now-verified sparse AC syntax subset onto the RTL raw path"
   - the remaining ownership gap is moving real partition, inter/intra frame-type gating, motion, non-DC coefficient syntax, larger-magnitude coefficient tails, and the broader tile grammar onto the RTL top-level path
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
@@ -156,7 +164,7 @@ Inventory of the current repo state:
   - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - expanding beyond the current reduced single-reference subset once the ownership path is real
-  - extending the new DC-only coefficient slice into sparse low-order AC cases before tackling the dense non-DC blocks seen on the latest `16x16` AC probe
+  - moving the now-verified sparse low-order AC still-picture subset from the software writer into the RTL-owned raw path before tackling denser non-DC blocks
 - A lightweight debug probe now exists in the testbench:
   - `+dump_inter_summary=1` prints captured inter blocks, MVs, and nonzero counts after each frame
   - `+dump_blocks=1` on the synthetic `data/ac_probe_16x16_1f.yuv` case shows the next non-DC step cleanly:
@@ -213,6 +221,7 @@ If a syntax blocker appears, check `av1-reference-docs/external/README.md` first
 For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
 If the ME block dominates runtime, drop to the `16x16` 2-frame debug clips first to validate inter correctness before retrying `64x64` and larger cases.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
+For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` at `qindex=240` in the loop. It is now a verified exact-match probe for the software-owned path and should be the first regression check when moving low-order AC syntax onto the RTL raw path.
 
 ## Verification Rules
 

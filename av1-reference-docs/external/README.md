@@ -95,6 +95,14 @@ syntax or verification blocker.
 - `av1_encode_mv()` in official libaom asserts that the coded MV difference is
   non-zero, so a predictor-equal MV must be emitted as `NEARESTMV` / `NEARMV`
   rather than `NEWMV`.
+- The official libaom / AV1 `default_scan_8x8` order is `0, 8, 1, 2, ...`,
+  not the earlier guessed `0, 1, 8, 16, ...`.
+- In the reference intra predictor setup, one-sided edge availability is not
+  filled with flat `128` for both directions:
+  - if top is missing but left exists, `above[]` is filled from `left[0]`
+  - if left is missing but top exists, `left[]` is filled from `above[0]`
+  - if both are missing, the defaults are `above[]=127`, `left[]=129`,
+    and `top_left=128`
 - The `GLOBALMV` context bit in `mode_context` is tied to temporal/ref-MV logic
   in `mvref_common.c`; it should not be invented heuristically when the reduced
   frame header is already inferring `use_ref_frame_mvs = 0`.
@@ -108,6 +116,12 @@ syntax or verification blocker.
   - the original `64x64` 2-frame debug inter case is decoder-clean again
   - the small `16x16` 2-frame inter case now decodes and matches `recon.yuv`
     exactly
+- After applying the official scan order plus the reference edge-fill rules to
+  the current sparse AC still-picture bring-up:
+  - the `16x16` `ac_probe_16x16_1f.yuv` check at `qindex=240` now decodes and
+    matches `recon.yuv` exactly
+  - the remaining gap on that case is no longer software-writer correctness;
+    it is moving the same sparse AC syntax subset onto the RTL-owned raw path
 - The current ME core fix is local, not spec-derived, but was guided by the
   surrounding reference behavior:
   - candidate SAD must include the final sample before best-match update
