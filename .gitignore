@@ -5,41 +5,64 @@ Thumbs.db
 *.swo
 *.tmp
 *.bak
+.idea/
+.vscode/
 
 # Python cache
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Verilator / build artifacts
 tb/obj_dir/
 tb/Vav1_encoder_top
 tb/test_bitstream
+tb/test_entropy
 tb/*.o
 tb/*.a
 tb/*.d
+tb/*.gcno
+tb/*.gcda
 *.o
 *.a
 *.log
+*.out
+*.err
 *.vcd
 *.fst
 *.wlf
+*.core
 
 # Generated outputs
 output/
 tb/output/
 tb/_tmp_*
 /_tmp_*
+rtl_frames/
+still_frames/
 tb/*.ivf
 tb/*.yuv
 tb/*.mp4
 tb/*.png
+tb/*.obu
+*.ivf
+*.obu
+*.yuv
+*.mp4
 
 # Local test data and generated media
 data/*.yuv
+data/*.y4m
 data/*.hex
+data/*.bin
 data/*.ivf
 data/*.mp4
+data/*.obu
 data/*.png
 data/*.jpg
 data/*.jpeg
@@ -51,6 +74,12 @@ tools/mamba-root/
 tools/micromamba/
 tools/verilator/
 tools/verilator-env/
+
+# Local throwaway debug helpers
+temp_*.sh
+temp_*.bat
+run_debug*.sh
+run_debug*.bat
 
 # Large local reference repos copied into docs
 av1-reference-docs/h264-rtl-encoder/
