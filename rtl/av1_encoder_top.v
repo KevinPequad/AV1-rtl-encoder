@@ -168,6 +168,8 @@ module av1_encoder_top #(
         TS_AC09_SIGN_AC1W  = 7'd112,
         TS_AC09_SIGN_AC10  = 7'd113,
         TS_AC09_SIGN_AC10W = 7'd114,
+        TS_AC01_BR         = 7'd115,
+        TS_AC01_BR_WAIT    = 7'd116,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -222,9 +224,12 @@ module av1_encoder_top #(
 
     // Neighbor pixels for intra prediction
     reg [7:0]  top_pixels [0:7];
+    reg [7:0]  top_right_pixels [0:7];
     reg [7:0]  left_pixels [0:7];
+    reg [7:0]  bottom_left_pixels [0:7];
     reg [7:0]  top_left_pixel;
     reg        has_top, has_left;
+    reg        has_top_right, has_bottom_left;
 
     // Motion estimation results
     reg signed [8:0] me_mvx, me_mvy;
@@ -563,6 +568,12 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [255:0] coeff_br_ctx1_icdf_flat;
+        begin
+            coeff_br_ctx1_icdf_flat = {192'd0,16'd32768,16'd27003,16'd23149,16'd15537};
+        end
+    endfunction
+
     function [255:0] eob_extra_ctx2_icdf_flat;
         begin
             eob_extra_ctx2_icdf_flat = {224'd0,16'd32768,16'd19159};
@@ -650,6 +661,7 @@ module av1_encoder_top #(
     wire [1:0]   cur_dc_sign_ctx   = get_dc_sign_ctx_cur(blk_x, blk_y);
     wire [255:0] cur_dc_sign_icdf  = dc_sign_ctx0_icdf_flat(cur_dc_sign_ctx);
     wire [255:0] cur_coeff_br_icdf = coeff_br_ctx0_icdf_flat();
+    wire [255:0] cur_coeff_br1_icdf = coeff_br_ctx1_icdf_flat();
     wire [255:0] cur_eob_extra2_icdf = eob_extra_ctx2_icdf_flat();
     wire [1:0]   cur_dc_sign_code =
         cur_block_has_coeff ? (qcoeff[0][15] ? 2'd1 : (qcoeff[0] != 16'sd0 ? 2'd2 : 2'd0)) : 2'd0;
@@ -662,7 +674,7 @@ module av1_encoder_top #(
         (qcoeff[0] != 16'sd0) &&
         (qcoeff[1] != 16'sd0) &&
         (qcoeff[8] == 16'sd0) &&
-        (abs16(qcoeff[0]) <= 16'd2) &&
+        (abs16(qcoeff[0]) <= 16'd3) &&
         (abs16(qcoeff[1]) == 16'd1);
     wire         cur_eob9_coeff_path =
         cur_block_has_coeff &&
@@ -680,7 +692,7 @@ module av1_encoder_top #(
     reg [2:0]  xform_row;
     reg [2:0]  xform_col;
     reg [8:0]  ref_wr_idx;
-    reg [4:0]  neigh_cnt;    // Neighbor loading counter (0=TL, 1-8=top, 9-16=left)
+    reg [5:0]  neigh_cnt;    // 0=TL, 1-8=top, 9-16=left, 17-24=top-right, 25-32=bottom-left
 
     // Chroma processing
     reg        chr_plane;     // 0=Cb, 1=Cr
@@ -808,8 +820,10 @@ module av1_encoder_top #(
         .mode(intra_eval_mode),
         .done(pred_done),
         .top(top_pixels), .left(left_pixels),
+        .top_right(top_right_pixels), .bottom_left(bottom_left_pixels),
         .top_left(top_left_pixel),
         .has_top(has_top), .has_left(has_left),
+        .has_top_right(has_top_right), .has_bottom_left(has_bottom_left),
         .pred(pred_out)
     );
 
@@ -1116,10 +1130,18 @@ module av1_encoder_top #(
                         // Set up neighbor pixels for intra prediction
                         has_top  <= (blk_y > 0);
                         has_left <= (blk_x > 0);
+                        has_top_right <= (blk_y > 0) && (blk_x + 1 < BLK_COLS);
+                        // For the current fixed 8x8/TX_8X8 raster path, bottom-left
+                        // extension would require pixels from blocks that have not been
+                        // reconstructed yet. Keep it unavailable until the traversal
+                        // order and availability checks are made spec-accurate.
+                        has_bottom_left <= 1'b0;
                         // Default neighbor values (overwritten by loader)
                         for (i = 0; i < 8; i = i + 1) begin
                             top_pixels[i]  <= 8'd128;
+                            top_right_pixels[i] <= 8'd128;
                             left_pixels[i] <= 8'd128;
+                            bottom_left_pixels[i] <= 8'd128;
                         end
                         top_left_pixel <= 8'd128;
 
@@ -1150,21 +1172,36 @@ module av1_encoder_top #(
                         end else begin
                             neigh_cnt <= 5'd1;  // skip TL, try top
                         end
-                    end else if (neigh_cnt <= 5'd8) begin
+                    end else if (neigh_cnt <= 6'd8) begin
                         // Top pixels [0..7]
                         if (has_top) begin
-                            neigh_rd_addr <= (blk_y * 8 - 1) * FRAME_WIDTH + blk_x * 8 + (neigh_cnt - 5'd1);
+                            neigh_rd_addr <= (blk_y * 8 - 1) * FRAME_WIDTH + blk_x * 8 + (neigh_cnt - 6'd1);
                             top_state <= TS_NEIGH_READ;
                         end else begin
-                            neigh_cnt <= 5'd9;  // skip top, try left
+                            neigh_cnt <= 6'd9;  // skip top, try left
                         end
-                    end else if (neigh_cnt <= 5'd16) begin
+                    end else if (neigh_cnt <= 6'd16) begin
                         // Left pixels [0..7]
                         if (has_left) begin
-                            neigh_rd_addr <= (blk_y * 8 + (neigh_cnt - 5'd9)) * FRAME_WIDTH + blk_x * 8 - 1;
+                            neigh_rd_addr <= (blk_y * 8 + (neigh_cnt - 6'd9)) * FRAME_WIDTH + blk_x * 8 - 1;
                             top_state <= TS_NEIGH_READ;
                         end else begin
-                            // No left neighbors, done
+                            neigh_cnt <= 6'd17;  // skip left, try top-right
+                        end
+                    end else if (neigh_cnt <= 6'd24) begin
+                        // Top-right pixels [0..7]
+                        if (has_top_right) begin
+                            neigh_rd_addr <= (blk_y * 8 - 1) * FRAME_WIDTH + blk_x * 8 + 8 + (neigh_cnt - 6'd17);
+                            top_state <= TS_NEIGH_READ;
+                        end else begin
+                            neigh_cnt <= 6'd25;  // skip top-right, try bottom-left
+                        end
+                    end else if (neigh_cnt <= 6'd32) begin
+                        // Bottom-left pixels [0..7]
+                        if (has_bottom_left) begin
+                            neigh_rd_addr <= (blk_y * 8 + 8 + (neigh_cnt - 6'd25)) * FRAME_WIDTH + blk_x * 8 - 1;
+                            top_state <= TS_NEIGH_READ;
+                        end else begin
                             neigh_rd_active <= 0;
                             if (!is_keyframe)
                                 top_state <= TS_ME_START;
@@ -1180,7 +1217,7 @@ module av1_encoder_top #(
                     // Store the pixel read from reference memory
                     if (neigh_cnt == 5'd0)
                         top_left_pixel <= ref_mem_rd_data;
-                    else if (neigh_cnt <= 5'd8)
+                    else if (neigh_cnt <= 6'd8)
                         case (neigh_cnt)
                             5'd1: top_pixels[0] <= ref_mem_rd_data;
                             5'd2: top_pixels[1] <= ref_mem_rd_data;
@@ -1192,7 +1229,7 @@ module av1_encoder_top #(
                             5'd8: top_pixels[7] <= ref_mem_rd_data;
                             default: ;
                         endcase
-                    else
+                    else if (neigh_cnt <= 6'd16)
                         case (neigh_cnt)
                             5'd9:  left_pixels[0] <= ref_mem_rd_data;
                             5'd10: left_pixels[1] <= ref_mem_rd_data;
@@ -1204,8 +1241,32 @@ module av1_encoder_top #(
                             5'd16: left_pixels[7] <= ref_mem_rd_data;
                             default: ;
                         endcase
+                    else if (neigh_cnt <= 6'd24)
+                        case (neigh_cnt)
+                            6'd17: top_right_pixels[0] <= ref_mem_rd_data;
+                            6'd18: top_right_pixels[1] <= ref_mem_rd_data;
+                            6'd19: top_right_pixels[2] <= ref_mem_rd_data;
+                            6'd20: top_right_pixels[3] <= ref_mem_rd_data;
+                            6'd21: top_right_pixels[4] <= ref_mem_rd_data;
+                            6'd22: top_right_pixels[5] <= ref_mem_rd_data;
+                            6'd23: top_right_pixels[6] <= ref_mem_rd_data;
+                            6'd24: top_right_pixels[7] <= ref_mem_rd_data;
+                            default: ;
+                        endcase
+                    else
+                        case (neigh_cnt)
+                            6'd25: bottom_left_pixels[0] <= ref_mem_rd_data;
+                            6'd26: bottom_left_pixels[1] <= ref_mem_rd_data;
+                            6'd27: bottom_left_pixels[2] <= ref_mem_rd_data;
+                            6'd28: bottom_left_pixels[3] <= ref_mem_rd_data;
+                            6'd29: bottom_left_pixels[4] <= ref_mem_rd_data;
+                            6'd30: bottom_left_pixels[5] <= ref_mem_rd_data;
+                            6'd31: bottom_left_pixels[6] <= ref_mem_rd_data;
+                            6'd32: bottom_left_pixels[7] <= ref_mem_rd_data;
+                            default: ;
+                        endcase
 
-                    if (neigh_cnt >= 5'd16) begin
+                    if (neigh_cnt >= 6'd32) begin
                         // All neighbors loaded
                         neigh_rd_active <= 0;
                         if (!is_keyframe)
@@ -1546,7 +1607,7 @@ module av1_encoder_top #(
 
                 TS_DC_BASE_WAIT: begin
                     if (ec_done) begin
-                        if (abs16(qcoeff[0]) > 16'd3) begin
+                        if (abs16(qcoeff[0]) > 16'd2) begin
                             dc_br_remaining <= abs16(qcoeff[0]) - 16'd3;
                             top_state <= TS_DC_BR;
                         end else begin
@@ -1662,8 +1723,34 @@ module av1_encoder_top #(
                 end
 
                 TS_AC01_DC_WAIT: begin
-                    if (ec_done)
-                        top_state <= TS_AC01_SIGN_DC;
+                    if (ec_done) begin
+                        if (abs16(qcoeff[0]) > 16'd2) begin
+                            dc_br_remaining <= abs16(qcoeff[0]) - 16'd3;
+                            top_state <= TS_AC01_BR;
+                        end else begin
+                            top_state <= TS_AC01_SIGN_DC;
+                        end
+                    end
+                end
+
+                TS_AC01_BR: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= (dc_br_remaining > 5'd3) ? 5'd3 : dc_br_remaining;
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_coeff_br1_icdf;
+                    top_state        <= TS_AC01_BR_WAIT;
+                end
+
+                TS_AC01_BR_WAIT: begin
+                    if (ec_done) begin
+                        if (dc_br_remaining > 5'd3) begin
+                            dc_br_remaining <= dc_br_remaining - 5'd3;
+                            top_state <= TS_AC01_BR;
+                        end else begin
+                            dc_br_remaining <= 5'd0;
+                            top_state <= TS_AC01_SIGN_DC;
+                        end
+                    end
                 end
 
                 TS_AC01_SIGN_DC: begin

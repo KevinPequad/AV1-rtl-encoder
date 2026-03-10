@@ -111,6 +111,7 @@ Inventory of the current repo state:
   - software-writer coefficient scan order now matches the official libaom `default_scan_8x8` table
   - RTL luma reconstruction now transposes the dequantized 8x8 coefficient matrix into the decoder-consistent flat-index orientation before the inverse 2D transform
   - non-directional intra prediction now matches AV1's one-sided edge fallback rules for left-only and top-only blocks instead of forcing both missing sides to `128`
+  - directional intra prediction now has a real top-right extension path for the current `8x8` raster-order subset instead of always repeating the last top sample
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
@@ -135,7 +136,8 @@ Inventory of the current repo state:
   - on that sparse-AC check, the preserved RTL raw payload is now `35` bytes and both `aomdec` and `ffmpeg` decode outputs match `recon.yuv` bit-for-bit
   - the same focused `16x16` `data/ac_probe_16x16_1f.yuv` check at `qindex=240` still decodes and matches `recon.yuv` exactly after moving the first dense low-order `eob=9` subset onto the RTL raw path
   - on that exact-match probe, the preserved RTL raw payload dropped again from `35` bytes to `29`, which indicates the last remaining dense luma block on that clip moved off the placeholder coefficient bool stream and onto the real coefficient path
-  - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
+  - after adding real top-right directional references while keeping bottom-left unavailable for the current fixed `8x8` / `TX_8X8` raster-order path, the same `16x16` `data/ac_probe_16x16_1f.yuv` probe at `qindex=240` remains exact and the previously failing `qindex=224` case drops from `41` differing bytes to `5` with the lower-left directional block fixed
+- earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
   - larger inter validation runs are still expensive enough that `64x64` and above need careful debug sizing

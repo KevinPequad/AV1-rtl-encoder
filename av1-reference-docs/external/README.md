@@ -141,6 +141,16 @@ syntax or verification blocker.
     - `coeff_base` at scan `c=2`, `pos=1`, context `2`, symbol `2`
     - `coeff_base` at scan `c=1`, `pos=8`, context `2`, symbol `1`
     - DC sign plus AC signs for scan positions `1`, `2`, and `8`
+- Directional intra reference availability matters on the same still-picture
+  probe:
+  - real top-right extension samples were required to clear the lower-left
+    directional-block mismatch on the `qindex=224` debug case
+  - bottom-left extension cannot be enabled blindly on the current fixed
+    `8x8` / `TX_8X8` raster-order subset because that reads future pixels from
+    blocks that are not reconstructed yet
+  - with top-right enabled and bottom-left still disabled, the `qindex=240`
+    exact-match probe stays exact and the `qindex=224` mismatch drops from
+    `41` bytes to `5`
 - The current ME core fix is local, not spec-derived, but was guided by the
   surrounding reference behavior:
   - candidate SAD must include the final sample before best-match update
