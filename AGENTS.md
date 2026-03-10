@@ -50,6 +50,14 @@
 - `AGENTS.md` must capture durable execution rules, current focus, active ownership boundary, and any new working rules discovered during implementation.
 - After each verified milestone, create a git commit that captures the completed work and push it to the configured remote before continuing.
 - Use non-interactive git commands only. Do not stop at the commit or push; continue directly to the next backlog item after the push succeeds.
+- A successful commit, push, and doc refresh is explicitly not a valid reply point by itself if code, build, sim, or verification work can still continue safely in the same turn.
+- Reaching a clean handoff such as "the next target is X" is not a valid reason to reply. If the next target is known and locally actionable, start it immediately.
+- Do not emit a milestone summary reply just because:
+  - a verified checkpoint was preserved in git
+  - the next ownership target was identified
+  - a fresh debug trace or reduced repro was captured
+  - the repo is in a good state to continue
+- If work can continue responsibly after a push, it must continue in the same turn.
 - When a blocker, ambiguity, or spec mismatch appears, do not stop at local guesswork. Pull authoritative external references into `av1-reference-docs/external/`, record the relevant findings there, and keep implementing from those materials.
 - Prefer official sources for external references: AOMedia AV1 spec/material, FFmpeg documentation/source, and other primary project docs directly tied to the tool being used.
 - During any active syntax, entropy-coding, motion-vector, frame-header, tile, or decode mismatch blocker, search the web for the current official source material before making more local guesses.
@@ -83,13 +91,16 @@
 - The raw RTL path now also owns the first verified sparse low-order AC subset on the exact-match `16x16` `data/ac_probe_16x16_1f.yuv` `qindex=240` probe:
   - only `qcoeff[0]` and `qcoeff[1]` are nonzero, `qcoeff[8] == 0`
   - real AV1 syntax on the RTL path now covers `eob_multi64` symbol `2`, `eob_extra=0`, the EOB coeff at scan `c=2`, the zero base at scan `c=1`, the DC base, and the DC/AC signs
+- The raw RTL path now also owns the first verified dense low-order AC subset on that same exact-match probe:
+  - only flat indices `0`, `8`, `1`, and `10` are nonzero with magnitudes `1`, `1`, `2`, and `1`
+  - real AV1 syntax on the RTL path now covers `eob_multi64` symbol `4`, `eob_extra=0` including the direct bits, the intervening zero bases at scan positions `7..3`, the context-2 bases at scan `2` and `1`, and the full DC/AC sign chain
 - The reduced software-owned path is now exact again on the first sparse AC still-picture probe:
   - `tb/av1_bitstream_writer.h` uses the official libaom `default_scan_8x8`
   - `rtl/av1_encoder_top.v` transposes the dequantized 8x8 coefficient matrix into decoder-consistent orientation before inverse transform
   - `rtl/av1_intra_pred.v` now matches the reference left-only / top-only edge fill rules for non-directional intra modes
 - The next highest-priority ownership move is extending that reduced non-DC path:
-  - keep the `16x16` `data/ac_probe_16x16_1f.yuv` `qindex=240` exact-match case as the first regression gate
-  - extend from the current `qcoeff[0]/qcoeff[1]` sparse subset into denser low-order AC blocks and larger-magnitude coefficient tails
+  - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate
+  - lower `qindex` on that same clip to expose the first larger-magnitude tail (`coeff_br`) or less constrained dense pattern
   - then continue pulling partition, remaining intra/inter frame-type and mode symbols, and motion syntax onto the same RTL-owned path
 - Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
 
@@ -103,6 +114,8 @@
 - A convenient place to summarize is not a stop condition.
 - "This is a good place to stop" is not a valid reason to stop work.
 - A successful build, decode, or single feature bring-up is not a stop condition by itself.
+- A successful commit, push, or captured next-step plan is not a stop condition.
+- A clean repo state after a verified milestone is not a stop condition.
 - Finishing `.gitignore`, docs, scripts, cleanup, or other repo-maintenance work is not a valid reason to stop if roadmap work still remains.
 - After any milestone, commit and push the verified work, then continue immediately to the next highest-priority remaining task.
 - Only stop and reply when:
@@ -119,6 +132,8 @@
 - Do not reply only because a side-task request was completed if active encoder implementation work still remains.
 - Do not reply only because the work reached a natural pause point.
 - Do not reply only because a push or doc update just completed.
+- Do not reply only because the next target is now known or because a useful debug trace was captured.
+- Do not reply with "what changed + next target" if the next target can already be worked on locally.
 - After documentation updates, side-task completions, milestone commits, pushes, or verification wins, continue directly into the next highest-priority task.
 - If a hard blocker is reached, report only:
   - the exact blocker

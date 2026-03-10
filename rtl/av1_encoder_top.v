@@ -132,6 +132,42 @@ module av1_encoder_top #(
         TS_AC01_SIGN_DCW   = 7'd76,
         TS_AC01_SIGN_AC    = 7'd77,
         TS_AC01_SIGN_ACW   = 7'd78,
+        TS_AC09_TX_TYPE    = 7'd79,
+        TS_AC09_TX_WAIT    = 7'd80,
+        TS_AC09_EOB        = 7'd81,
+        TS_AC09_EOB_WAIT   = 7'd82,
+        TS_AC09_EOB_EXTRA  = 7'd83,
+        TS_AC09_EOB_EXWAIT = 7'd84,
+        TS_AC09_EOB_BIT1   = 7'd85,
+        TS_AC09_EOB_BIT1W  = 7'd86,
+        TS_AC09_EOB_BIT0   = 7'd87,
+        TS_AC09_EOB_BIT0W  = 7'd88,
+        TS_AC09_BASE10     = 7'd89,
+        TS_AC09_BASE10W    = 7'd90,
+        TS_AC09_BASE17     = 7'd91,
+        TS_AC09_BASE17W    = 7'd92,
+        TS_AC09_BASE24     = 7'd93,
+        TS_AC09_BASE24W    = 7'd94,
+        TS_AC09_BASE16     = 7'd95,
+        TS_AC09_BASE16W    = 7'd96,
+        TS_AC09_BASE9      = 7'd97,
+        TS_AC09_BASE9W     = 7'd98,
+        TS_AC09_BASE2      = 7'd99,
+        TS_AC09_BASE2W     = 7'd100,
+        TS_AC09_BASE1      = 7'd101,
+        TS_AC09_BASE1W     = 7'd102,
+        TS_AC09_BASE8      = 7'd103,
+        TS_AC09_BASE8W     = 7'd104,
+        TS_AC09_DC_BASE    = 7'd105,
+        TS_AC09_DC_WAIT    = 7'd106,
+        TS_AC09_SIGN_DC    = 7'd107,
+        TS_AC09_SIGN_DCW   = 7'd108,
+        TS_AC09_SIGN_AC8   = 7'd109,
+        TS_AC09_SIGN_AC8W  = 7'd110,
+        TS_AC09_SIGN_AC1   = 7'd111,
+        TS_AC09_SIGN_AC1W  = 7'd112,
+        TS_AC09_SIGN_AC10  = 7'd113,
+        TS_AC09_SIGN_AC10W = 7'd114,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -233,6 +269,7 @@ module av1_encoder_top #(
     reg [1:0]  dc_sign_left   [0:MI_ROWS-1];
     reg        cur_only_dc_nonzero;
     reg        cur_only_reduced_ac_nonzero;
+    reg        cur_only_eob9_nonzero;
     reg [4:0]  dc_br_remaining;
 
     function [3:0] intra_mode_from_idx;
@@ -491,6 +528,24 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [255:0] coeff_base_ctx2_icdf_flat;
+        begin
+            coeff_base_ctx2_icdf_flat = {192'd0,16'd0,16'd774,16'd3543,16'd17105};
+        end
+    endfunction
+
+    function [255:0] coeff_base_ctx6_icdf_flat;
+        begin
+            coeff_base_ctx6_icdf_flat = {192'd0,16'd0,16'd43,16'd173,16'd5206};
+        end
+    endfunction
+
+    function [255:0] coeff_base_ctx7_icdf_flat;
+        begin
+            coeff_base_ctx7_icdf_flat = {192'd0,16'd0,16'd369,16'd2180,16'd15193};
+        end
+    endfunction
+
     function [255:0] dc_sign_ctx0_icdf_flat;
         input [1:0] ctx;
         begin
@@ -505,6 +560,12 @@ module av1_encoder_top #(
     function [255:0] coeff_br_ctx0_icdf_flat;
         begin
             coeff_br_ctx0_icdf_flat = {192'd0,16'd32768,16'd27890,16'd24813,16'd18274};
+        end
+    endfunction
+
+    function [255:0] eob_extra_ctx2_icdf_flat;
+        begin
+            eob_extra_ctx2_icdf_flat = {224'd0,16'd32768,16'd19159};
         end
     endfunction
 
@@ -583,9 +644,13 @@ module av1_encoder_top #(
     wire [255:0] cur_base_eob1_icdf= coeff_base_eob_ctx1_icdf_flat();
     wire [255:0] cur_base0_icdf    = coeff_base_ctx0_icdf_flat();
     wire [255:0] cur_base1_icdf    = coeff_base_ctx1_icdf_flat();
+    wire [255:0] cur_base2_icdf    = coeff_base_ctx2_icdf_flat();
+    wire [255:0] cur_base6_icdf    = coeff_base_ctx6_icdf_flat();
+    wire [255:0] cur_base7_icdf    = coeff_base_ctx7_icdf_flat();
     wire [1:0]   cur_dc_sign_ctx   = get_dc_sign_ctx_cur(blk_x, blk_y);
     wire [255:0] cur_dc_sign_icdf  = dc_sign_ctx0_icdf_flat(cur_dc_sign_ctx);
     wire [255:0] cur_coeff_br_icdf = coeff_br_ctx0_icdf_flat();
+    wire [255:0] cur_eob_extra2_icdf = eob_extra_ctx2_icdf_flat();
     wire [1:0]   cur_dc_sign_code =
         cur_block_has_coeff ? (qcoeff[0][15] ? 2'd1 : (qcoeff[0] != 16'sd0 ? 2'd2 : 2'd0)) : 2'd0;
     wire         cur_dc_only_coeff_path =
@@ -599,6 +664,14 @@ module av1_encoder_top #(
         (qcoeff[8] == 16'sd0) &&
         (abs16(qcoeff[0]) <= 16'd2) &&
         (abs16(qcoeff[1]) == 16'd1);
+    wire         cur_eob9_coeff_path =
+        cur_block_has_coeff &&
+        cur_only_eob9_nonzero &&
+        !cur_only_dc_nonzero &&
+        (abs16(qcoeff[0]) == 16'd1) &&
+        (abs16(qcoeff[8]) == 16'd1) &&
+        (abs16(qcoeff[1]) == 16'd2) &&
+        (abs16(qcoeff[10]) == 16'd1);
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -910,6 +983,7 @@ module av1_encoder_top #(
             cur_block_has_coeff <= 1'b0;
             cur_only_dc_nonzero <= 1'b1;
             cur_only_reduced_ac_nonzero <= 1'b1;
+            cur_only_eob9_nonzero <= 1'b1;
             dc_br_remaining <= 5'd0;
             best_intra_mode <= AV1_DC_PRED;
             intra_eval_idx  <= 4'd0;
@@ -966,6 +1040,7 @@ module av1_encoder_top #(
                         cur_block_has_coeff <= 1'b0;
                         cur_only_dc_nonzero <= 1'b1;
                         cur_only_reduced_ac_nonzero <= 1'b1;
+                        cur_only_eob9_nonzero <= 1'b1;
                         dc_br_remaining <= 5'd0;
                         for (i = 0; i < MI_COLS; i = i + 1) begin
                             part_ctx_above[i] <= 8'd0;
@@ -1028,6 +1103,7 @@ module av1_encoder_top #(
                     cur_block_has_coeff <= 1'b0;
                     cur_only_dc_nonzero <= 1'b1;
                     cur_only_reduced_ac_nonzero <= 1'b1;
+                    cur_only_eob9_nonzero <= 1'b1;
                     dc_br_remaining <= 5'd0;
                     top_state       <= TS_WAIT_FETCH;
                 end
@@ -1317,6 +1393,8 @@ module av1_encoder_top #(
                                 cur_only_dc_nonzero <= 1'b0;
                             if (proc_idx != 0 && proc_idx != 1 && proc_idx != 8)
                                 cur_only_reduced_ac_nonzero <= 1'b0;
+                            if (proc_idx != 0 && proc_idx != 1 && proc_idx != 8 && proc_idx != 10)
+                                cur_only_eob9_nonzero <= 1'b0;
                         end
                         if (proc_idx == 0)
                             dequant_dc <= quant_dequant_out;
@@ -1421,6 +1499,8 @@ module av1_encoder_top #(
                     if (ec_done) begin
                         if (!use_inter && cur_scan01_coeff_path)
                             top_state <= TS_AC01_TX_TYPE;
+                        else if (!use_inter && cur_eob9_coeff_path)
+                            top_state <= TS_AC09_TX_TYPE;
                         else if (!use_inter && cur_dc_only_coeff_path)
                             top_state <= TS_DC_TX_TYPE;
                         else begin
@@ -1607,6 +1687,235 @@ module av1_encoder_top #(
                 end
 
                 TS_AC01_SIGN_ACW: begin
+                    if (ec_done)
+                        top_state <= TS_TXB_SKIP_CB;
+                end
+
+                TS_AC09_TX_TYPE: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd1; // DCT_DCT intra tx_type
+                    ec_nsyms         <= 5'd7;
+                    ec_icdf_flat     <= cur_intra_tx_icdf;
+                    top_state        <= TS_AC09_TX_WAIT;
+                end
+
+                TS_AC09_TX_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_EOB;
+                end
+
+                TS_AC09_EOB: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd4; // eob_pt - 1 for eob=9
+                    ec_nsyms         <= 5'd7;
+                    ec_icdf_flat     <= cur_eob_multi_icdf;
+                    top_state        <= TS_AC09_EOB_WAIT;
+                end
+
+                TS_AC09_EOB_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_EOB_EXTRA;
+                end
+
+                TS_AC09_EOB_EXTRA: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // first eob_extra bit for eob=9
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= cur_eob_extra2_icdf;
+                    top_state        <= TS_AC09_EOB_EXWAIT;
+                end
+
+                TS_AC09_EOB_EXWAIT: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_EOB_BIT1;
+                end
+
+                TS_AC09_EOB_BIT1: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= 1'b0;
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_AC09_EOB_BIT1W;
+                end
+
+                TS_AC09_EOB_BIT1W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_EOB_BIT0;
+                end
+
+                TS_AC09_EOB_BIT0: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= 1'b0;
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_AC09_EOB_BIT0W;
+                end
+
+                TS_AC09_EOB_BIT0W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_BASE10;
+                end
+
+                TS_AC09_BASE10: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // |qcoeff[10]| == 1 -> level-1 = 0
+                    ec_nsyms         <= 5'd3;
+                    ec_icdf_flat     <= cur_base_eob1_icdf;
+                    top_state        <= TS_AC09_BASE10W;
+                end
+
+                TS_AC09_BASE10W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_BASE17;
+                end
+
+                TS_AC09_BASE17: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // scan position 7 (pos=17) is zero
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base6_icdf;
+                    top_state        <= TS_AC09_BASE17W;
+                end
+
+                TS_AC09_BASE17W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_BASE24;
+                end
+
+                TS_AC09_BASE24: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // scan position 6 (pos=24) is zero
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base6_icdf;
+                    top_state        <= TS_AC09_BASE24W;
+                end
+
+                TS_AC09_BASE24W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_BASE16;
+                end
+
+                TS_AC09_BASE16: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // scan position 5 (pos=16) is zero
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base6_icdf;
+                    top_state        <= TS_AC09_BASE16W;
+                end
+
+                TS_AC09_BASE16W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_BASE9;
+                end
+
+                TS_AC09_BASE9: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // scan position 4 (pos=9) is zero
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base7_icdf;
+                    top_state        <= TS_AC09_BASE9W;
+                end
+
+                TS_AC09_BASE9W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_BASE2;
+                end
+
+                TS_AC09_BASE2: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // scan position 3 (pos=2) is zero
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base7_icdf;
+                    top_state        <= TS_AC09_BASE2W;
+                end
+
+                TS_AC09_BASE2W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_BASE1;
+                end
+
+                TS_AC09_BASE1: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd2; // |qcoeff[1]| == 2
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base2_icdf;
+                    top_state        <= TS_AC09_BASE1W;
+                end
+
+                TS_AC09_BASE1W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_BASE8;
+                end
+
+                TS_AC09_BASE8: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd1; // |qcoeff[8]| == 1
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base2_icdf;
+                    top_state        <= TS_AC09_BASE8W;
+                end
+
+                TS_AC09_BASE8W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_DC_BASE;
+                end
+
+                TS_AC09_DC_BASE: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd1; // |qcoeff[0]| == 1
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base0_icdf;
+                    top_state        <= TS_AC09_DC_WAIT;
+                end
+
+                TS_AC09_DC_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_SIGN_DC;
+                end
+
+                TS_AC09_SIGN_DC: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= qcoeff[0][15] ? 5'd1 : 5'd0;
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= cur_dc_sign_icdf;
+                    top_state        <= TS_AC09_SIGN_DCW;
+                end
+
+                TS_AC09_SIGN_DCW: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_SIGN_AC8;
+                end
+
+                TS_AC09_SIGN_AC8: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= qcoeff[8][15];
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_AC09_SIGN_AC8W;
+                end
+
+                TS_AC09_SIGN_AC8W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_SIGN_AC1;
+                end
+
+                TS_AC09_SIGN_AC1: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= qcoeff[1][15];
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_AC09_SIGN_AC1W;
+                end
+
+                TS_AC09_SIGN_AC1W: begin
+                    if (ec_done)
+                        top_state <= TS_AC09_SIGN_AC10;
+                end
+
+                TS_AC09_SIGN_AC10: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= qcoeff[10][15];
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_AC09_SIGN_AC10W;
+                end
+
+                TS_AC09_SIGN_AC10W: begin
                     if (ec_done)
                         top_state <= TS_TXB_SKIP_CB;
                 end
