@@ -120,8 +120,15 @@ syntax or verification blocker.
   the current sparse AC still-picture bring-up:
   - the `16x16` `ac_probe_16x16_1f.yuv` check at `qindex=240` now decodes and
     matches `recon.yuv` exactly
-  - the remaining gap on that case is no longer software-writer correctness;
-    it is moving the same sparse AC syntax subset onto the RTL-owned raw path
+  - that first sparse subset is now on the RTL-owned raw path for the reduced
+    case where only `qcoeff[0]` and `qcoeff[1]` are nonzero and `qcoeff[8] == 0`
+  - the reference-backed reduced symbol sequence for that subset is:
+    - `eob_multi64` symbol `2` (`eob=3`)
+    - one `eob_extra` symbol with value `0`
+    - `coeff_base_eob` at scan `c=2`, `pos=1`, context `1`
+    - zero `coeff_base` at scan `c=1`, `pos=8`, context `1`
+    - DC sign with the normal neighbor-derived context
+    - AC sign for the EOB coefficient at flat index `1`
 - The current ME core fix is local, not spec-derived, but was guided by the
   surrounding reference behavior:
   - candidate SAD must include the final sample before best-match update
@@ -138,3 +145,6 @@ syntax or verification blocker.
     the exhaustive ME block remains expensive at `64x64` and above
   - move more final syntax ownership out of `tb/av1_bitstream_writer.h` and
     into the RTL bitstream path without regressing decoder cleanliness
+  - extend the current reduced non-DC ownership subset into denser low-order AC
+    blocks and larger-magnitude coefficient tails using the same reference
+    traces before touching broader tile grammar

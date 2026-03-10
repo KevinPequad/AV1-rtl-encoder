@@ -116,18 +116,22 @@ module av1_encoder_top #(
         TS_DC_SIGN_WAIT= 6'd60,
         TS_DC_BR       = 6'd61,
         TS_DC_BR_WAIT  = 6'd62,
-        TS_AC01_TX_TYPE  = 7'd63,
-        TS_AC01_TX_WAIT  = 7'd64,
-        TS_AC01_EOB      = 7'd65,
-        TS_AC01_EOB_WAIT = 7'd66,
-        TS_AC01_AC_BASE  = 7'd67,
-        TS_AC01_AC_WAIT  = 7'd68,
-        TS_AC01_DC_BASE  = 7'd69,
-        TS_AC01_DC_WAIT  = 7'd70,
-        TS_AC01_SIGN_DC  = 7'd71,
-        TS_AC01_SIGN_DCW = 7'd72,
-        TS_AC01_SIGN_AC  = 7'd73,
-        TS_AC01_SIGN_ACW = 7'd74,
+        TS_AC01_TX_TYPE    = 7'd63,
+        TS_AC01_TX_WAIT    = 7'd64,
+        TS_AC01_EOB        = 7'd65,
+        TS_AC01_EOB_WAIT   = 7'd66,
+        TS_AC01_EOB_EXTRA  = 7'd67,
+        TS_AC01_EOB_EXWAIT = 7'd68,
+        TS_AC01_AC_BASE    = 7'd69,
+        TS_AC01_AC_WAIT    = 7'd70,
+        TS_AC01_SCAN1_BASE = 7'd71,
+        TS_AC01_SCAN1_WAIT = 7'd72,
+        TS_AC01_DC_BASE    = 7'd73,
+        TS_AC01_DC_WAIT    = 7'd74,
+        TS_AC01_SIGN_DC    = 7'd75,
+        TS_AC01_SIGN_DCW   = 7'd76,
+        TS_AC01_SIGN_AC    = 7'd77,
+        TS_AC01_SIGN_ACW   = 7'd78,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -228,7 +232,7 @@ module av1_encoder_top #(
     reg [1:0]  dc_sign_above  [0:MI_COLS-1];
     reg [1:0]  dc_sign_left   [0:MI_ROWS-1];
     reg        cur_only_dc_nonzero;
-    reg        cur_only_scan01_nonzero;
+    reg        cur_only_reduced_ac_nonzero;
     reg [4:0]  dc_br_remaining;
 
     function [3:0] intra_mode_from_idx;
@@ -451,15 +455,15 @@ module av1_encoder_top #(
         end
     endfunction
 
-    function [255:0] eob_multi64_luma_eob1_icdf_flat;
+    function [255:0] eob_multi64_luma_icdf_flat;
         begin
-            eob_multi64_luma_eob1_icdf_flat = {240'd0,16'd6307};
+            eob_multi64_luma_icdf_flat = {144'd0,16'd32768,16'd27865,16'd22553,16'd16358,16'd12060,16'd7541,16'd6307};
         end
     endfunction
 
-    function [255:0] eob_multi64_luma_eob2_icdf_flat;
+    function [255:0] eob_extra_ctx0_icdf_flat;
         begin
-            eob_multi64_luma_eob2_icdf_flat = {224'd0,16'd7541,16'd6307};
+            eob_extra_ctx0_icdf_flat = {224'd0,16'd32768,16'd20238};
         end
     endfunction
 
@@ -478,6 +482,12 @@ module av1_encoder_top #(
     function [255:0] coeff_base_ctx0_icdf_flat;
         begin
             coeff_base_ctx0_icdf_flat = {192'd0,16'd0,16'd10626,16'd15820,16'd25014};
+        end
+    endfunction
+
+    function [255:0] coeff_base_ctx1_icdf_flat;
+        begin
+            coeff_base_ctx1_icdf_flat = {192'd0,16'd0,16'd77,16'd438,16'd7098};
         end
     endfunction
 
@@ -567,11 +577,12 @@ module av1_encoder_top #(
     wire [255:0] cur_txb_luma_icdf = txb_skip_luma_icdf_flat();
     wire [255:0] cur_txb_chr_icdf  = txb_skip_chroma_icdf_flat();
     wire [255:0] cur_intra_tx_icdf = intra_tx_type_dct_icdf_flat(best_intra_mode);
-    wire [255:0] cur_eob1_icdf     = eob_multi64_luma_eob1_icdf_flat();
-    wire [255:0] cur_eob2_icdf     = eob_multi64_luma_eob2_icdf_flat();
+    wire [255:0] cur_eob_multi_icdf = eob_multi64_luma_icdf_flat();
+    wire [255:0] cur_eob_extra_icdf = eob_extra_ctx0_icdf_flat();
     wire [255:0] cur_base_eob_icdf = coeff_base_eob_ctx0_icdf_flat();
     wire [255:0] cur_base_eob1_icdf= coeff_base_eob_ctx1_icdf_flat();
     wire [255:0] cur_base0_icdf    = coeff_base_ctx0_icdf_flat();
+    wire [255:0] cur_base1_icdf    = coeff_base_ctx1_icdf_flat();
     wire [1:0]   cur_dc_sign_ctx   = get_dc_sign_ctx_cur(blk_x, blk_y);
     wire [255:0] cur_dc_sign_icdf  = dc_sign_ctx0_icdf_flat(cur_dc_sign_ctx);
     wire [255:0] cur_coeff_br_icdf = coeff_br_ctx0_icdf_flat();
@@ -581,12 +592,13 @@ module av1_encoder_top #(
         cur_block_has_coeff && cur_only_dc_nonzero && (abs16(qcoeff[0]) <= 16'd14);
     wire         cur_scan01_coeff_path =
         cur_block_has_coeff &&
-        cur_only_scan01_nonzero &&
+        cur_only_reduced_ac_nonzero &&
         !cur_only_dc_nonzero &&
         (qcoeff[0] != 16'sd0) &&
-        (qcoeff[8] != 16'sd0) &&
+        (qcoeff[1] != 16'sd0) &&
+        (qcoeff[8] == 16'sd0) &&
         (abs16(qcoeff[0]) <= 16'd2) &&
-        (abs16(qcoeff[8]) == 16'd1);
+        (abs16(qcoeff[1]) == 16'd1);
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -897,7 +909,7 @@ module av1_encoder_top #(
             ec_icdf_flat <= 256'd0;
             cur_block_has_coeff <= 1'b0;
             cur_only_dc_nonzero <= 1'b1;
-            cur_only_scan01_nonzero <= 1'b1;
+            cur_only_reduced_ac_nonzero <= 1'b1;
             dc_br_remaining <= 5'd0;
             best_intra_mode <= AV1_DC_PRED;
             intra_eval_idx  <= 4'd0;
@@ -953,7 +965,7 @@ module av1_encoder_top #(
                         blk_y       <= 0;
                         cur_block_has_coeff <= 1'b0;
                         cur_only_dc_nonzero <= 1'b1;
-                        cur_only_scan01_nonzero <= 1'b1;
+                        cur_only_reduced_ac_nonzero <= 1'b1;
                         dc_br_remaining <= 5'd0;
                         for (i = 0; i < MI_COLS; i = i + 1) begin
                             part_ctx_above[i] <= 8'd0;
@@ -1015,7 +1027,7 @@ module av1_encoder_top #(
                     fetch_blk_y     <= blk_y;
                     cur_block_has_coeff <= 1'b0;
                     cur_only_dc_nonzero <= 1'b1;
-                    cur_only_scan01_nonzero <= 1'b1;
+                    cur_only_reduced_ac_nonzero <= 1'b1;
                     dc_br_remaining <= 5'd0;
                     top_state       <= TS_WAIT_FETCH;
                 end
@@ -1303,8 +1315,8 @@ module av1_encoder_top #(
                             cur_block_has_coeff <= 1'b1;
                             if (proc_idx != 0)
                                 cur_only_dc_nonzero <= 1'b0;
-                            if (proc_idx != 0 && proc_idx != 8)
-                                cur_only_scan01_nonzero <= 1'b0;
+                            if (proc_idx != 0 && proc_idx != 1 && proc_idx != 8)
+                                cur_only_reduced_ac_nonzero <= 1'b0;
                         end
                         if (proc_idx == 0)
                             dequant_dc <= quant_dequant_out;
@@ -1435,7 +1447,7 @@ module av1_encoder_top #(
                     ec_encode_symbol <= 1;
                     ec_symbol        <= 5'd0; // eob_pt - 1 for eob=1
                     ec_nsyms         <= 5'd7;
-                    ec_icdf_flat     <= cur_eob1_icdf;
+                    ec_icdf_flat     <= cur_eob_multi_icdf;
                     top_state        <= TS_DC_EOB_WAIT;
                 end
 
@@ -1511,26 +1523,52 @@ module av1_encoder_top #(
 
                 TS_AC01_EOB: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= 5'd1; // eob_pt - 1 for eob=2
+                    ec_symbol        <= 5'd2; // eob_pt - 1 for eob=3
                     ec_nsyms         <= 5'd7;
-                    ec_icdf_flat     <= cur_eob2_icdf;
+                    ec_icdf_flat     <= cur_eob_multi_icdf;
                     top_state        <= TS_AC01_EOB_WAIT;
                 end
 
                 TS_AC01_EOB_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_AC01_EOB_EXTRA;
+                end
+
+                TS_AC01_EOB_EXTRA: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // eob_extra for eob=3
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= cur_eob_extra_icdf;
+                    top_state        <= TS_AC01_EOB_EXWAIT;
+                end
+
+                TS_AC01_EOB_EXWAIT: begin
                     if (ec_done)
                         top_state <= TS_AC01_AC_BASE;
                 end
 
                 TS_AC01_AC_BASE: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= 5'd0; // |qcoeff[8]| == 1 -> level-1 = 0
+                    ec_symbol        <= 5'd0; // |qcoeff[1]| == 1 -> level-1 = 0
                     ec_nsyms         <= 5'd3;
                     ec_icdf_flat     <= cur_base_eob1_icdf;
                     top_state        <= TS_AC01_AC_WAIT;
                 end
 
                 TS_AC01_AC_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_AC01_SCAN1_BASE;
+                end
+
+                TS_AC01_SCAN1_BASE: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // scan position 1 (pos=8) is zero
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= cur_base1_icdf;
+                    top_state        <= TS_AC01_SCAN1_WAIT;
+                end
+
+                TS_AC01_SCAN1_WAIT: begin
                     if (ec_done)
                         top_state <= TS_AC01_DC_BASE;
                 end
@@ -1563,7 +1601,7 @@ module av1_encoder_top #(
 
                 TS_AC01_SIGN_AC: begin
                     ec_encode_bool <= 1;
-                    ec_bool_val    <= qcoeff[8][15];
+                    ec_bool_val    <= qcoeff[1][15];
                     ec_bool_prob   <= 15'd16384;
                     top_state      <= TS_AC01_SIGN_ACW;
                 end
