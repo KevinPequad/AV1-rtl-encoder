@@ -156,8 +156,12 @@ Inventory of the current repo state:
   - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - expanding beyond the current reduced single-reference subset once the ownership path is real
+  - extending the new DC-only coefficient slice into sparse low-order AC cases before tackling the dense non-DC blocks seen on the latest `16x16` AC probe
 - A lightweight debug probe now exists in the testbench:
   - `+dump_inter_summary=1` prints captured inter blocks, MVs, and nonzero counts after each frame
+  - `+dump_blocks=1` on the synthetic `data/ac_probe_16x16_1f.yuv` case shows the next non-DC step cleanly:
+    - three of the four luma blocks are sparse low-order AC cases
+    - one block is already dense, so the next safe coeff bring-up should target the sparse AC subset first
 - Larger roadmap phases in `av1-reference-docs/svt-av1-feature-inventory.md` are still open:
   - stronger inter syntax and motion signaling
   - better partitioning and mode decision
