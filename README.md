@@ -104,6 +104,7 @@ Inventory of the current repo state:
   - RTL top-level now tracks writer-style 8x8 neighborhood syntax state (`part_ctx`, `skip`, `mode`) as groundwork for tile ownership
   - RTL raw payload now emits a real AV1 skip symbol per block before the older placeholder coefficient-bool stream
   - RTL raw payload now also emits intra-block `y_mode`, zero `angle_delta`, and deterministic `UV_DC_PRED` syntax for keyframe and intra-only blocks before the placeholder coefficient stream
+  - RTL raw payload now emits the luma `txb_skip=0` entry symbol and the deterministic zero-chroma `txb_skip=1` symbols before reconstruction, while still using the older placeholder luma coefficient-presence stream behind them
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
@@ -114,6 +115,8 @@ Inventory of the current repo state:
   - the same `16x16` smoke still decodes and matches `recon.yuv` after moving the skip symbol onto the RTL raw path
   - the same `16x16` smoke still decodes and matches `recon.yuv` after moving intra `y_mode`, zero `angle_delta`, and `uv_mode=DC` symbols onto the RTL raw path
   - the preserved RTL raw payload on that smoke case increased from `52` to `53` bytes after the intra-mode syntax move, confirming the raw path changed while the software decode path stayed stable
+  - the same `16x16` smoke still decodes and matches `recon.yuv` after moving luma/chroma `txb_skip` entry symbols onto the RTL raw path
+  - the preserved RTL raw payload on that smoke case increased again from `53` to `56` bytes after the `txb_skip` move, confirming the clean rebuild picked up the new raw syntax
   - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -138,7 +141,8 @@ Inventory of the current repo state:
   - `av1_entropy.v` can now encode reference-matching bools, literals, and generic CDF symbols
   - the raw RTL path now also owns the block skip symbol
   - the raw RTL path now also owns keyframe and intra-only `y_mode`, zero `angle_delta`, and deterministic `uv_mode`
-  - the remaining ownership gap is moving real partition, inter/intra frame-type gating, motion, and coefficient syntax sequencing onto the RTL top-level path
+  - the raw RTL path now also owns luma/chroma `txb_skip` entry symbols for the current reduced 8x8/4x4 transform subset
+  - the remaining ownership gap is moving real partition, inter/intra frame-type gating, motion, and full coefficient syntax sequencing onto the RTL top-level path
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.

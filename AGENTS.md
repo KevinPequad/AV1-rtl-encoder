@@ -71,12 +71,12 @@
 ## Current Focus
 - The reduced still-picture header and raw frame-size ownership checkpoints are already on the RTL byte path.
 - The entropy foundation now includes reference-matching bool, literal, and generic CDF symbol coding in `rtl/av1_entropy.v`.
-- The top-level now mirrors the writer's 8x8 neighborhood syntax context state and emits the real AV1 skip symbol plus intra `y_mode`, zero `angle_delta`, and deterministic `uv_mode` on the raw RTL path for keyframe/intra-only blocks.
+- The top-level now mirrors the writer's 8x8 neighborhood syntax context state and emits the real AV1 skip symbol, intra `y_mode`, zero `angle_delta`, deterministic `uv_mode`, and reduced luma/chroma `txb_skip` entry symbols on the raw RTL path for the small keyframe/intra subset.
 - The next highest-priority ownership move is to drive real tile-group syntax from `rtl/av1_encoder_top.v` through that coder:
   - partition symbols
   - remaining intra/inter frame-type and mode symbols
   - motion symbols
-  - coefficient and txb syntax in the same ordering as the AV1 tile grammar
+  - full coefficient syntax in the same ordering as the AV1 tile grammar, replacing the temporary per-coefficient bool stream
 - Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
 
 ## Stop Conditions
