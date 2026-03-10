@@ -26,9 +26,13 @@ module av1_intra_pred (
 
     input  wire [7:0]  top  [0:7],
     input  wire [7:0]  left [0:7],
+    input  wire [7:0]  top_right [0:7],
+    input  wire [7:0]  bottom_left [0:7],
     input  wire [7:0]  top_left,
     input  wire        has_top,
     input  wire        has_left,
+    input  wire        has_top_right,
+    input  wire        has_bottom_left,
 
     output reg  [7:0]  pred [0:63]
 );
@@ -340,6 +344,8 @@ module av1_intra_pred (
                                         if (i < num_top_ref) begin
                                             if (i < blk_size)
                                                 above_ref[i + 1] = top[i];
+                                            else if (has_top_right)
+                                                above_ref[i + 1] = top_right[i - blk_size];
                                             else
                                                 above_ref[i + 1] = top[blk_size - 1];
                                         end
@@ -363,6 +369,8 @@ module av1_intra_pred (
                                         if (i < num_left_ref) begin
                                             if (i < blk_size)
                                                 left_ref[i + 1] = left[i];
+                                            else if (has_bottom_left)
+                                                left_ref[i + 1] = bottom_left[i - blk_size];
                                             else
                                                 left_ref[i + 1] = left[blk_size - 1];
                                         end

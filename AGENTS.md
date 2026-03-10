@@ -98,9 +98,14 @@
   - `tb/av1_bitstream_writer.h` uses the official libaom `default_scan_8x8`
   - `rtl/av1_encoder_top.v` transposes the dequantized 8x8 coefficient matrix into decoder-consistent orientation before inverse transform
   - `rtl/av1_intra_pred.v` now matches the reference left-only / top-only edge fill rules for non-directional intra modes
+- Directional intra availability for the current fixed `8x8` / `TX_8X8` raster-order subset is now partially corrected:
+  - real top-right extension samples are loaded and used when the above-right block is already reconstructed
+  - bottom-left extension remains intentionally disabled on this subset because it would otherwise read future not-yet-reconstructed pixels and corrupt exactness
+  - this keeps the `qindex=240` exact-match probe clean and cuts the current `qindex=224` mismatch down to a small residual in the final block
 - The next highest-priority ownership move is extending that reduced non-DC path:
   - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate
-  - lower `qindex` on that same clip to expose the first larger-magnitude tail (`coeff_br`) or less constrained dense pattern
+  - close the remaining `qindex=224` exactness gap on the final block before moving on
+  - then lower `qindex` on that same clip to expose the first larger-magnitude tail (`coeff_br`) or less constrained dense pattern
   - then continue pulling partition, remaining intra/inter frame-type and mode symbols, and motion syntax onto the same RTL-owned path
 - Do not treat the entropy-core milestone as completion. It only removes one foundation blocker for the tile/payload ownership work.
 
