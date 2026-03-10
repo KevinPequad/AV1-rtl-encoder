@@ -122,10 +122,13 @@ int main(int argc, char** argv) {
     const fs::path output_path(output_file);
     const fs::path output_dir = output_path.has_parent_path() ? output_path.parent_path() : fs::current_path();
     const fs::path still_dir = output_dir / "still_frames";
+    const fs::path rtl_dir = output_dir / "rtl_frames";
     std::error_code fs_ec;
     fs::create_directories(output_dir, fs_ec);
     fs::remove_all(still_dir, fs_ec);
     fs::create_directories(still_dir, fs_ec);
+    fs::remove_all(rtl_dir, fs_ec);
+    fs::create_directories(rtl_dir, fs_ec);
 
     std::ifstream f(input_file, std::ios::binary);
     if (!f.is_open()) { fprintf(stderr, "[TB] ERROR: Cannot open %s\n", input_file.c_str()); return 1; }
@@ -174,6 +177,7 @@ int main(int argc, char** argv) {
     bool frame_active = false;
     bool current_frame_is_key = true;
     std::vector<EncodedTemporalUnit> temporal_units;
+    std::vector<EncodedTemporalUnit> rtl_temporal_units;
 
     // FSM state constants (must match av1_encoder_top.v)
     constexpr int TS_PREDICT = 11;
@@ -333,6 +337,24 @@ int main(int argc, char** argv) {
             total_bs_bytes = dut->bs_bytes_written;
             fprintf(stderr, "[TB] Frame %d done @ cycle %llu -- rtl_bs_bytes=%u\n",
                     frame_idx, (unsigned long long)cycle, total_bs_bytes);
+            {
+                const size_t rtl_bytes = std::min(bitstream_mem.size(), static_cast<size_t>(total_bs_bytes));
+                std::vector<uint8_t> rtl_frame_payload(bitstream_mem.begin(), bitstream_mem.begin() + rtl_bytes);
+                rtl_temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key,
+                                              std::move(rtl_frame_payload)});
+
+                char rtl_frame_name[32];
+                std::snprintf(rtl_frame_name, sizeof(rtl_frame_name), "frame_%04d_rtl_raw.obu", frame_idx);
+                fs::path rtl_frame_path = rtl_dir / rtl_frame_name;
+                std::ofstream rtl_frame_out(rtl_frame_path, std::ios::binary);
+                if (rtl_frame_out.is_open()) {
+                    const auto& payload = rtl_temporal_units.back().payload;
+                    rtl_frame_out.write(reinterpret_cast<const char*>(payload.data()), payload.size());
+                    rtl_frame_out.close();
+                    fprintf(stderr, "[TB] Wrote RTL raw bytes: %zu bytes to %s\n",
+                            payload.size(), rtl_frame_path.string().c_str());
+                }
+            }
 
             // Build proper AV1 bitstream using captured coefficients
             {
@@ -623,13 +645,6 @@ int main(int argc, char** argv) {
             frame_idx, (unsigned long long)cycle, total_bs_bytes);
     fprintf(stderr, "==========================================================\n");
 
-    // Also write the RTL bitstream (for debugging)
-    std::ofstream out(output_file, std::ios::binary);
-    if (out.is_open()) {
-        out.write(reinterpret_cast<char*>(bitstream_mem.data()), total_bs_bytes);
-        out.close();
-    }
-
     if (!temporal_units.empty()) {
         std::vector<std::pair<uint64_t, std::vector<uint8_t>>> sequence_packets;
         sequence_packets.reserve(temporal_units.size());
@@ -657,6 +672,25 @@ int main(int argc, char** argv) {
             seq_ivf_out.close();
             fprintf(stderr, "[TB] Wrote AV1 sequence IVF: %zu bytes to %s\n",
                     ivf_sequence.size(), seq_ivf_path.string().c_str());
+        }
+    }
+
+    if (!rtl_temporal_units.empty()) {
+        std::vector<uint8_t> rtl_stream;
+        size_t rtl_total = 0;
+        for (const auto& tu : rtl_temporal_units)
+            rtl_total += tu.payload.size();
+        rtl_stream.reserve(rtl_total);
+        for (const auto& tu : rtl_temporal_units)
+            rtl_stream.insert(rtl_stream.end(), tu.payload.begin(), tu.payload.end());
+
+        fs::path rtl_raw_path = output_dir / (output_path.stem().string() + "_rtl_raw.obu");
+        std::ofstream rtl_out(rtl_raw_path, std::ios::binary | std::ios::trunc);
+        if (rtl_out.is_open()) {
+            rtl_out.write(reinterpret_cast<const char*>(rtl_stream.data()), rtl_stream.size());
+            rtl_out.close();
+            fprintf(stderr, "[TB] Wrote concatenated RTL raw stream: %zu bytes to %s\n",
+                    rtl_stream.size(), rtl_raw_path.string().c_str());
         }
     }
 
