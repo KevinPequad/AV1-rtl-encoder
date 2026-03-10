@@ -150,6 +150,17 @@ Inventory of the current repo state:
     - the RTL directional predictor now keeps edge upsampling disabled on the current bitstream configuration, which restores bit-exact decoded-vs-`recon.yuv` matching on both the still-picture and video-keyframe outputs of the focused AC probe
   - the current `16x16` `data/tmp_probe_16x16_1f.yuv` ownership check now packages the captured RTL byte path directly into `encoded_rtl.ivf`
   - on that ownership check, `encoded_rtl_raw.obu` and `encoded_rtl.ivf` match the software-owned `encoded.obu` / IVF payload byte-for-byte and decode cleanly in ffmpeg/libdav1d
+  - the strict `16x16` single-frame q sweeps are now exact again on both the natural DC-only crop and the AC probe:
+    - `output/natural_focus_x640_y360_q128/input.yuv` now matches byte-for-byte between `encoded.obu` and `encoded_rtl_raw.obu` from `qindex=1` through `qindex=240`
+    - `data/tmp_probe_16x16_1f.yuv` now matches byte-for-byte between `encoded.obu` and `encoded_rtl_raw.obu` from `qindex=1` through `qindex=240`
+    - decoded output matches `recon.yuv` on representative low and high q cases across both clips after the DC-base fix
+  - the raw RTL path now follows the same partition-tree leaf order as the software writer inside each superblock:
+    - `rtl/av1_encoder_top.v` advances blocks in Morton / recursive split order instead of plain raster order
+    - this cleared the first larger-frame ownership drift that appeared after the `16x16` fixes
+  - single-frame natural-content ownership now scales beyond the `16x16` probes:
+    - a `32x32` `qindex=128` Big Buck Bunny crop now matches byte-for-byte between `encoded.obu` and `encoded_rtl_raw.obu`
+    - a `64x64` `qindex=128` Big Buck Bunny crop now matches byte-for-byte between `encoded.obu` and `encoded_rtl_raw.obu`
+    - on both of those larger single-frame checks, software-owned and RTL-owned IVF outputs decode back to `recon.yuv` exactly
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -184,7 +195,13 @@ Inventory of the current repo state:
   - the direct RTL-owned byte capture path is now aligned with the software-owned payload on the focused `16x16` ownership probe:
     - `tb/tb_av1_encoder.cpp` now records `bs_byte_valid`, `ec_byte_valid`, and explicit `manual_bs_wr` back-patches directly from the RTL top-level mux when building `encoded_rtl_raw.obu` / `encoded_rtl.ivf`
     - on the current `16x16` probe, that direct capture matches the software-owned `encoded.obu` payload byte-for-byte and decodes successfully once wrapped in IVF
-  - the remaining ownership gap is extending that reduced non-DC path into larger-magnitude coefficient tails, less constrained dense blocks, real partition/inter syntax, and the broader tile grammar on the RTL top-level path
+  - the larger single-frame ownership drift is now fixed through the first natural-content `32x32` and `64x64` cases:
+    - the raw RTL path now advances blocks in the same recursive partition-tree / Morton order that the writer and decoder expect inside each superblock
+    - this removed the first `32x32` payload divergence that appeared once the frame needed more than the original `16x16` exact-match traversal
+  - the remaining ownership gap is extending that reduced non-DC path and matching syntax ownership beyond the current single-frame keyframe subset:
+    - real multi-frame / non-key ownership
+    - real inter syntax and motion signaling on the RTL path
+    - less constrained dense and higher-energy coefficient shapes beyond the current regression clips
 - The current active exactness regression is now reference-decoder-backed:
   - the strict `output/highdc_q1/` first-block bug is now fixed:
     - the software debug writer and the RTL-owned raw path now both select the correct official TX_8X8 qctx tables from `qindex`
@@ -198,7 +215,7 @@ Inventory of the current repo state:
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
-  - extending the verified `qindex=1+` reduced subset beyond the current coefficient, partition, and syntax checkpoints
+  - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
   - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
   - expanding beyond the current reduced single-reference subset once the ownership path is real
