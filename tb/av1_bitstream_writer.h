@@ -16,6 +16,8 @@
 #include <cstdio>
 #include <unordered_map>
 
+#include "av1_tx8x8_qctx_tables.h"
+
 // ============================================================
 // AV1 Default CDF Tables (ICDF format: value = 32768 - cumprob)
 // ============================================================
@@ -651,7 +653,7 @@ public:
     };
 
     AV1BitstreamWriter(int width, int height, int qindex)
-        : width_(width), height_(height), qindex_(qindex),
+        : width_(width), height_(height), qindex_(qindex <= 0 ? 1 : qindex),
           blk_cols_(width / 8), blk_rows_(height / 8),
           mi_cols_(width / 4), mi_rows_(height / 4),
           force_skip0_(false), dc_only_mode_(false), coeff_debug_mode_(false),
@@ -1279,11 +1281,12 @@ private:
     void encode_coeffs_txb(AV1RangeCoder& rc, const int16_t* qcoeff, int plane, int dc_sign_ctx = 0,
                            bool debug = false, bool inter_block = false, int intra_mode = 0) {
         int eob = compute_eob(qcoeff);
+        const int coeff_qctx = av1_coeff_qctx_from_qindex(qindex_);
 
         // txb_skip: 0 = has coefficients, 1 = all zero
         // Use context 0 for simplicity (first block default)
         if (debug) fprintf(stderr, "[COEFF] plane=%d eob=%d txb_skip=%d\n", plane, eob, eob==0?1:0);
-        encode_symbol_ctx(rc, eob == 0 ? 1 : 0, av1_txb_skip_cdf[0], 2, debug);
+        encode_symbol_ctx(rc, eob == 0 ? 1 : 0, av1_txb_skip_cdf_8x8_qctx[coeff_qctx][0], 2, debug);
 
         if (eob == 0) return;
 
@@ -1307,14 +1310,14 @@ private:
         int eob_pt = get_eob_pos_token(eob, &eob_extra);
         if (debug) fprintf(stderr, "[COEFF] eob_pt=%d symbol=%d eob_extra=%d nsyms=7\n", eob_pt, eob_pt-1, eob_extra);
         // TX_8X8 → eob_multi_size=2 → eob_flag_cdf64 (7 symbols)
-        encode_symbol_ctx(rc, eob_pt - 1, av1_eob_multi64_cdf[plane], 7, debug);
+        encode_symbol_ctx(rc, eob_pt - 1, av1_eob_multi64_cdf_qctx[coeff_qctx][plane], 7, debug);
 
         int eob_ob = eob_offset_bits[eob_pt];
         if (eob_ob > 0) {
             int eob_ctx = eob_pt - 3;
             int eob_shift = eob_ob - 1;
             int bit = (eob_extra >> eob_shift) & 1;
-            encode_symbol_ctx(rc, bit, av1_eob_extra_cdf[plane][eob_ctx], 2);
+            encode_symbol_ctx(rc, bit, av1_eob_extra_cdf_qctx[coeff_qctx][plane][eob_ctx], 2);
             for (int i = 1; i < eob_ob; i++) {
                 eob_shift = eob_ob - 1 - i;
                 bit = (eob_extra >> eob_shift) & 1;
@@ -1356,13 +1359,13 @@ private:
                 int sym = std::min(level, 3) - 1;
                 int ctx = coeff_ctx < 4 ? coeff_ctx : 3;
                 if (debug) fprintf(stderr, "[COEFF] base_eob c=%d pos=%d level=%d sym=%d ctx=%d\n", c, pos, level, sym, ctx);
-                encode_symbol_ctx(rc, sym, av1_coeff_base_eob_cdf[ctx], 3, debug);
+                encode_symbol_ctx(rc, sym, av1_coeff_base_eob_cdf_qctx[coeff_qctx][ctx], 3, debug);
             } else {
                 // Non-EOB: 4 symbols (level: 0,1,2,3)
                 int sym = std::min(level, 3);
                 int ctx = coeff_ctx < 42 ? coeff_ctx : 41;
                 if (debug) fprintf(stderr, "[COEFF] base c=%d pos=%d level=%d sym=%d ctx=%d\n", c, pos, level, sym, ctx);
-                encode_symbol_ctx(rc, sym, av1_coeff_base_cdf[ctx], 4, debug);
+                encode_symbol_ctx(rc, sym, av1_coeff_base_cdf_qctx[coeff_qctx][ctx], 4, debug);
             }
 
             // Bypass range (level > 2)
@@ -1373,7 +1376,7 @@ private:
                 for (int idx = 0; idx < 12; idx += 3) {
                     int k = std::min(base_range - idx, 3);
                     if (debug) fprintf(stderr, "[COEFF] br_sym=%d idx=%d ctx=%d\n", k, idx, br_ctx < 21 ? br_ctx : 20);
-                    encode_symbol_ctx(rc, k, av1_coeff_br_cdf[br_ctx < 21 ? br_ctx : 20], 4, debug);
+                    encode_symbol_ctx(rc, k, av1_coeff_br_cdf_qctx[coeff_qctx][br_ctx < 21 ? br_ctx : 20], 4, debug);
                     if (k < 3) break;
                 }
             }
@@ -1542,7 +1545,6 @@ private:
         hdr_bw.write_bit(0);      // allow_screen_content_tools = 0
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
-        hdr_bw.write_bit(1);      // refresh_frame_context = DISABLED
         write_tile_info(hdr_bw);
         write_quantization_params(hdr_bw);
         hdr_bw.write_bit(0);      // segmentation_enabled = 0
@@ -1941,8 +1943,9 @@ private:
 
             // Chroma Cb/Cr 4x4 — all zero
             // Chroma TX_4X4: txs_ctx=0, use TX_4X4 CDF, ctx 0
-            encode_symbol_ctx(rc, 1, av1_txb_skip_cdf_4x4[7], 2);  // Cb all zero
-            encode_symbol_ctx(rc, 1, av1_txb_skip_cdf_4x4[7], 2);  // Cr all zero
+            const int coeff_qctx = av1_coeff_qctx_from_qindex(qindex_);
+            encode_symbol_ctx(rc, 1, av1_txb_skip_cdf_4x4_qctx[coeff_qctx][7], 2);  // Cb all zero
+            encode_symbol_ctx(rc, 1, av1_txb_skip_cdf_4x4_qctx[coeff_qctx][7], 2);  // Cr all zero
         }
 
         update_block_ctx(mi_row, mi_col, mi_size, skip, y_mode, dc_sign_code, is_inter_block, ref_frame,

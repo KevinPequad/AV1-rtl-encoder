@@ -137,14 +137,17 @@ Inventory of the current repo state:
   - on that sparse-AC check, the preserved RTL raw payload is now `35` bytes and both `aomdec` and `ffmpeg` decode outputs match `recon.yuv` bit-for-bit
   - the same focused `16x16` `data/ac_probe_16x16_1f.yuv` check at `qindex=240` still decodes and matches `recon.yuv` exactly after moving the first dense low-order `eob=9` subset onto the RTL raw path
   - on that exact-match probe, the preserved RTL raw payload dropped again from `35` bytes to `29`, which indicates the last remaining dense luma block on that clip moved off the placeholder coefficient bool stream and onto the real coefficient path
-  - after a clean rebuild of the current live tree, the same `16x16` `data/ac_probe_16x16_1f.yuv` probe now decodes and matches `recon.yuv` exactly across the full tested `qindex` sweep from `240` down to `0`
-  - the earlier `qindex=224` residual no longer reproduces on the rebuilt live tree, so that probe is now a stable exact-match regression gate rather than an active blocker
+  - after the current mux fix, the isolated `highdc_16x16_1f` ownership repro no longer corrupts the raw RTL byte stream:
+    - `encoded.obu` and `encoded_rtl_raw.obu` match byte-for-byte again
+    - the written entropy byte sequence now matches the shadow `AV1RangeCoder` output exactly on the same run
+  - the current `qindex=1` failing repros are shared bugs, not writer-vs-RTL drift:
+    - `output/highdc_q1/encoded.obu` and `output/highdc_q1/encoded_rtl_raw.obu` match byte-for-byte
+    - `output/crop560_q1/encoded.obu` and `output/crop560_q1/encoded_rtl_raw.obu` match byte-for-byte
+  - a local upstream AOM reference decoder build with `CONFIG_ACCOUNTING=1` and `CONFIG_INSPECTION=1` is now available for stricter syntax validation alongside ffmpeg/libdav1d
   - the video-keyframe path on that same `16x16` `data/ac_probe_16x16_1f.yuv` probe is now exact again, not just the reduced still-picture path:
     - the missing `refresh_frame_context` bit in the non-still frame header was restored before `tile_info`
     - the remaining `22`-byte luma drift was traced to a predictor/config mismatch, not coefficients: the sequence header advertises `enable_intra_edge_filter=0`, so libaom disables both directional edge filtering and directional edge upsampling
     - the RTL directional predictor now keeps edge upsampling disabled on the current bitstream configuration, which restores bit-exact decoded-vs-`recon.yuv` matching on both the still-picture and video-keyframe outputs of the focused AC probe
-  - the exact-match range is no longer limited to the synthetic AC probe:
-    - sampled natural-content `16x16` crops from the first Big Buck Bunny raw frame also round-trip exactly against `recon.yuv` at `qindex=0` on the current software-owned debug path
   - the current `16x16` `data/tmp_probe_16x16_1f.yuv` ownership check now packages the captured RTL byte path directly into `encoded_rtl.ivf`
   - on that ownership check, `encoded_rtl_raw.obu` and `encoded_rtl.ivf` match the software-owned `encoded.obu` / IVF payload byte-for-byte and decode cleanly in ffmpeg/libdav1d
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
@@ -175,30 +178,34 @@ Inventory of the current repo state:
   - the raw RTL path now also owns a real DC-only luma coefficient slice for intra blocks with `eob=1`, bounded `coeff_br`, and neighbor-conditioned DC-sign context
   - the raw RTL path now also owns the first sparse low-order AC subset for the exact-match `qindex=240` still-picture probe: `eob=3`, `eob_extra=0`, EOB coeff at flat index `1`, zero base at flat index `8`, and the corresponding DC/AC signs
   - the raw RTL path now also owns the first dense low-order AC subset on that same probe: `eob=9`, `eob_extra=0`, nonzeros at flat indices `0`, `8`, `1`, and `10`, the intervening zero bases, and the corresponding DC/AC signs
-  - the current software-owned exact-match path now also has its video-keyframe header and directional predictor configuration back in sync with the decoder:
+  - the current software-owned exact-match path now also has its video-keyframe header and directional predictor configuration back in sync with the decoder on the verified `qindex=240` probe:
     - non-still frame headers now emit `refresh_frame_context` before `tile_info`
     - the predictor no longer applies directional edge upsampling while the bitstream still advertises `enable_intra_edge_filter=0`
   - the direct RTL-owned byte capture path is now aligned with the software-owned payload on the focused `16x16` ownership probe:
     - `tb/tb_av1_encoder.cpp` now records `bs_byte_valid`, `ec_byte_valid`, and explicit `manual_bs_wr` back-patches directly from the RTL top-level mux when building `encoded_rtl_raw.obu` / `encoded_rtl.ivf`
     - on the current `16x16` probe, that direct capture matches the software-owned `encoded.obu` payload byte-for-byte and decodes successfully once wrapped in IVF
   - the remaining ownership gap is extending that reduced non-DC path into larger-magnitude coefficient tails, less constrained dense blocks, real partition/inter syntax, and the broader tile grammar on the RTL top-level path
-- The current active exactness regression on the focused ownership probe is no longer in the raw payload bytes:
-  - `encoded_rtl.ivf` now decodes identically to the software-owned `encoded.ivf`
-  - both decoded outputs currently differ from `recon.yuv` on luma only: `227` differing `Y` bytes on the `16x16` probe, max delta `12`, luma MAE `4.1171875`
-  - `U` and `V` still match `recon.yuv` exactly on that same check
+- The current active exactness regression is now reference-decoder-backed:
+  - the strict `output/highdc_q1/` first-block bug is now fixed:
+    - the software debug writer and the RTL-owned raw path now both select the correct official TX_8X8 qctx tables from `qindex`
+    - AOM inspection now parses all four intended large-DC blocks at `qindex=1` as `tx_size=1`, `eob=1`, with the expected Golomb tail
+    - ffmpeg now decodes `output/highdc_q1/encoded.ivf`, and `decoded.yuv` matches `recon.yuv` bit-for-bit on that repro
+  - `qindex=0` remains a deferred lossless / `TX_4X4` feature, not part of the current supported reduced subset:
+    - AOM reference inspection shows the decoder entering the lossless `TX_4X4` path (`tx_size=0`) when `base_q_idx=0`
+    - until that separate lossless path is implemented, the testbench and RTL clamp requested `qindex=0` runs to effective `qindex=1` so the current subset does not emit invalid streams
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
-  - extending the newly RTL-owned low-order AC subsets into larger-magnitude coefficient tails and less constrained dense blocks on a broader natural-content `16x16` crop before tackling broader block syntax
+  - extending the verified `qindex=1+` reduced subset beyond the current coefficient, partition, and syntax checkpoints
+  - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
   - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
   - expanding beyond the current reduced single-reference subset once the ownership path is real
 - A lightweight debug probe now exists in the testbench:
   - `+dump_inter_summary=1` prints captured inter blocks, MVs, and nonzero counts after each frame
-  - `+dump_blocks=1` on the synthetic `data/ac_probe_16x16_1f.yuv` case is now a stable exact-match regression check across the tested `qindex` range
-  - that probe is no longer the right place to search for the next coeff-syntax gap
-  - the next safe coeff bring-up target should come from a broader natural-content `16x16` crop from `data/raw_frames.yuv` that still keeps runtimes short while exercising denser coefficient tails than the synthetic probe
+  - `+dump_blocks=1` on `output/highdc_q1/` and the local AOM `inspect` build are now the fastest strict large-DC regression guard for the fixed qctx-selected `TX_8X8` path
+  - `data/ac_probe_16x16_1f.yuv` remains the first exact-match regression gate at the verified `qindex=240` subset
 - Larger roadmap phases in `av1-reference-docs/svt-av1-feature-inventory.md` are still open:
   - stronger inter syntax and motion signaling
   - better partitioning and mode decision
@@ -250,7 +257,7 @@ If a syntax blocker appears, check `av1-reference-docs/external/README.md` first
 For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
 If the ME block dominates runtime, drop to the `16x16` 2-frame debug clips first to validate inter correctness before retrying `64x64` and larger cases.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
-For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` in the loop as the first exact-match regression check. It is now exact on the rebuilt live tree across the tested `qindex` range down to `0`, so use it to guard against regressions first and then switch to a broader natural-content `16x16` crop from `data/raw_frames.yuv` when looking for the next larger-magnitude tail or denser generic coeff case.
+For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` in the loop as the first exact-match regression check at the verified `qindex=240` subset. Use `output/highdc_q1/` plus the local AOM `inspect` build as the strict large-DC regression guard for the fixed qctx-selected `TX_8X8` path, and treat requested `qindex=0` runs as a deferred lossless / `TX_4X4` task that currently clamps to effective `qindex=1`.
 
 ## Verification Rules
 
