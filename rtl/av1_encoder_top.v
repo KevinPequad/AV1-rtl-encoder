@@ -373,11 +373,14 @@ module av1_encoder_top #(
 
     // Entropy coder
     wire        ec_done, ec_busy;
-    reg         ec_init, ec_encode_bool, ec_encode_lit, ec_finalize;
+    reg         ec_init, ec_encode_bool, ec_encode_lit, ec_encode_symbol, ec_finalize;
     reg         ec_bool_val;
     reg [14:0]  ec_bool_prob;
     reg [7:0]   ec_lit_val;
     reg [4:0]   ec_lit_bits;
+    reg [4:0]   ec_symbol;
+    reg [4:0]   ec_nsyms;
+    reg [255:0] ec_icdf_flat;
     wire        ec_byte_valid;
     wire [7:0]  ec_byte_out;
     wire [23:0] ec_bytes_written;
@@ -387,11 +390,15 @@ module av1_encoder_top #(
         .init(ec_init),
         .encode_bool(ec_encode_bool),
         .encode_lit(ec_encode_lit),
+        .encode_symbol(ec_encode_symbol),
         .finalize(ec_finalize),
         .bool_val(ec_bool_val),
         .bool_prob(ec_bool_prob),
         .lit_val(ec_lit_val),
         .lit_bits(ec_lit_bits),
+        .symbol(ec_symbol),
+        .nsyms(ec_nsyms),
+        .icdf_flat(ec_icdf_flat),
         .busy(ec_busy),
         .done(ec_done),
         .byte_valid(ec_byte_valid),
@@ -480,6 +487,7 @@ module av1_encoder_top #(
             ec_init     <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
+            ec_encode_symbol <= 0;
             ec_finalize <= 0;
             bs_write_td <= 0;
             bs_write_seq <= 0;
@@ -490,6 +498,9 @@ module av1_encoder_top #(
             neigh_rd_active <= 0;
             inter_rd_active <= 0;
             manual_bs_wr <= 0;
+            ec_symbol <= 5'd0;
+            ec_nsyms <= 5'd0;
+            ec_icdf_flat <= 256'd0;
             best_intra_mode <= AV1_DC_PRED;
             intra_eval_idx  <= 4'd0;
             intra_best_sad  <= 18'h3FFFF;
@@ -509,6 +520,7 @@ module av1_encoder_top #(
             ec_init      <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
+            ec_encode_symbol <= 0;
             ec_finalize  <= 0;
             bs_write_td  <= 0;
             bs_write_seq <= 0;
@@ -517,6 +529,9 @@ module av1_encoder_top #(
             chr_cb_ref_wr_en <= 0;
             chr_cr_ref_wr_en <= 0;
             manual_bs_wr <= 0;
+            ec_symbol <= 5'd0;
+            ec_nsyms <= 5'd0;
+            ec_icdf_flat <= 256'd0;
 
             case (top_state)
                 TS_IDLE: begin
