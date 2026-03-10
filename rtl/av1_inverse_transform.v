@@ -28,12 +28,12 @@ module av1_inverse_transform (
     localparam signed [15:0] COSPI_48 = 16'sd1567;
     localparam signed [15:0] COSPI_56 = 16'sd799;
 
-    function signed [15:0] half_btf;
+    function signed [31:0] half_btf;
         input signed [15:0] w0;
-        input signed [15:0] a;
+        input signed [31:0] a;
         input signed [15:0] w1;
-        input signed [15:0] b;
-        reg signed [31:0] prod;
+        input signed [31:0] b;
+        reg signed [63:0] prod;
         begin
             prod = w0 * a + w1 * b;
             half_btf = (prod + (1 <<< (COS_BIT - 1))) >>> COS_BIT;
@@ -41,8 +41,8 @@ module av1_inverse_transform (
     endfunction
 
     reg [2:0] stage;
-    reg signed [15:0] bf [0:7];
-    reg signed [15:0] st [0:7];
+    reg signed [31:0] bf [0:7];
+    reg signed [31:0] st [0:7];
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

@@ -656,7 +656,9 @@ public:
           mi_cols_(width / 4), mi_rows_(height / 4),
           force_skip0_(false), dc_only_mode_(false), coeff_debug_mode_(false),
           still_picture_mode_(true), include_sequence_header_(true),
-          force_video_intra_only_(false), is_keyframe_(true) {}
+          force_video_intra_only_(false), is_keyframe_(true),
+          disable_cdf_update_mode_(false), trace_symbol_ops_(false),
+          trace_block_idx_(-1), trace_op_idx_(0) {}
 
     void set_force_skip0(bool v) { force_skip0_ = v; }
     void set_dc_only_mode(bool v) { dc_only_mode_ = v; }
@@ -665,6 +667,8 @@ public:
     void set_include_sequence_header(bool v) { include_sequence_header_ = v; }
     void set_force_video_intra_only(bool v) { force_video_intra_only_ = v; }
     void set_keyframe(bool v) { is_keyframe_ = v; }
+    void set_disable_cdf_update_mode(bool v) { disable_cdf_update_mode_ = v; }
+    void set_trace_symbol_ops(bool v) { trace_symbol_ops_ = v; trace_op_idx_ = 0; }
 
     void add_block(const BlockInfo& blk) {
         blocks_.push_back(blk);
@@ -779,6 +783,10 @@ private:
     bool include_sequence_header_;
     bool force_video_intra_only_;
     bool is_keyframe_;
+    bool disable_cdf_update_mode_;
+    bool trace_symbol_ops_;
+    int trace_block_idx_;
+    int trace_op_idx_;
     std::vector<BlockInfo> blocks_;
 
     // Context arrays
@@ -794,6 +802,23 @@ private:
     std::vector<int16_t> blk_mv_x_;
     std::vector<int16_t> blk_mv_y_;
     std::unordered_map<const uint16_t*, std::vector<uint16_t>> cdf_cache_;
+
+    void trace_symbol_op(const char* kind, int value, int nsyms, const uint16_t* cdf) {
+        if (!trace_symbol_ops_) return;
+        fprintf(stderr, "[WSTRACE] blk=%d op=%d %s=%d", trace_block_idx_, trace_op_idx_++, kind, value);
+        if (cdf && nsyms > 0) {
+            fprintf(stderr, " nsyms=%d icdf=", nsyms);
+            for (int i = 0; i < nsyms; ++i)
+                fprintf(stderr, "%s%u", i ? "," : "", static_cast<unsigned>(cdf[i]));
+        }
+        fprintf(stderr, "\n");
+    }
+
+    void trace_bit_op(int value) {
+        if (!trace_symbol_ops_) return;
+        fprintf(stderr, "[WSTRACE] blk=%d op=%d bit=%d prob=16384\n",
+                trace_block_idx_, trace_op_idx_++, value);
+    }
 
     struct ReducedMvCandidate {
         int16_t row;
@@ -826,13 +851,19 @@ private:
 
     void encode_symbol_ctx(AV1RangeCoder& rc, int symbol, const uint16_t* cdf, int nsyms,
                            bool debug = false) {
+        trace_symbol_op("sym", symbol, nsyms, cdf);
+        if (disable_cdf_update_mode_) {
+            rc.encode_symbol(symbol, cdf, nsyms, debug);
+            return;
+        }
         uint16_t* mutable_cdf = get_mutable_cdf(cdf, nsyms);
         rc.encode_symbol(symbol, mutable_cdf, nsyms, debug);
         update_cdf_local(mutable_cdf, symbol, nsyms);
     }
 
-    static void encode_symbol_no_update(AV1RangeCoder& rc, int symbol, const uint16_t* cdf,
-                                        int nsyms, bool debug = false) {
+    void encode_symbol_no_update(AV1RangeCoder& rc, int symbol, const uint16_t* cdf,
+                                 int nsyms, bool debug = false) {
+        trace_symbol_op("sym", symbol, nsyms, cdf);
         rc.encode_symbol(symbol, cdf, nsyms, debug);
     }
 
@@ -1287,6 +1318,7 @@ private:
             for (int i = 1; i < eob_ob; i++) {
                 eob_shift = eob_ob - 1 - i;
                 bit = (eob_extra >> eob_shift) & 1;
+                trace_bit_op(bit);
                 rc.encode_bit(bit);
             }
         }
@@ -1361,6 +1393,7 @@ private:
                     if (debug) fprintf(stderr, "[COEFF] ac_sign=%d c=%d\n", sign, c);
                     if (debug) fprintf(stderr, "  [RC] bit=%d prob_q15=16384 rng=%u low=%llu\n",
                                        sign, rc.rng_state(), (unsigned long long)rc.low_state());
+                    trace_bit_op(sign);
                     rc.encode_bit(sign);
                     if (debug) fprintf(stderr, "  [RC] -> rng=%u low=%llu cnt=%d buf_sz=%zu\n",
                                        rc.rng_state(), (unsigned long long)rc.low_state(),
@@ -1373,10 +1406,14 @@ private:
                     int length = 0;
                     int tmp = x;
                     while (tmp > 0) { length++; tmp >>= 1; }
-                    for (int i = 0; i < length - 1; i++)
+                    for (int i = 0; i < length - 1; i++) {
+                        trace_bit_op(0);
                         rc.encode_bit(0);
-                    for (int i = length - 1; i >= 0; i--)
+                    }
+                    for (int i = length - 1; i >= 0; i--) {
+                        trace_bit_op((x >> i) & 1);
                         rc.encode_bit((x >> i) & 1);
+                    }
                 }
             }
         }
@@ -1478,7 +1515,7 @@ private:
 
     std::vector<uint8_t> build_frame_obu_still_picture() {
         BitWriter hdr_bw;
-        hdr_bw.write_bit(0);  // disable_cdf_update = 0
+        hdr_bw.write_bit(disable_cdf_update_mode_ ? 1 : 0);
         hdr_bw.write_bit(0);  // allow_screen_content_tools
         hdr_bw.write_bit(0);  // render_and_frame_size_different
         write_tile_info(hdr_bw);
@@ -1501,7 +1538,7 @@ private:
         hdr_bw.write_bit(0);      // show_existing_frame = 0
         hdr_bw.write_bits(0, 2);  // frame_type = KEY_FRAME
         hdr_bw.write_bit(1);      // show_frame = 1
-        hdr_bw.write_bit(0);      // disable_cdf_update = 0
+        hdr_bw.write_bit(disable_cdf_update_mode_ ? 1 : 0);
         hdr_bw.write_bit(0);      // allow_screen_content_tools = 0
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
@@ -1528,7 +1565,7 @@ private:
         hdr_bw.write_bits(2, 2);  // frame_type = INTRA_ONLY_FRAME
         hdr_bw.write_bit(1);      // show_frame = 1
         hdr_bw.write_bit(0);      // error_resilient_mode = 0
-        hdr_bw.write_bit(0);      // disable_cdf_update = 0
+        hdr_bw.write_bit(disable_cdf_update_mode_ ? 1 : 0);
         hdr_bw.write_bit(0);      // allow_screen_content_tools = 0
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         // Keep the mixed-sequence bootstrap conformant by refreshing only the
@@ -1558,7 +1595,7 @@ private:
         hdr_bw.write_bits(1, 2);  // frame_type = INTER_FRAME
         hdr_bw.write_bit(1);      // show_frame = 1
         hdr_bw.write_bit(1);      // error_resilient_mode = 1
-        hdr_bw.write_bit(0);      // disable_cdf_update = 0
+        hdr_bw.write_bit(disable_cdf_update_mode_ ? 1 : 0);
         hdr_bw.write_bit(1);      // allow_screen_content_tools = 1
         hdr_bw.write_bit(1);      // force_integer_mv = 1
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
@@ -1650,6 +1687,8 @@ private:
         AV1RangeCoder rc;
         rc.init();
         init_contexts();
+        trace_block_idx_ = -1;
+        trace_op_idx_ = 0;
 
         int sb_cols = (width_ + 63) / 64;
         int sb_rows = (height_ + 63) / 64;
@@ -1746,6 +1785,7 @@ private:
         // Find the 8x8 block in our blocks array
         int blk_x = org_x / 8, blk_y = org_y / 8;
         int blk_idx = blk_y * blk_cols_ + blk_x;
+        trace_block_idx_ = blk_idx;
         const int16_t* qcoeff = nullptr;
         const int16_t* enc_qcoeff = nullptr;
         bool has_coeff = false;

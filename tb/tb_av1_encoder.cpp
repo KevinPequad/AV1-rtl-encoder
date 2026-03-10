@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <fstream>
 #include <filesystem>
 #include <string>
@@ -47,6 +48,17 @@ struct EncodedTemporalUnit {
     std::vector<uint8_t> payload;
 };
 
+struct PendingEntropyOp {
+    enum Kind {
+        Symbol,
+        Bool,
+    } kind;
+    int value;
+    int prob;
+    int nsyms;
+    std::vector<uint16_t> icdf;
+};
+
 // State for capturing RTL block data
 static std::vector<AV1BitstreamWriter::BlockInfo> frame_blocks;
 static int last_captured_blk = -1;
@@ -81,6 +93,11 @@ int main(int argc, char** argv) {
     int debug_add_coeff_block = -1;
     int debug_add_coeff_idx = -1;
     int debug_add_coeff_delta = 0;
+    int static_cdf_mode = 0;
+    int trace_entropy = 0;
+    int trace_bs = 0;
+    int trace_entropy_shadow = 0;
+    int trace_writer_entropy = 0;
     std::string input_file = "data/raw_frames.yuv";
     std::string output_file = "output/encoded.obu";
     uint64_t timeout_cycles = 500000000;
@@ -133,6 +150,16 @@ int main(int argc, char** argv) {
             debug_add_coeff_idx = std::atoi(arg.c_str() + 21);
         } else if (arg.rfind("+debug_add_coeff_delta=", 0) == 0) {
             debug_add_coeff_delta = std::atoi(arg.c_str() + 23);
+        } else if (arg.rfind("+static_cdf_mode=", 0) == 0) {
+            static_cdf_mode = std::atoi(arg.c_str() + 17);
+        } else if (arg.rfind("+trace_entropy=", 0) == 0) {
+            trace_entropy = std::atoi(arg.c_str() + 15);
+        } else if (arg.rfind("+trace_bs=", 0) == 0) {
+            trace_bs = std::atoi(arg.c_str() + 10);
+        } else if (arg.rfind("+trace_entropy_shadow=", 0) == 0) {
+            trace_entropy_shadow = std::atoi(arg.c_str() + 22);
+        } else if (arg.rfind("+trace_writer_entropy=", 0) == 0) {
+            trace_writer_entropy = std::atoi(arg.c_str() + 22);
         }
     }
 
@@ -196,6 +223,13 @@ int main(int argc, char** argv) {
     bool current_frame_is_key = true;
     std::vector<EncodedTemporalUnit> temporal_units;
     std::vector<EncodedTemporalUnit> rtl_temporal_units;
+    std::vector<uint8_t> rtl_byte_stream;
+    std::vector<PendingEntropyOp> entropy_req_log;
+    std::vector<PendingEntropyOp> entropy_accept_log;
+    std::vector<uint8_t> entropy_byte_log;
+    AV1RangeCoder entropy_live_shadow;
+    bool entropy_live_shadow_valid = false;
+    bool entropy_state_mismatch = false;
 
     // FSM state constants (must match av1_encoder_top.v)
     constexpr int TS_PREDICT = 11;
@@ -226,6 +260,13 @@ int main(int argc, char** argv) {
             frame_blocks.clear();
             frame_blocks.resize(BLK_COLS * BLK_ROWS);
             last_captured_blk = -1;
+            rtl_byte_stream.clear();
+            entropy_req_log.clear();
+            entropy_accept_log.clear();
+            entropy_byte_log.clear();
+            entropy_live_shadow.init();
+            entropy_live_shadow_valid = true;
+            entropy_state_mismatch = false;
             fprintf(stderr, "[TB] Frame %d (%s) start @ cycle %llu\n",
                     frame_idx, is_key ? "KEY" : "INTER", (unsigned long long)cycle);
         }
@@ -274,6 +315,157 @@ int main(int argc, char** argv) {
             int bx = root->av1_encoder_top__DOT__blk_x;
             int by = root->av1_encoder_top__DOT__blk_y;
             int blk_idx = by * BLK_COLS + bx;
+
+            if (trace_entropy || trace_entropy_shadow) {
+                if (root->av1_encoder_top__DOT__ec_encode_symbol) {
+                    const unsigned nsyms = root->av1_encoder_top__DOT__ec_nsyms;
+                    auto icdf_entry = [&](unsigned idx) -> unsigned {
+                        const unsigned word = idx >> 1;
+                        const unsigned shift = (idx & 1U) ? 16U : 0U;
+                        return (root->av1_encoder_top__DOT__ec_icdf_flat[word] >> shift) & 0xFFFFU;
+                    };
+                    if (trace_entropy) {
+                        fprintf(stderr,
+                                "[ETRACE] blk=(%d,%d) state=%d sym=%u nsyms=%u icdf=",
+                                bx, by, state,
+                                root->av1_encoder_top__DOT__ec_symbol,
+                                nsyms);
+                        for (unsigned i = 0; i < nsyms; ++i) {
+                            fprintf(stderr, "%s%u", i ? "," : "", icdf_entry(i));
+                        }
+                        fprintf(stderr, "\n");
+                    }
+                    if (trace_entropy_shadow) {
+                        PendingEntropyOp op{};
+                        op.kind = PendingEntropyOp::Symbol;
+                        op.value = root->av1_encoder_top__DOT__ec_symbol;
+                        op.prob = 0;
+                        op.nsyms = static_cast<int>(nsyms);
+                        op.icdf.reserve(nsyms);
+                        for (unsigned i = 0; i < nsyms; ++i)
+                            op.icdf.push_back(static_cast<uint16_t>(icdf_entry(i)));
+                        entropy_req_log.push_back(std::move(op));
+                    }
+                }
+                if (root->av1_encoder_top__DOT__ec_encode_bool) {
+                    if (trace_entropy) {
+                        fprintf(stderr,
+                                "[ETRACE] blk=(%d,%d) state=%d bool=%u prob=%u\n",
+                                bx, by, state,
+                                root->av1_encoder_top__DOT__ec_bool_val,
+                                root->av1_encoder_top__DOT__ec_bool_prob);
+                    }
+                    if (trace_entropy_shadow) {
+                        PendingEntropyOp op{};
+                        op.kind = PendingEntropyOp::Bool;
+                        op.value = root->av1_encoder_top__DOT__ec_bool_val ? 1 : 0;
+                        op.prob = root->av1_encoder_top__DOT__ec_bool_prob;
+                        op.nsyms = 0;
+                        entropy_req_log.push_back(std::move(op));
+                    }
+                }
+                if (dut->ec_dbg_accept_valid_out) {
+                    if (dut->ec_dbg_accept_kind_out == 2) {
+                        const unsigned nsyms = dut->ec_dbg_accept_nsyms_out;
+                        auto icdf_entry = [&](unsigned idx) -> unsigned {
+                            const unsigned word = idx >> 1;
+                            const unsigned shift = (idx & 1U) ? 16U : 0U;
+                            return (dut->ec_dbg_accept_icdf_flat_out[word] >> shift) & 0xFFFFU;
+                        };
+                        if (trace_entropy) {
+                            fprintf(stderr,
+                                "[EACC] blk=(%d,%d) state=%d sym=%u nsyms=%u icdf=",
+                                bx, by, state,
+                                dut->ec_dbg_accept_symbol_out,
+                                nsyms);
+                            for (unsigned i = 0; i < nsyms; ++i) {
+                                fprintf(stderr, "%s%u", i ? "," : "", icdf_entry(i));
+                            }
+                            fprintf(stderr, "\n");
+                        }
+                        if (trace_entropy_shadow) {
+                            PendingEntropyOp op{};
+                            op.kind = PendingEntropyOp::Symbol;
+                            op.value = dut->ec_dbg_accept_symbol_out;
+                            op.prob = 0;
+                            op.nsyms = static_cast<int>(nsyms);
+                            op.icdf.reserve(nsyms);
+                            for (unsigned i = 0; i < nsyms; ++i)
+                                op.icdf.push_back(static_cast<uint16_t>(icdf_entry(i)));
+                            entropy_accept_log.push_back(std::move(op));
+                            if (entropy_live_shadow_valid) {
+                                const auto& applied = entropy_accept_log.back();
+                                entropy_live_shadow.encode_symbol(applied.value, applied.icdf.data(), applied.nsyms);
+                                const auto dut_rng = static_cast<unsigned>(root->av1_encoder_top__DOT__u_entropy__DOT__rng_reg);
+                                const auto dut_low = static_cast<uint64_t>(root->av1_encoder_top__DOT__u_entropy__DOT__low_reg);
+                                const auto dut_cnt = static_cast<int32_t>(root->av1_encoder_top__DOT__u_entropy__DOT__cnt_reg);
+                                const auto dut_buf = static_cast<size_t>(root->av1_encoder_top__DOT__u_entropy__DOT__out_len);
+                                if (!entropy_state_mismatch &&
+                                    (entropy_live_shadow.rng_state() != dut_rng ||
+                                     entropy_live_shadow.low_state() != dut_low ||
+                                     entropy_live_shadow.cnt_state() != dut_cnt ||
+                                     entropy_live_shadow.buf_size() != dut_buf)) {
+                                    entropy_state_mismatch = true;
+                                    fprintf(stderr,
+                                            "[ESTATE] kind=symbol idx=%zu blk=(%d,%d) state=%d rng shadow=%u dut=%u low shadow=%llu dut=%llu cnt shadow=%d dut=%d buf shadow=%zu dut=%zu\n",
+                                            entropy_accept_log.size() - 1, bx, by, state,
+                                            entropy_live_shadow.rng_state(), dut_rng,
+                                            (unsigned long long)entropy_live_shadow.low_state(),
+                                            (unsigned long long)dut_low,
+                                            entropy_live_shadow.cnt_state(), dut_cnt,
+                                            entropy_live_shadow.buf_size(), dut_buf);
+                                }
+                            }
+                        }
+                    } else if (dut->ec_dbg_accept_kind_out == 1) {
+                        if (trace_entropy) {
+                            fprintf(stderr,
+                                    "[EACC] blk=(%d,%d) state=%d bool=%u prob=%u\n",
+                                    bx, by, state,
+                                    dut->ec_dbg_accept_bool_val_out,
+                                    dut->ec_dbg_accept_bool_prob_out);
+                        }
+                        if (trace_entropy_shadow) {
+                            PendingEntropyOp op{};
+                            op.kind = PendingEntropyOp::Bool;
+                            op.value = dut->ec_dbg_accept_bool_val_out ? 1 : 0;
+                            op.prob = dut->ec_dbg_accept_bool_prob_out;
+                            op.nsyms = 0;
+                            entropy_accept_log.push_back(std::move(op));
+                            if (entropy_live_shadow_valid) {
+                                const auto& applied = entropy_accept_log.back();
+                                entropy_live_shadow.encode_bool(applied.value, applied.prob);
+                                const auto dut_rng = static_cast<unsigned>(root->av1_encoder_top__DOT__u_entropy__DOT__rng_reg);
+                                const auto dut_low = static_cast<uint64_t>(root->av1_encoder_top__DOT__u_entropy__DOT__low_reg);
+                                const auto dut_cnt = static_cast<int32_t>(root->av1_encoder_top__DOT__u_entropy__DOT__cnt_reg);
+                                const auto dut_buf = static_cast<size_t>(root->av1_encoder_top__DOT__u_entropy__DOT__out_len);
+                                if (!entropy_state_mismatch &&
+                                    (entropy_live_shadow.rng_state() != dut_rng ||
+                                     entropy_live_shadow.low_state() != dut_low ||
+                                     entropy_live_shadow.cnt_state() != dut_cnt ||
+                                     entropy_live_shadow.buf_size() != dut_buf)) {
+                                    entropy_state_mismatch = true;
+                                    fprintf(stderr,
+                                            "[ESTATE] kind=bool idx=%zu blk=(%d,%d) state=%d rng shadow=%u dut=%u low shadow=%llu dut=%llu cnt shadow=%d dut=%d buf shadow=%zu dut=%zu\n",
+                                            entropy_accept_log.size() - 1, bx, by, state,
+                                            entropy_live_shadow.rng_state(), dut_rng,
+                                            (unsigned long long)entropy_live_shadow.low_state(),
+                                            (unsigned long long)dut_low,
+                                            entropy_live_shadow.cnt_state(), dut_cnt,
+                                            entropy_live_shadow.buf_size(), dut_buf);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (trace_bs && dut->bs_mem_wr) {
+                fprintf(stderr, "[WBYTE] addr=%u data=%02x src(h=%d e=%d m=%d)\n",
+                        dut->bs_mem_addr, dut->bs_mem_data,
+                        root->av1_encoder_top__DOT__bs_byte_valid ? 1 : 0,
+                        root->av1_encoder_top__DOT__ec_byte_valid ? 1 : 0,
+                        root->av1_encoder_top__DOT__manual_bs_wr ? 1 : 0);
+            }
 
             if (state == TS_CHR_FETCH && blk_idx != last_captured_blk) {
                 last_captured_blk = blk_idx;
@@ -333,6 +525,28 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (trace_entropy_shadow && dut->rootp->av1_encoder_top__DOT__ec_byte_valid) {
+            entropy_byte_log.push_back(static_cast<uint8_t>(dut->rootp->av1_encoder_top__DOT__ec_byte_out));
+        }
+
+        // Capture the RTL-owned byte stream directly from the top-level mux
+        // controls instead of reconstructing it from the debug memory address
+        // side effects. The RTL still owns the syntax and the explicit
+        // back-patch commands; the testbench only records the resulting bytes.
+        if (dut->rootp->av1_encoder_top__DOT__manual_bs_wr) {
+            const size_t patch_addr = static_cast<size_t>(dut->rootp->av1_encoder_top__DOT__manual_bs_addr);
+            if (rtl_byte_stream.size() <= patch_addr)
+                rtl_byte_stream.resize(patch_addr + 1, 0);
+            rtl_byte_stream[patch_addr] =
+                static_cast<uint8_t>(dut->rootp->av1_encoder_top__DOT__manual_bs_data);
+        } else if (dut->rootp->av1_encoder_top__DOT__bs_byte_valid) {
+            rtl_byte_stream.push_back(
+                static_cast<uint8_t>(dut->rootp->av1_encoder_top__DOT__bs_byte_out));
+        } else if (dut->rootp->av1_encoder_top__DOT__ec_byte_valid) {
+            rtl_byte_stream.push_back(
+                static_cast<uint8_t>(dut->rootp->av1_encoder_top__DOT__ec_byte_out));
+        }
+
         // Bitstream memory write
         if (dut->bs_mem_wr) {
             uint32_t addr = dut->bs_mem_addr;
@@ -359,12 +573,51 @@ int main(int argc, char** argv) {
         }
 
         if (dut->done) {
+            if (trace_entropy_shadow) {
+                auto replay_ops = [](const std::vector<PendingEntropyOp>& ops) {
+                    AV1RangeCoder rc;
+                    rc.init();
+                    for (const auto& op : ops) {
+                        if (op.kind == PendingEntropyOp::Symbol)
+                            rc.encode_symbol(op.value, op.icdf.data(), op.nsyms);
+                        else
+                            rc.encode_bool(op.value, op.prob);
+                    }
+                    return rc.finish();
+                };
+                auto req_tile = replay_ops(entropy_req_log);
+                auto accept_tile = replay_ops(entropy_accept_log);
+                if (!entropy_state_mismatch && entropy_live_shadow_valid) {
+                    fprintf(stderr,
+                            "[ESTATE] accepted-stream state matched through all ops: rng=%u low=%llu cnt=%d buf=%zu\n",
+                            entropy_live_shadow.rng_state(),
+                            (unsigned long long)entropy_live_shadow.low_state(),
+                            entropy_live_shadow.cnt_state(),
+                            entropy_live_shadow.buf_size());
+                }
+                fprintf(stderr,
+                        "[ESHADOW] reqs=%zu req_bytes=%zu accepts=%zu acc_bytes=%zu ec_bytes=%zu req_hex=",
+                        entropy_req_log.size(), req_tile.size(),
+                        entropy_accept_log.size(), accept_tile.size(),
+                        entropy_byte_log.size());
+                for (uint8_t b : req_tile) fprintf(stderr, "%02x", b);
+                fprintf(stderr, " acc_hex=");
+                for (uint8_t b : accept_tile) fprintf(stderr, "%02x", b);
+                fprintf(stderr, " ec_hex=");
+                for (uint8_t b : entropy_byte_log) fprintf(stderr, "%02x", b);
+                fprintf(stderr, "\n");
+            }
             total_bs_bytes = dut->bs_bytes_written;
             fprintf(stderr, "[TB] Frame %d done @ cycle %llu -- rtl_bs_bytes=%u\n",
                     frame_idx, (unsigned long long)cycle, total_bs_bytes);
             {
-                const size_t rtl_bytes = std::min(bitstream_mem.size(), static_cast<size_t>(total_bs_bytes));
-                std::vector<uint8_t> rtl_frame_payload(bitstream_mem.begin(), bitstream_mem.begin() + rtl_bytes);
+                const size_t rtl_bytes = rtl_byte_stream.size();
+                if (rtl_bytes != static_cast<size_t>(total_bs_bytes)) {
+                    fprintf(stderr,
+                            "[TB] RTL byte capture size mismatch: direct=%zu bs_bytes_written=%u\n",
+                            rtl_bytes, total_bs_bytes);
+                }
+                std::vector<uint8_t> rtl_frame_payload = rtl_byte_stream;
                 rtl_temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key,
                                               std::move(rtl_frame_payload)});
 
@@ -386,10 +639,12 @@ int main(int argc, char** argv) {
                 AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
                 writer.set_dc_only_mode(dc_only != 0);
                 writer.set_coeff_debug_mode(coeff_debug != 0);
+                writer.set_disable_cdf_update_mode(static_cdf_mode != 0);
+                writer.set_trace_symbol_ops(trace_writer_entropy != 0);
                 if (!all_key) {
                     writer.set_still_picture_mode(false);
                     writer.set_include_sequence_header(true);
-                    writer.set_force_video_intra_only(frame_idx == 0);
+                    writer.set_force_video_intra_only((num_frames > 1) && (frame_idx == 0));
                     writer.set_keyframe(current_frame_is_key);
                 }
                 int kept_newmv_blocks = 0;
@@ -501,9 +756,11 @@ int main(int argc, char** argv) {
                 AV1BitstreamWriter writer(FRAME_WIDTH, FRAME_HEIGHT, qindex);
                 writer.set_dc_only_mode(dc_only != 0);
                 writer.set_coeff_debug_mode(coeff_debug != 0);
+                writer.set_disable_cdf_update_mode(static_cdf_mode != 0);
+                writer.set_trace_symbol_ops(trace_writer_entropy != 0);
                 writer.set_still_picture_mode(false);
                 writer.set_include_sequence_header(frame_idx == 0);
-                writer.set_force_video_intra_only(!all_key && frame_idx == 0);
+                writer.set_force_video_intra_only(!all_key && (num_frames > 1) && (frame_idx == 0));
                 writer.set_keyframe(current_frame_is_key);
                 int kept_newmv_blocks = 0;
                 int kept_inter_blocks = 0;
@@ -739,10 +996,14 @@ int main(int argc, char** argv) {
     }
 
     if (!rtl_temporal_units.empty()) {
+        std::vector<std::pair<uint64_t, std::vector<uint8_t>>> rtl_sequence_packets;
         std::vector<uint8_t> rtl_stream;
         size_t rtl_total = 0;
-        for (const auto& tu : rtl_temporal_units)
+        rtl_sequence_packets.reserve(rtl_temporal_units.size());
+        for (const auto& tu : rtl_temporal_units) {
             rtl_total += tu.payload.size();
+            rtl_sequence_packets.push_back({tu.pts, tu.payload});
+        }
         rtl_stream.reserve(rtl_total);
         for (const auto& tu : rtl_temporal_units)
             rtl_stream.insert(rtl_stream.end(), tu.payload.begin(), tu.payload.end());
@@ -754,6 +1015,18 @@ int main(int argc, char** argv) {
             rtl_out.close();
             fprintf(stderr, "[TB] Wrote concatenated RTL raw stream: %zu bytes to %s\n",
                     rtl_stream.size(), rtl_raw_path.string().c_str());
+        }
+
+        fs::path rtl_ivf_path = output_dir / (output_path.stem().string() + "_rtl.ivf");
+        auto rtl_ivf_sequence =
+            AV1BitstreamWriter::write_ivf_sequence(FRAME_WIDTH, FRAME_HEIGHT, rtl_sequence_packets);
+        std::ofstream rtl_ivf_out(rtl_ivf_path, std::ios::binary | std::ios::trunc);
+        if (rtl_ivf_out.is_open()) {
+            rtl_ivf_out.write(reinterpret_cast<const char*>(rtl_ivf_sequence.data()),
+                              rtl_ivf_sequence.size());
+            rtl_ivf_out.close();
+            fprintf(stderr, "[TB] Wrote RTL sequence IVF: %zu bytes to %s\n",
+                    rtl_ivf_sequence.size(), rtl_ivf_path.string().c_str());
         }
     }
 
