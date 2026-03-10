@@ -130,6 +130,42 @@ module av1_intra_pred (
         end
     endfunction
 
+    function [7:0] clip_u8_from_s16;
+        input signed [15:0] v;
+        begin
+            if (v < 0)
+                clip_u8_from_s16 = 8'd0;
+            else if (v > 255)
+                clip_u8_from_s16 = 8'd255;
+            else
+                clip_u8_from_s16 = v[7:0];
+        end
+    endfunction
+
+    function [7:0] upsample_intra_edge_sample;
+        input [7:0] prev2_px;
+        input [7:0] prev_px;
+        input [7:0] cur_px;
+        input [7:0] next_px;
+        reg signed [15:0] acc;
+        begin
+            acc = -$signed({1'b0, prev2_px}) +
+                  ($signed({1'b0, prev_px}) <<< 3) + $signed({1'b0, prev_px}) +
+                  ($signed({1'b0, cur_px}) <<< 3) + $signed({1'b0, cur_px}) -
+                  $signed({1'b0, next_px});
+            upsample_intra_edge_sample = clip_u8_from_s16((acc + 16'sd8) >>> 4);
+        end
+    endfunction
+
+    function use_intra_edge_upsample_8x8;
+        input signed [9:0] delta;
+        reg [9:0] abs_delta;
+        begin
+            abs_delta = delta[9] ? -delta : delta;
+            use_intra_edge_upsample_8x8 = (abs_delta > 0 && abs_delta < 40 && (blk_size + blk_size) <= 16);
+        end
+    endfunction
+
     function [8:0] mode_to_angle;
         input [3:0] pred_mode;
         begin
@@ -217,6 +253,8 @@ module av1_intra_pred (
     reg [5:0] left_idx;
     reg [7:0] above_ref [0:16];
     reg [7:0] left_ref [0:16];
+    reg [7:0] above_ref_up [0:30];
+    reg [7:0] left_ref_up [0:30];
     reg [4:0] max_base;
     reg [4:0] num_top_ref;
     reg [4:0] num_left_ref;
@@ -226,6 +264,8 @@ module av1_intra_pred (
     reg        need_above_left_ref;
     reg        need_right_ref;
     reg        need_bottom_ref;
+    reg        use_upsample_above;
+    reg        use_upsample_left;
     reg [10:0] dx;
     reg [10:0] dy;
     reg signed [12:0] dir_x;
@@ -302,6 +342,10 @@ module av1_intra_pred (
                         for (i = 0; i < 17; i = i + 1) begin
                             above_ref[i] = 8'd128;
                             left_ref[i] = 8'd128;
+                        end
+                        for (i = 0; i < 31; i = i + 1) begin
+                            above_ref_up[i] = 8'd128;
+                            left_ref_up[i] = 8'd128;
                         end
 
                         if (mode == V_PRED || mode == H_PRED || mode == D45_PRED ||
@@ -399,6 +443,48 @@ module av1_intra_pred (
                                     above_ref[0] = 8'd128;
                                 left_ref[0] = above_ref[0];
                             end
+
+                            // AV1 only enables directional edge filtering and
+                            // edge upsampling when the sequence header enables
+                            // intra edge filtering. The current bitstream path
+                            // advertises enable_intra_edge_filter = 0, so keep
+                            // the RTL predictor on the unfiltered, non-upsampled
+                            // path until that syntax bit is owned and enabled.
+                            use_upsample_above = 1'b0;
+                            use_upsample_left  = 1'b0;
+
+                            if (use_upsample_above) begin
+                                for (i = 0; i < 16; i = i + 1) begin
+                                    if (i < num_top_ref) begin
+                                        above_ref_up[i << 1] = above_ref[i + 1];
+                                        if (i < (num_top_ref - 1)) begin
+                                            above_ref_up[(i << 1) + 1] = upsample_intra_edge_sample(
+                                                (i == 0) ? above_ref[0] : above_ref[i],
+                                                above_ref[i + 1],
+                                                above_ref[i + 2],
+                                                ((i + 2) < num_top_ref) ? above_ref[i + 3] : above_ref[num_top_ref]
+                                            );
+                                        end
+                                    end
+                                end
+                            end
+
+                            if (use_upsample_left) begin
+                                for (i = 0; i < 16; i = i + 1) begin
+                                    if (i < num_left_ref) begin
+                                        left_ref_up[i << 1] = left_ref[i + 1];
+                                        if (i < (num_left_ref - 1)) begin
+                                            left_ref_up[(i << 1) + 1] = upsample_intra_edge_sample(
+                                                (i == 0) ? left_ref[0] : left_ref[i],
+                                                left_ref[i + 1],
+                                                left_ref[i + 2],
+                                                ((i + 2) < num_left_ref) ? left_ref[i + 3] : left_ref[num_left_ref]
+                                            );
+                                        end
+                                    end
+                                end
+                            end
+
                         end
 
                         for (i = 0; i < 8; i = i + 1) begin
@@ -415,16 +501,20 @@ module av1_intra_pred (
                                     if (p_angle < 9'd90) begin
                                         dir_x = ($signed({4'b0, row}) + 13'sd1) *
                                                 $signed({2'b0, dx});
-                                        base_x = ($signed(dir_x) >>> 6) + $signed({5'b0, i[3:0]});
-                                        shift_amt = (dir_x >>> 1) & 6'h1F;
+                                        if (use_upsample_above) begin
+                                            base_x = ($signed(dir_x) >>> 5) + ($signed({5'b0, i[3:0]}) <<< 1);
+                                            shift_amt = dir_x[4:0];
+                                        end else begin
+                                            base_x = ($signed(dir_x) >>> 6) + $signed({5'b0, i[3:0]});
+                                            shift_amt = (dir_x >>> 1) & 6'h1F;
+                                        end
                                         if (base_x < max_base)
-                                            pred[row * blk_size + i] <= interp_w32(
-                                                above_ref[base_x + 1],
-                                                above_ref[base_x + 2],
-                                                shift_amt
-                                            );
+                                            pred[row * blk_size + i] <= use_upsample_above ?
+                                                interp_w32(above_ref_up[base_x], above_ref_up[base_x + 1], shift_amt) :
+                                                interp_w32(above_ref[base_x + 1], above_ref[base_x + 2], shift_amt);
                                         else
-                                            pred[row * blk_size + i] <= above_ref[max_base + 1];
+                                            pred[row * blk_size + i] <= use_upsample_above ?
+                                                above_ref_up[max_base] : above_ref[max_base + 1];
                                     end else if (p_angle > 9'd90 && p_angle < 9'd180) begin
                                         dir_x = ($signed({5'b0, i[3:0]}) <<< 6) -
                                                 (($signed({4'b0, row}) + 13'sd1) * $signed({2'b0, dx}));
@@ -449,13 +539,23 @@ module av1_intra_pred (
                                         end
                                     end else if (p_angle > 9'd180) begin
                                         dir_y = (($signed({5'b0, i[3:0]}) + 13'sd1) * $signed({2'b0, dy}));
-                                        base_y = ($signed(dir_y) >>> 6) + $signed({4'b0, row});
-                                        shift_amt = (dir_y >>> 1) & 6'h1F;
-                                        pred[row * blk_size + i] <= interp_w32(
-                                            left_ref[base_y + 1],
-                                            left_ref[base_y + 2],
-                                            shift_amt
-                                        );
+                                        if (use_upsample_left) begin
+                                            base_y = ($signed(dir_y) >>> 5) + ($signed({4'b0, row}) <<< 1);
+                                            shift_amt = dir_y[4:0];
+                                            pred[row * blk_size + i] <= interp_w32(
+                                                left_ref_up[base_y],
+                                                left_ref_up[base_y + 1],
+                                                shift_amt
+                                            );
+                                        end else begin
+                                            base_y = ($signed(dir_y) >>> 6) + $signed({4'b0, row});
+                                            shift_amt = (dir_y >>> 1) & 6'h1F;
+                                            pred[row * blk_size + i] <= interp_w32(
+                                                left_ref[base_y + 1],
+                                                left_ref[base_y + 2],
+                                                shift_amt
+                                            );
+                                        end
                                     end else if (p_angle == 9'd90) begin
                                         pred[row * blk_size + i] <= above_ref[i + 1];
                                     end else begin

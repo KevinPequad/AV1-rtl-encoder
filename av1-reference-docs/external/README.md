@@ -97,12 +97,18 @@ syntax or verification blocker.
   rather than `NEWMV`.
 - The official libaom / AV1 `default_scan_8x8` order is `0, 8, 1, 2, ...`,
   not the earlier guessed `0, 1, 8, 16, ...`.
+- On the full video keyframe header path, `refresh_frame_context` is parsed
+  before `tile_info` whenever `reduced_still_picture_hdr == 0` and
+  `disable_cdf_update == 0`.
 - In the reference intra predictor setup, one-sided edge availability is not
   filled with flat `128` for both directions:
   - if top is missing but left exists, `above[]` is filled from `left[0]`
   - if left is missing but top exists, `left[]` is filled from `above[0]`
   - if both are missing, the defaults are `above[]=127`, `left[]=129`,
     and `top_left=128`
+- In libaom's directional intra path, edge filtering and edge upsampling are
+  both skipped when `enable_intra_edge_filter == 0`; upsampling is not an
+  independent tool bit.
 - The `GLOBALMV` context bit in `mode_context` is tied to temporal/ref-MV logic
   in `mvref_common.c`; it should not be invented heuristically when the reduced
   frame header is already inferring `use_ref_frame_mvs = 0`.
@@ -148,9 +154,10 @@ syntax or verification blocker.
   - bottom-left extension cannot be enabled blindly on the current fixed
     `8x8` / `TX_8X8` raster-order subset because that reads future pixels from
     blocks that are not reconstructed yet
-  - with top-right enabled and bottom-left still disabled, the `qindex=240`
-    exact-match probe stays exact and the `qindex=224` mismatch drops from
-    `41` bytes to `5`
+  - with top-right enabled, bottom-left still disabled, and directional edge
+    upsampling kept off while `enable_intra_edge_filter=0`, the `qindex=240`
+    exact-match probe is bit-exact again on both the still-picture and
+    video-keyframe outputs
 - The current ME core fix is local, not spec-derived, but was guided by the
   surrounding reference behavior:
   - candidate SAD must include the final sample before best-match update
