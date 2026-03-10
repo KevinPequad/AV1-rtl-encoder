@@ -136,7 +136,10 @@ Inventory of the current repo state:
   - on that sparse-AC check, the preserved RTL raw payload is now `35` bytes and both `aomdec` and `ffmpeg` decode outputs match `recon.yuv` bit-for-bit
   - the same focused `16x16` `data/ac_probe_16x16_1f.yuv` check at `qindex=240` still decodes and matches `recon.yuv` exactly after moving the first dense low-order `eob=9` subset onto the RTL raw path
   - on that exact-match probe, the preserved RTL raw payload dropped again from `35` bytes to `29`, which indicates the last remaining dense luma block on that clip moved off the placeholder coefficient bool stream and onto the real coefficient path
-  - after adding real top-right directional references while keeping bottom-left unavailable for the current fixed `8x8` / `TX_8X8` raster-order path, the same `16x16` `data/ac_probe_16x16_1f.yuv` probe at `qindex=240` remains exact and the previously failing `qindex=224` case drops from `41` differing bytes to `5` with the lower-left directional block fixed
+  - after a clean rebuild of the current live tree, the same `16x16` `data/ac_probe_16x16_1f.yuv` probe now decodes and matches `recon.yuv` exactly across the full tested `qindex` sweep from `240` down to `0`
+  - the earlier `qindex=224` residual no longer reproduces on the rebuilt live tree, so that probe is now a stable exact-match regression gate rather than an active blocker
+  - the exact-match range is no longer limited to the synthetic AC probe:
+    - sampled natural-content `16x16` crops from the first Big Buck Bunny raw frame also round-trip exactly against `recon.yuv` at `qindex=0` on the current software-owned debug path
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -176,9 +179,9 @@ Inventory of the current repo state:
   - extending the newly RTL-owned low-order AC subsets into larger-magnitude coefficient tails and less constrained dense blocks before tackling broader block syntax
 - A lightweight debug probe now exists in the testbench:
   - `+dump_inter_summary=1` prints captured inter blocks, MVs, and nonzero counts after each frame
-  - `+dump_blocks=1` on the synthetic `data/ac_probe_16x16_1f.yuv` case shows the next non-DC step cleanly:
-    - all four luma blocks on the `qindex=240` probe now round-trip through the reduced real coefficient path
-    - the next safe coeff bring-up should stay on the same clip but lower `qindex` until the first larger-magnitude tail (`coeff_br`) or less constrained dense pattern appears
+  - `+dump_blocks=1` on the synthetic `data/ac_probe_16x16_1f.yuv` case is now a stable exact-match regression check across the tested `qindex` range
+  - that probe is no longer the right place to search for the next coeff-syntax gap
+  - the next safe coeff bring-up target should come from a broader natural-content `16x16` crop from `data/raw_frames.yuv` that still keeps runtimes short while exercising denser coefficient tails than the synthetic probe
 - Larger roadmap phases in `av1-reference-docs/svt-av1-feature-inventory.md` are still open:
   - stronger inter syntax and motion signaling
   - better partitioning and mode decision
@@ -230,7 +233,7 @@ If a syntax blocker appears, check `av1-reference-docs/external/README.md` first
 For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
 If the ME block dominates runtime, drop to the `16x16` 2-frame debug clips first to validate inter correctness before retrying `64x64` and larger cases.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
-For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` at `qindex=240` in the loop. It is now a verified exact-match probe for the first RTL-owned sparse and dense low-order AC subsets, and it should stay the first regression check before lowering `qindex` to expose larger-magnitude tails.
+For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` in the loop as the first exact-match regression check. It is now exact on the rebuilt live tree across the tested `qindex` range down to `0`, so use it to guard against regressions first and then switch to a broader natural-content `16x16` crop from `data/raw_frames.yuv` when looking for the next larger-magnitude tail or denser generic coeff case.
 
 ## Verification Rules
 

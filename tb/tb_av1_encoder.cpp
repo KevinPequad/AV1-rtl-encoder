@@ -75,6 +75,12 @@ int main(int argc, char** argv) {
     int max_scan_coeffs = -1;
     int trace_block = -1;
     int dump_inter_summary = 0;
+    int debug_zero_coeff_block = -1;
+    int debug_zero_coeff_idx = -1;
+    int debug_transpose_coeff_block = -1;
+    int debug_add_coeff_block = -1;
+    int debug_add_coeff_idx = -1;
+    int debug_add_coeff_delta = 0;
     std::string input_file = "data/raw_frames.yuv";
     std::string output_file = "output/encoded.obu";
     uint64_t timeout_cycles = 500000000;
@@ -115,6 +121,18 @@ int main(int argc, char** argv) {
             trace_block = std::atoi(arg.c_str() + 13);
         } else if (arg.rfind("+dump_inter_summary=", 0) == 0) {
             dump_inter_summary = std::atoi(arg.c_str() + 20);
+        } else if (arg.rfind("+debug_zero_coeff_block=", 0) == 0) {
+            debug_zero_coeff_block = std::atoi(arg.c_str() + 24);
+        } else if (arg.rfind("+debug_zero_coeff_idx=", 0) == 0) {
+            debug_zero_coeff_idx = std::atoi(arg.c_str() + 22);
+        } else if (arg.rfind("+debug_transpose_coeff_block=", 0) == 0) {
+            debug_transpose_coeff_block = std::atoi(arg.c_str() + 29);
+        } else if (arg.rfind("+debug_add_coeff_block=", 0) == 0) {
+            debug_add_coeff_block = std::atoi(arg.c_str() + 23);
+        } else if (arg.rfind("+debug_add_coeff_idx=", 0) == 0) {
+            debug_add_coeff_idx = std::atoi(arg.c_str() + 21);
+        } else if (arg.rfind("+debug_add_coeff_delta=", 0) == 0) {
+            debug_add_coeff_delta = std::atoi(arg.c_str() + 23);
         }
     }
 
@@ -184,6 +202,7 @@ int main(int argc, char** argv) {
     constexpr int TS_WAIT_PRED = 12;
     constexpr int TS_REF_WR = 20;
     constexpr int TS_CHR_FETCH = 21;
+    constexpr int TS_IXFORM_COL = 28;
 
     // Reset
     for (int i = 0; i < 20; i++) {
@@ -271,7 +290,7 @@ int main(int argc, char** argv) {
             }
 
             if (trace_block >= 0 && blk_idx == trace_block &&
-                (state == TS_PREDICT || state == TS_WAIT_PRED || state == TS_REF_WR)) {
+                (state == TS_PREDICT || state == TS_WAIT_PRED || state == TS_IXFORM_COL || state == TS_REF_WR)) {
                 fprintf(stderr,
                         "[TRACE] blk=%d state=%d mode=%u use_inter=%d top_left=%u has_top=%d has_left=%d\n",
                         blk_idx, state, root->av1_encoder_top__DOT__best_intra_mode,
@@ -291,6 +310,12 @@ int main(int argc, char** argv) {
                 for (int i = 0; i < 64; ++i)
                     fprintf(stderr, "%s%u", i ? "," : "", root->av1_encoder_top__DOT__pred_blk[i]);
                 fprintf(stderr, "\n");
+                if (state == TS_IXFORM_COL && root->av1_encoder_top__DOT__xform_col == 0) {
+                    fprintf(stderr, "[TRACE] dqcoeff=");
+                    for (int i = 0; i < 64; ++i)
+                        fprintf(stderr, "%s%d", i ? "," : "", (int32_t)root->av1_encoder_top__DOT__residual[i]);
+                    fprintf(stderr, "\n");
+                }
                 if (state == TS_REF_WR) {
                     fprintf(stderr, "[TRACE] qcoeff=");
                     for (int i = 0; i < 64; ++i)
@@ -436,6 +461,25 @@ int main(int argc, char** argv) {
                             }
                         }
                     }
+                    if (writer_block_idx == debug_zero_coeff_block &&
+                        debug_zero_coeff_idx >= 0 && debug_zero_coeff_idx < 64) {
+                        bi.qcoeff[debug_zero_coeff_idx] = 0;
+                    }
+                    if (writer_block_idx == debug_transpose_coeff_block) {
+                        int16_t transposed[64];
+                        for (int ty = 0; ty < 8; ++ty) {
+                            for (int tx = 0; tx < 8; ++tx) {
+                                transposed[ty * 8 + tx] = bi.qcoeff[tx * 8 + ty];
+                            }
+                        }
+                        std::memcpy(bi.qcoeff, transposed, sizeof(transposed));
+                    }
+                    if (writer_block_idx == debug_add_coeff_block &&
+                        debug_add_coeff_idx >= 0 && debug_add_coeff_idx < 64 &&
+                        debug_add_coeff_delta != 0) {
+                        bi.qcoeff[debug_add_coeff_idx] =
+                            static_cast<int16_t>(bi.qcoeff[debug_add_coeff_idx] + debug_add_coeff_delta);
+                    }
                     writer.add_block(bi);
                     ++writer_block_idx;
                 }
@@ -529,6 +573,25 @@ int main(int argc, char** argv) {
                                 break;
                             }
                         }
+                    }
+                    if (writer_block_idx == debug_zero_coeff_block &&
+                        debug_zero_coeff_idx >= 0 && debug_zero_coeff_idx < 64) {
+                        bi.qcoeff[debug_zero_coeff_idx] = 0;
+                    }
+                    if (writer_block_idx == debug_transpose_coeff_block) {
+                        int16_t transposed[64];
+                        for (int ty = 0; ty < 8; ++ty) {
+                            for (int tx = 0; tx < 8; ++tx) {
+                                transposed[ty * 8 + tx] = bi.qcoeff[tx * 8 + ty];
+                            }
+                        }
+                        std::memcpy(bi.qcoeff, transposed, sizeof(transposed));
+                    }
+                    if (writer_block_idx == debug_add_coeff_block &&
+                        debug_add_coeff_idx >= 0 && debug_add_coeff_idx < 64 &&
+                        debug_add_coeff_delta != 0) {
+                        bi.qcoeff[debug_add_coeff_idx] =
+                            static_cast<int16_t>(bi.qcoeff[debug_add_coeff_idx] + debug_add_coeff_delta);
                     }
                     writer.add_block(bi);
                     ++writer_block_idx;
