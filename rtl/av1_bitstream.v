@@ -35,6 +35,7 @@ module av1_bitstream #(
     reg [5:0]  obuf_len;
     reg [5:0]  obuf_idx;
     reg [2:0]  state;
+    localparam integer FRAME_OBU_SIZE_BYTES = 4;
 
     localparam S_IDLE  = 3'd0;
     localparam S_BUILD = 3'd1;
@@ -64,6 +65,7 @@ module av1_bitstream #(
     integer    tile_cols_log2;
     integer    tile_rows_log2;
     integer    payload_len;
+    integer    payload_len_tmp;
     integer    j;
 
     function integer bits_needed;
@@ -299,8 +301,12 @@ module av1_bitstream #(
                         // video keyframe header fields so the RTL raw bytes
                         // stay aligned with the non-still ownership target.
                         obuf[0] = 8'h32;
+                        obuf[1] = 8'h80;
+                        obuf[2] = 8'h80;
+                        obuf[3] = 8'h80;
+                        obuf[4] = 8'h00;
                         if (lat_is_keyframe) begin
-                            bw_reset(2);
+                            bw_reset(1 + FRAME_OBU_SIZE_BYTES);
                             bw_write_bit(0);   // show_existing_frame
                             bw_write_bits(0, 2);   // frame_type = KEY_FRAME
                             bw_write_bit(1);   // show_frame
@@ -321,14 +327,21 @@ module av1_bitstream #(
                             bw_write_bit(0);   // tx_mode_select
                             bw_write_bit(0);   // reduced_tx_set
                             bw_flush_zero_pad();
-                            payload_len = bw_byte_idx - 2;
-                            obuf[1] = payload_len[7:0];
+                            payload_len = bw_byte_idx - (1 + FRAME_OBU_SIZE_BYTES);
+                            payload_len_tmp = payload_len;
+                            obuf[1] = {1'b1, payload_len_tmp[6:0]};
+                            payload_len_tmp = payload_len_tmp >> 7;
+                            obuf[2] = {1'b1, payload_len_tmp[6:0]};
+                            payload_len_tmp = payload_len_tmp >> 7;
+                            obuf[3] = {1'b1, payload_len_tmp[6:0]};
+                            payload_len_tmp = payload_len_tmp >> 7;
+                            obuf[4] = {1'b0, payload_len_tmp[6:0]};
                             obuf_len <= bw_byte_idx[5:0];
                         end else begin
                             // Reduced video inter-frame header matching the
                             // software reference writer's current single-ref,
                             // integer-MV subset.
-                            bw_reset(2);
+                            bw_reset(1 + FRAME_OBU_SIZE_BYTES);
                             bw_write_bit(0);   // show_existing_frame
                             bw_write_bits(1, 2);   // frame_type = INTER_FRAME
                             bw_write_bit(1);   // show_frame
@@ -344,7 +357,8 @@ module av1_bitstream #(
                             bw_write_bit(0);   // interpolation_filter == SWITCHABLE
                             bw_write_bits(0, 2);   // interpolation_filter = regular
                             bw_write_bit(0);   // is_motion_mode_switchable
-                            bw_write_bit(1);   // refresh_frame_context = disabled
+                            // With disable_cdf_update=1, disable_frame_end_update_cdf
+                            // is inferred and refresh_frame_context is not signaled.
                             bw_write_tile_info();
                             bw_write_quantization_params(lat_qindex);
                             bw_write_bit(0);   // segmentation_enabled
@@ -356,8 +370,15 @@ module av1_bitstream #(
                             for (j = 0; j < 7; j = j + 1)
                                 bw_write_bit(0);   // global motion type = identity
                             bw_flush_zero_pad();
-                            payload_len = bw_byte_idx - 2;
-                            obuf[1] = payload_len[7:0];
+                            payload_len = bw_byte_idx - (1 + FRAME_OBU_SIZE_BYTES);
+                            payload_len_tmp = payload_len;
+                            obuf[1] = {1'b1, payload_len_tmp[6:0]};
+                            payload_len_tmp = payload_len_tmp >> 7;
+                            obuf[2] = {1'b1, payload_len_tmp[6:0]};
+                            payload_len_tmp = payload_len_tmp >> 7;
+                            obuf[3] = {1'b1, payload_len_tmp[6:0]};
+                            payload_len_tmp = payload_len_tmp >> 7;
+                            obuf[4] = {1'b0, payload_len_tmp[6:0]};
                             obuf_len <= bw_byte_idx[5:0];
                         end
                     end
