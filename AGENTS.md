@@ -102,8 +102,9 @@
   - `tb/tb_av1_encoder.cpp` records `bs_byte_valid`, `ec_byte_valid`, and explicit `manual_bs_wr` back-patches directly from the RTL top-level mux when building `*_rtl_raw.obu` / `*_rtl.ivf`
   - on the current `16x16` ownership probe, those RTL-owned artifacts now match the software-owned payload byte-for-byte and decode cleanly in ffmpeg/libdav1d once wrapped in IVF
 - The raw RTL path is now exact again across the current strict `16x16` q sweeps:
-  - the natural DC-only `16x16` crop and `data/tmp_probe_16x16_1f.yuv` both match byte-for-byte between software-owned and RTL-owned payloads from `qindex=1` through `qindex=240`
-  - representative low-q and high-q decodes on those clips now match `recon.yuv` again after the DC-base fix
+  - the natural DC-only `16x16` crop still matches byte-for-byte between software-owned and RTL-owned payloads from `qindex=1` through `qindex=240`
+  - the local `data/tmp_probe_16x16_1f.yuv` fallback currently decodes to `recon.yuv` but is not byte-exact in this checkout; a temporary revert of the new inter-path change shows the same `34` vs `35` byte drift, so do not use that clip as the exact-match regression gate
+  - representative low-q and high-q decodes on the natural DC-only crop still match `recon.yuv` after the DC-base fix
 - The raw RTL path now advances block syntax in the same recursive partition-tree leaf order as the writer and decoder:
   - `rtl/av1_encoder_top.v` now steps `8x8` leaves in Morton order inside each `64x64` superblock instead of plain raster order
   - that cleared the first larger-frame ownership drift after the `16x16` exact-match fixes
@@ -125,19 +126,23 @@
   - on the strict `16x16` 2-frame flat repeated-frame IP repro, `encoded.obu` and `encoded_rtl_raw.obu` now match byte-for-byte
   - on that same repro, `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte and decode back to both `recon.yuv` and source exactly
   - the last remaining frame-1 tile-data drift was the RTL reduced single-ref `cmp_ctx=2` / branch-0 CDF entry; it now matches the software-owned path at `3024`
+- The first larger natural-content repeated-frame zero-motion ownership checkpoint is now exact:
+  - on `data/natural_repeat64_x640_y360_2f.yuv` (`64x64`, 2 frames, repeated frame-0 crop at `(640,360)`, `qindex=128`), `encoded.obu` and `encoded_rtl_raw.obu` now match byte-for-byte
+  - on that same clip, `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte and the decoded RTL IVF matches `recon.yuv`
+  - the last drift there was zero-motion inter blocks still taking the placeholder coefficient path and the intra `tx_type` CDF; `rtl/av1_encoder_top.v` now routes those blocks through the real generic coefficient path and the inter `DCT_DCT` CDF
 - Directional intra availability for the current fixed `8x8` / `TX_8X8` raster-order subset is now partially corrected:
   - real top-right extension samples are loaded and used when the above-right block is already reconstructed
   - bottom-left extension remains intentionally disabled on this subset because it would otherwise read future not-yet-reconstructed pixels and corrupt exactness
   - on the rebuilt live tree, the old `qindex=224` residual no longer reproduces on the verified `qindex=240` probe
   - keep directional edge upsampling disabled while `enable_intra_edge_filter = 0`; re-enable it only when the bitstream path owns and signals that sequence-header feature correctly
-- The next highest-priority ownership move is extending that reduced exactness into real multi-frame ownership:
-  - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate
-  - keep the new `32x32` and `64x64` `qindex=128` Big Buck Bunny crops as the partition-order and larger-frame regression guards
+- The next highest-priority ownership move is widening the reduced inter syntax beyond zero-motion `GLOBALMV` now that the first larger natural-content repeated-frame guard is exact:
+  - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate when that asset is available in the checkout
+  - do not substitute `data/tmp_probe_16x16_1f.yuv` for byte-exact ownership checks; it is currently decode-clean but not exact
+  - keep the new `32x32` and `64x64` `qindex=128` Big Buck Bunny crops plus `data/natural_repeat64_x640_y360_2f.yuv` as the partition-order and larger-frame regression guards
   - keep `make bitstream-check WIDTH=16 HEIGHT=16` in the normal quick regression loop whenever `rtl/av1_bitstream.v` changes
   - do not spend more time on the old `qindex=224` blocker unless it reappears after a real code change
   - use `output/highdc_q1/` as the strict large-DC regression guard and `data/ac_probe_16x16_1f.yuv` at `qindex=240` as the verified exact-match regression guard
   - then continue pulling the remaining reduced inter syntax onto the RTL byte path in this order:
-    - larger natural-content zero-motion `GLOBALMV` / skip verification
     - `NEARESTMV` / `NEWMV` mode signaling
     - MV payload syntax
     - longer multi-frame decode verification
