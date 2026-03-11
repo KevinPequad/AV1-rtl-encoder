@@ -196,11 +196,12 @@ static std::vector<uint8_t> build_expected_inter(uint8_t qindex) {
     bw.write_bit(1);
     bw.write_bit(1);
     bw.write_bit(1);
-    bw.write_bit(1);
+    bw.write_bit(0);
     bw.write_bit(0);
     bw.write_bits(0x01, 8);
     for (int ref = 0; ref < 7; ++ref) bw.write_bits(0, 3);
     bw.write_bit(0);
+    bw.write_bit(1);
     bw.write_bit(0);
     bw.write_bits(0, 2);
     bw.write_bit(0);

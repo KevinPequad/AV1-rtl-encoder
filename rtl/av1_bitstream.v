@@ -348,12 +348,13 @@ module av1_bitstream #(
                             bw_write_bit(1);   // error_resilient_mode
                             bw_write_bit(1);   // disable_cdf_update
                             bw_write_bit(1);   // allow_screen_content_tools
-                            bw_write_bit(1);   // force_integer_mv
+                            bw_write_bit(0);   // force_integer_mv
                             bw_write_bit(0);   // frame_size_override_flag
                             bw_write_bits(8'h01, 8);   // refresh LAST slot only
                             for (j = 0; j < 7; j = j + 1)
                                 bw_write_bits(0, 3);   // all refs map to LAST
                             bw_write_bit(0);   // render_and_frame_size_different
+                            bw_write_bit(1);   // allow_high_precision_mv
                             bw_write_bit(0);   // interpolation_filter == SWITCHABLE
                             bw_write_bits(0, 2);   // interpolation_filter = regular
                             bw_write_bit(0);   // is_motion_mode_switchable

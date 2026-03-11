@@ -249,22 +249,28 @@ Inventory of the current repo state:
     - AOM reference inspection shows the decoder entering the lossless `TX_4X4` path (`tx_size=0`) when `base_q_idx=0`
     - until that separate lossless path is implemented, the testbench and RTL clamp requested `qindex=0` runs to effective `qindex=1` so the current subset does not emit invalid streams
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
-- The current raw-path inter subset now covers reduced single-reference LAST `GLOBALMV`, `NEARESTMV`, and `NEWMV` with integer MV payload syntax and reduced neighboring ref-MV stack derivation.
+- The current raw-path inter subset now covers reduced single-reference LAST `GLOBALMV`, `NEARESTMV`, and `NEWMV` with reduced neighboring ref-MV stack derivation plus the first syntax-only subpel ownership slice:
+  - the reduced inter frame header now signals `force_integer_mv=0` and `allow_high_precision_mv=1`
+  - reduced `NEWMV` components now emit the real `mv_fr` and `mv_hp` symbols on both the software debug writer path and the RTL-owned syntax path
 - The strict raw-path inter checkpoints are now cleared on both the zero-motion repeated-frame cases and the first natural-motion cases:
   - the `16x16` 2-frame flat repeated-frame IP repro is byte-exact between software-owned and RTL-owned OBU/IVF outputs
   - the `64x64` 2-frame `data/natural_repeat64_x640_y360_2f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
   - the `64x64` `2`-frame and `3`-frame `data/natural_motion64_x640_y360_*f.yuv` crops are byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
   - the `32x32` `3`-frame `data/natural_motion32_x640_y360_3f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
   - `output/natural_motion32_x640_y360_5f_fix1/` and `output/natural_motion64_x640_y360_5f_fix1/` are byte-exact at `5` frames, `output/natural_motion64_x640_y360_6f_fix1/` is byte-exact at `6` frames, `output/natural_motion64_x640_y360_7f_fixmvref64/` is byte-exact at `7` frames, and `output/natural_motion64_x640_y360_10f_progress70m/` is byte-exact at `10` frames
+  - `output/natural_motion64_x640_y360_2f_subpel2/`, `output/natural_motion64_x640_y360_7f_subpel2/`, and `output/natural_motion64_x640_y360_10f_subpel2/` now keep that same exactness after the syntax-only subpel header / payload move, and strict `aomdec` output still matches `recon.yuv`
   - the repaired longer-motion root cause was the reduced ref-MV stack reach, not the MV payload encoder itself: matching AOM's `MVREF_ROW_COLS == 3` scan removed the extra far-neighbor weight that had been flipping later NEWMV references
-  - the next remaining inter ownership work is widening beyond the current reduced single-reference LAST integer-MV subset, starting with fractional-pel translational motion
+  - the first strict decoder corruption after enabling subpel syntax was shared writer/RTL syntax, not ownership drift:
+    - `mv_hp` was missing after `mv_fr` on reduced `NEWMV` components
+    - `allow_high_precision_mv` was missing in the reduced inter frame header after `force_integer_mv=0`
+  - the next remaining inter ownership work is widening beyond the current reduced single-reference LAST syntax-only subpel subset, starting with real non-zero fractional-pel translational motion
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
-  - implementing fractional-pel translational motion on the current reduced single-reference LAST path
+  - implementing real non-zero fractional-pel translational motion on the current reduced single-reference LAST path
   - expanding beyond the current reduced single-reference subset once the ownership path is real
   - restoring the original `data/ac_probe_16x16_1f.yuv` local asset in this checkout, because `data/tmp_probe_16x16_1f.yuv` is decode-clean but not a byte-exact substitute ownership gate
 - A lightweight debug probe now exists in the testbench:
