@@ -118,6 +118,7 @@ Inventory of the current repo state:
   - the raw-path inter bring-up is now explicitly clamped to the zero-motion subset until `NEARESTMV` / `NEWMV` syntax and MV payload ownership are implemented:
     - the ME decision now keeps `use_inter=1` only for zero-MV matches on the RTL-owned path
     - the top-level now tracks reduced inter neighborhood state (`inter`, `ref`, reduced inter mode) needed for the next inter-syntax steps
+    - zero-motion inter blocks with coefficients now enter the real generic coefficient syntax path and use the inter `DCT_DCT` `tx_type` CDF on the RTL path instead of falling back to the old placeholder / intra-coded entry
   - standalone `rtl/av1_bitstream.v` regression harness in `tb/test_rtl_bitstream.cpp` and `make bitstream-check`
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
@@ -164,12 +165,13 @@ Inventory of the current repo state:
     - the missing `refresh_frame_context` bit in the non-still frame header was restored before `tile_info`
     - the remaining `22`-byte luma drift was traced to a predictor/config mismatch, not coefficients: the sequence header advertises `enable_intra_edge_filter=0`, so libaom disables both directional edge filtering and directional edge upsampling
     - the RTL directional predictor now keeps edge upsampling disabled on the current bitstream configuration, which restores bit-exact decoded-vs-`recon.yuv` matching on both the still-picture and video-keyframe outputs of the focused AC probe
-  - the current `16x16` `data/tmp_probe_16x16_1f.yuv` ownership check now packages the captured RTL byte path directly into `encoded_rtl.ivf`
-  - on that ownership check, `encoded_rtl_raw.obu` and `encoded_rtl.ivf` match the software-owned `encoded.obu` / IVF payload byte-for-byte and decode cleanly in ffmpeg/libdav1d
-  - the strict `16x16` single-frame q sweeps are now exact again on both the natural DC-only crop and the AC probe:
+  - the current `16x16` `data/tmp_probe_16x16_1f.yuv` local fallback still packages the captured RTL byte path directly into `encoded_rtl.ivf`
+  - on that local fallback, software-owned and RTL-owned outputs still decode cleanly to `recon.yuv`, but they are not byte-exact in this checkout:
+    - `encoded.obu` vs `encoded_rtl_raw.obu` first differ at byte `14`
+    - a temporary `rtl/av1_encoder_top.v` revert shows the same `34` vs `35` byte drift, so do not treat that clip as a regression caused by the new inter-path change
+  - the strict `16x16` single-frame q sweeps remain exact on the natural DC-only crop, while the original `data/ac_probe_16x16_1f.yuv` exact-match gate is currently unavailable in this checkout:
     - `output/natural_focus_x640_y360_q128/input.yuv` now matches byte-for-byte between `encoded.obu` and `encoded_rtl_raw.obu` from `qindex=1` through `qindex=240`
-    - `data/tmp_probe_16x16_1f.yuv` now matches byte-for-byte between `encoded.obu` and `encoded_rtl_raw.obu` from `qindex=1` through `qindex=240`
-    - decoded output matches `recon.yuv` on representative low and high q cases across both clips after the DC-base fix
+    - decoded output matches `recon.yuv` on representative low and high q cases for that crop after the DC-base fix
   - the raw RTL path now follows the same partition-tree leaf order as the software writer inside each superblock:
     - `rtl/av1_encoder_top.v` advances blocks in Morton / recursive split order instead of plain raster order
     - this cleared the first larger-frame ownership drift that appeared after the `16x16` fixes
@@ -177,6 +179,11 @@ Inventory of the current repo state:
     - a `32x32` `qindex=128` Big Buck Bunny crop now matches byte-for-byte between `encoded.obu` and `encoded_rtl_raw.obu`
     - a `64x64` `qindex=128` Big Buck Bunny crop now matches byte-for-byte between `encoded.obu` and `encoded_rtl_raw.obu`
     - on both of those larger single-frame checks, software-owned and RTL-owned IVF outputs decode back to `recon.yuv` exactly
+  - the first larger natural-content repeated-frame zero-motion inter checkpoint is now exact on the RTL byte path:
+    - `data/natural_repeat64_x640_y360_2f.yuv` is a `64x64` repeated-frame crop built from frame 0 of `data/raw_frames.yuv` at `(640,360)`
+    - at `qindex=128`, `encoded.obu` and `encoded_rtl_raw.obu` now match byte-for-byte
+    - at that same checkpoint, `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte and the decoded RTL IVF matches `recon.yuv`
+    - the last drift on that clip was zero-motion inter blocks still taking the placeholder coefficient path and the intra `tx_type` CDF; `rtl/av1_encoder_top.v` now routes them through the real generic coefficient path and the inter `DCT_DCT` CDF
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -229,9 +236,10 @@ Inventory of the current repo state:
     - until that separate lossless path is implemented, the testbench and RTL clamp requested `qindex=0` runs to effective `qindex=1` so the current subset does not emit invalid streams
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - The current raw-path inter subset is temporarily restricted to zero-motion decisions only while `NEARESTMV` / `NEWMV`, reference-MV stack derivation, and MV payload syntax are still missing.
-- The strict raw-path zero-motion inter checkpoint is now cleared on the smallest multi-frame video case:
+- The strict raw-path zero-motion inter checkpoints are now cleared on both the smallest multi-frame video case and the first larger natural-content repeated-frame guard:
   - the `16x16` 2-frame flat repeated-frame IP repro is byte-exact between software-owned and RTL-owned OBU/IVF outputs
-  - the next remaining inter ownership work is scaling that exactness to larger natural-content clips, then widening mode coverage beyond zero-motion `GLOBALMV`
+  - the `64x64` 2-frame `data/natural_repeat64_x640_y360_2f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
+  - the next remaining inter ownership work is widening mode coverage beyond zero-motion `GLOBALMV`, starting with `NEARESTMV` / `NEWMV` signaling and then MV payload syntax
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
@@ -240,6 +248,7 @@ Inventory of the current repo state:
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
   - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
   - expanding beyond the current reduced single-reference subset once the ownership path is real
+  - restoring the original `data/ac_probe_16x16_1f.yuv` local asset in this checkout, because `data/tmp_probe_16x16_1f.yuv` is decode-clean but not a byte-exact substitute ownership gate
 - A lightweight debug probe now exists in the testbench:
   - `+dump_inter_summary=1` prints captured inter blocks, MVs, and nonzero counts after each frame
   - `+dump_blocks=1` on `output/highdc_q1/` and the local AOM `inspect` build are now the fastest strict large-DC regression guard for the fixed qctx-selected `TX_8X8` path

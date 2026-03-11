@@ -905,6 +905,15 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [255:0] inter_tx_type_dct_icdf_flat;
+        begin
+            inter_tx_type_dct_icdf_flat = {
+                16'd0,16'd2019,16'd3912,16'd5652,16'd7758,16'd10251,16'd12360,16'd15094,
+                16'd17411,16'd22246,16'd24146,16'd24961,16'd27057,16'd27990,16'd30195,16'd31123
+            };
+        end
+    endfunction
+
     function [255:0] eob_multi64_luma_icdf_flat;
         begin
             eob_multi64_luma_icdf_flat = {144'd0,16'd0,16'd4903,16'd10215,16'd16410,16'd20708,16'd25227,16'd26461};
@@ -1351,6 +1360,7 @@ module av1_encoder_top #(
     wire [255:0] cur_txb_luma_icdf = txb_skip_luma_icdf_flat_qctx(cur_coeff_qctx, 4'd0);
     wire [255:0] cur_txb_chr_icdf  = txb_skip_chroma_icdf_flat_qctx(cur_coeff_qctx, 4'd7);
     wire [255:0] cur_intra_tx_icdf = intra_tx_type_dct_icdf_flat(best_intra_mode);
+    wire [255:0] cur_inter_tx_icdf = inter_tx_type_dct_icdf_flat();
     wire [255:0] cur_eob_multi_icdf = eob_multi64_icdf_flat_qctx(cur_coeff_qctx, 1'b0);
     wire [255:0] cur_eob_extra_icdf = eob_extra_ctx_icdf_flat_qctx(cur_coeff_qctx, 1'b0, 4'd0);
     wire [255:0] cur_base_eob_icdf = coeff_base_eob_ctx_icdf_flat_qctx(cur_coeff_qctx, 3'd0);
@@ -1394,9 +1404,7 @@ module av1_encoder_top #(
     wire         has_next_blk_morton = next_blk_morton[20];
     wire [9:0]   next_blk_y_morton = next_blk_morton[19:10];
     wire [9:0]   next_blk_x_morton = next_blk_morton[9:0];
-    wire         cur_generic_coeff_path =
-        cur_block_has_coeff &&
-        !use_inter;
+    wire         cur_generic_coeff_path = cur_block_has_coeff;
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -1566,6 +1574,7 @@ module av1_encoder_top #(
     ) u_me (
         .clk(clk), .rst_n(rst_n),
         .start(me_start),
+        .zero_mv_only(1'b1),
         .done(me_done),
         .cur_x({1'b0, blk_x} * 8),
         .cur_y({1'b0, blk_y} * 8),
@@ -3036,9 +3045,9 @@ module av1_encoder_top #(
 
                 TS_GEN_TX_TYPE: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= 5'd1; // DCT_DCT intra tx_type
-                    ec_nsyms         <= 5'd7;
-                    ec_icdf_flat     <= cur_intra_tx_icdf;
+                    ec_symbol        <= use_inter ? 5'd7 : 5'd1; // DCT_DCT tx_type
+                    ec_nsyms         <= use_inter ? 5'd16 : 5'd7;
+                    ec_icdf_flat     <= use_inter ? cur_inter_tx_icdf : cur_intra_tx_icdf;
                     top_state        <= TS_GEN_TX_WAIT;
                 end
 
