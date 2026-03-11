@@ -647,14 +647,14 @@ module av1_encoder_top #(
         begin
             case ({cmp_ctx, branch_sel})
                 4'd0: single_ref_icdf_flat = {224'd0, 16'd0, 16'd27871};
-                4'd1: single_ref_icdf_flat = {224'd0, 16'd0, 16'd15795};
-                4'd2: single_ref_icdf_flat = {224'd0, 16'd0, 16'd18781};
+                4'd1: single_ref_icdf_flat = {224'd0, 16'd0, 16'd28532};
+                4'd2: single_ref_icdf_flat = {224'd0, 16'd0, 16'd24118};
                 4'd4: single_ref_icdf_flat = {224'd0, 16'd0, 16'd15795};
-                4'd5: single_ref_icdf_flat = {224'd0, 16'd0, 16'd16017};
-                4'd6: single_ref_icdf_flat = {224'd0, 16'd0, 16'd12921};
-                4'd8: single_ref_icdf_flat = {224'd0, 16'd0, 16'd5024};
-                4'd9: single_ref_icdf_flat = {224'd0, 16'd0, 16'd4489};
-                4'd10:single_ref_icdf_flat = {224'd0, 16'd0, 16'd1274};
+                4'd5: single_ref_icdf_flat = {224'd0, 16'd0, 16'd13121};
+                4'd6: single_ref_icdf_flat = {224'd0, 16'd0, 16'd7995};
+                4'd8: single_ref_icdf_flat = {224'd0, 16'd0, 16'd3024};
+                4'd9: single_ref_icdf_flat = {224'd0, 16'd0, 16'd1574};
+                4'd10:single_ref_icdf_flat = {224'd0, 16'd0, 16'd873};
                 default: single_ref_icdf_flat = {224'd0, 16'd0, 16'd15795};
             endcase
         end

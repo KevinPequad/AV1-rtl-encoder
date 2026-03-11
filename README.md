@@ -124,6 +124,11 @@ Inventory of the current repo state:
   - official external debug references have been pulled into `av1-reference-docs/external/`
   - `16x16` 2-frame IP output decodes in both `ffmpeg`/`libdav1d` and `aomdec`
   - decoded output matches `recon.yuv` exactly on that `16x16` inter case
+  - the strict `16x16` 2-frame zero-motion IP ownership repro is now exact on the raw RTL path, not just decoder-clean:
+    - `encoded.obu` and `encoded_rtl_raw.obu` now match byte-for-byte
+    - `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte
+    - the decoded raw RTL IVF now matches both `recon.yuv` and the flat repeated-frame source exactly
+    - the last frame-1 tile-data drift was the reduced single-ref `cmp_ctx=2` / branch-0 CDF entry on the RTL path; it now matches the software reference at `3024`
   - `make entropy-check THREADS=24 BUILD_JOBS=24` passes in WSL and matches the C++ `AV1RangeCoder` byte-for-byte for bool, literal, and symbol cases
   - `make bitstream-check THREADS=24 BUILD_JOBS=24 WIDTH=16 HEIGHT=16` now passes in WSL:
     - sequence header bytes match the reduced reference model exactly
@@ -211,7 +216,7 @@ Inventory of the current repo state:
     - the raw RTL path now advances blocks in the same recursive partition-tree / Morton order that the writer and decoder expect inside each superblock
     - this removed the first `32x32` payload divergence that appeared once the frame needed more than the original `16x16` exact-match traversal
   - the remaining ownership gap is extending that reduced non-DC path and matching syntax ownership beyond the current single-frame keyframe subset:
-    - full multi-frame / non-key ownership beyond the current reduced non-key header and `intra_inter` checkpoints
+    - full multi-frame / non-key ownership beyond the current reduced non-key header, zero-motion LAST-ref signaling, and `intra_inter` checkpoints
     - full inter syntax and motion signaling on the RTL path beyond the current zero-motion `GLOBALMV` ownership scaffold
     - less constrained dense and higher-energy coefficient shapes beyond the current regression clips
 - The current active exactness regression is now reference-decoder-backed:
@@ -224,6 +229,9 @@ Inventory of the current repo state:
     - until that separate lossless path is implemented, the testbench and RTL clamp requested `qindex=0` runs to effective `qindex=1` so the current subset does not emit invalid streams
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
 - The current raw-path inter subset is temporarily restricted to zero-motion decisions only while `NEARESTMV` / `NEWMV`, reference-MV stack derivation, and MV payload syntax are still missing.
+- The strict raw-path zero-motion inter checkpoint is now cleared on the smallest multi-frame video case:
+  - the `16x16` 2-frame flat repeated-frame IP repro is byte-exact between software-owned and RTL-owned OBU/IVF outputs
+  - the next remaining inter ownership work is scaling that exactness to larger natural-content clips, then widening mode coverage beyond zero-motion `GLOBALMV`
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:

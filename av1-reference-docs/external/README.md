@@ -132,6 +132,11 @@ syntax or verification blocker.
   - the original `64x64` 2-frame debug inter case is decoder-clean again
   - the small `16x16` 2-frame inter case now decodes and matches `recon.yuv`
     exactly
+  - the strict `16x16` 2-frame flat repeated-frame IP ownership repro is now
+    byte-exact between the software-owned and raw RTL-owned OBU/IVF outputs
+  - the last remaining raw-path tile-data drift on that repro was the reduced
+    single-ref `cmp_ctx=2` / branch-0 CDF entry on the RTL path; the correct
+    ICDF is `3024`, not the earlier `5024`
 - After applying the official scan order plus the reference edge-fill rules to
   the current sparse AC still-picture bring-up:
   - the `16x16` `ac_probe_16x16_1f.yuv` check at `qindex=240` now decodes and

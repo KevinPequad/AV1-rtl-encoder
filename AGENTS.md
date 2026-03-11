@@ -121,6 +121,10 @@
   - `use_inter` is currently clamped to zero-motion matches on the RTL-owned path
   - the top-level now tracks reduced inter neighborhood state (`inter`, `ref`, reduced inter mode) so zero-motion `GLOBALMV` syntax can be extended toward `NEARESTMV` / `NEWMV`
   - do not widen the raw inter subset again until the missing reference signaling, inter-mode, and MV payload syntax are actually emitted and verified
+- The smallest real multi-frame zero-motion ownership checkpoint is now exact:
+  - on the strict `16x16` 2-frame flat repeated-frame IP repro, `encoded.obu` and `encoded_rtl_raw.obu` now match byte-for-byte
+  - on that same repro, `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte and decode back to both `recon.yuv` and source exactly
+  - the last remaining frame-1 tile-data drift was the RTL reduced single-ref `cmp_ctx=2` / branch-0 CDF entry; it now matches the software-owned path at `3024`
 - Directional intra availability for the current fixed `8x8` / `TX_8X8` raster-order subset is now partially corrected:
   - real top-right extension samples are loaded and used when the above-right block is already reconstructed
   - bottom-left extension remains intentionally disabled on this subset because it would otherwise read future not-yet-reconstructed pixels and corrupt exactness
@@ -133,8 +137,7 @@
   - do not spend more time on the old `qindex=224` blocker unless it reappears after a real code change
   - use `output/highdc_q1/` as the strict large-DC regression guard and `data/ac_probe_16x16_1f.yuv` at `qindex=240` as the verified exact-match regression guard
   - then continue pulling the remaining reduced inter syntax onto the RTL byte path in this order:
-    - single-ref LAST signaling
-    - zero-motion `GLOBALMV` / skip ownership
+    - larger natural-content zero-motion `GLOBALMV` / skip verification
     - `NEARESTMV` / `NEWMV` mode signaling
     - MV payload syntax
     - longer multi-frame decode verification
