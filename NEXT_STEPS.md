@@ -2,35 +2,33 @@
 
 ## Completed
 
-- Fixed the ME bottom-right zero-skip bug in `rtl/av1_me.v`:
-  - the raster helper no longer skips the already-tested zero MV when zero is also the final legal search candidate
-  - that bug previously pushed the scan beyond the valid search window and left `TS_WAIT_ME` spinning on longer clips
-- Extended exact natural-motion verification beyond the old `3`-frame wall:
-  - `output/natural_motion32_x640_y360_5f_fix1/`: `encoded.obu` matches `encoded_rtl_raw.obu`, `encoded.ivf` matches `encoded_rtl.ivf`, decoded RTL IVF matches `recon.yuv`
-  - `output/natural_motion64_x640_y360_5f_fix1/`: `encoded.obu` matches `encoded_rtl_raw.obu`, `encoded.ivf` matches `encoded_rtl.ivf`, decoded RTL IVF matches `recon.yuv`
-  - `output/natural_motion64_x640_y360_6f_fix1/`: `encoded.obu` matches `encoded_rtl_raw.obu`, `encoded.ivf` matches `encoded_rtl.ivf`, decoded RTL IVF matches `recon.yuv`
-- Narrowed the first remaining longer-sequence ownership drift:
-  - `output/natural_motion64_x640_y360_7f_probe/` first differs at byte `449`
-  - that is the start of frame `0006` tile data, so the first six frames are now exact on the RTL-owned path
-- Confirmed that the local `data/tmp_probe_16x16_1f.yuv` byte drift is pre-existing:
-  - a temporary revert of the new inter-path patch still produces the same `34` vs `35` byte mismatch
-  - do not treat that clip as a regression caused by this slice
+- Fixed the reduced LAST-ref MV stack reach in `tb/av1_bitstream_writer.h` and `rtl/av1_encoder_top.v`:
+  - the reduced row/column scans now stop where AOM's `MVREF_ROW_COLS == 3` scan stops
+  - that removed the extra far-neighbor `+4` weight that was drifting later NEWMV candidates on the longer natural-motion guard
+- Restored exact longer-motion natural-motion ownership:
+  - `output/natural_motion64_x640_y360_7f_fixmvref64/`: `encoded.obu` matches `encoded_rtl_raw.obu`, `encoded.ivf` matches `encoded_rtl.ivf`, and strict `aomdec` output matches `recon.yuv`
+  - `output/natural_motion64_x640_y360_10f_progress70m/`: `encoded.obu` matches `encoded_rtl_raw.obu`, `encoded.ivf` matches `encoded_rtl.ivf`, and strict `aomdec` output matches `recon.yuv`
+- Proved the earlier `10`-frame timeout was runtime envelope, not a deadlock:
+  - the full `64x64` natural-motion `10`-frame guard completes at cycle `65669905`
+  - the bounded `+progress_every=5000000 +timeout=70000000` run is now the reference longer-motion command on this machine
+- Confirmed that the local `data/tmp_probe_16x16_1f.yuv` byte drift is still pre-existing:
+  - do not use that clip as a byte-exact ownership gate
 
 ## What Remains
 
-- Debug the first `64x64` natural-motion ownership drift on `output/natural_motion64_x640_y360_7f_probe/`.
-- Identify the first frame-`0006` entropy / syntax mismatch with the existing writer and RTL trace hooks, then restore exactness on that `7`-frame repro.
-- Rerun the `10`-frame `64x64` natural-motion guard after the `7`-frame repro is exact.
+- Start the first fractional-pel translational inter ownership slice on the reduced LAST-only path.
+- Mirror the writer's latent subpel MV payload support onto the RTL syntax path, then enable the smallest half-pel verification checkpoint.
+- Re-run the repaired `7`-frame and `10`-frame exact guards after the first subpel step lands.
 - Restore or recover `data/ac_probe_16x16_1f.yuv` in this checkout so the documented exact-match `16x16` ownership gate can be rerun locally.
 
 ## Blockers
 
-- The old longer-motion runtime wall is removed, but the first remaining longer-sequence ownership drift now starts on `output/natural_motion64_x640_y360_7f_probe/` at byte `449`.
 - `data/ac_probe_16x16_1f.yuv` is missing from this checkout.
-- `data/tmp_probe_16x16_1f.yuv` is not a byte-exact substitute ownership gate; software vs RTL first differ at byte `14` even with the new inter-path patch temporarily reverted.
+- `data/tmp_probe_16x16_1f.yuv` is not a byte-exact substitute ownership gate.
+- The full `10`-frame `64x64` natural-motion guard needs `+timeout=70000000` or higher on this machine.
 
 ## Exact Next Command Or File To Edit
 
 - File to edit: `rtl/av1_encoder_top.v`
 - Next command:
-  - `wsl bash -lc 'cd /mnt/c/Users/pie/Desktop/av1stage64/tb && ./obj_dir/Vav1_encoder_top +input=/mnt/c/Users/pie/Desktop/Encdoing\\ Shenanigans/AV1-rtl-encoder/data/natural_motion64_x640_y360_10f.yuv +output=/mnt/c/Users/pie/Desktop/Encdoing\\ Shenanigans/AV1-rtl-encoder/output/natural_motion64_x640_y360_7f_trace/encoded.obu +frames=7 +all_key=0 +qindex=128 +dc_only=0 +trace_entropy=1 +trace_writer_entropy=1 >/tmp/av1_motion64_7f_trace.log 2>&1'`
+  - `rg -n "encode_mv_component|force_integer_mv|TS_SYNTAX_MVCLASS0W|TS_SYNTAX_MVBITW" tb/av1_bitstream_writer.h rtl/av1_encoder_top.v`

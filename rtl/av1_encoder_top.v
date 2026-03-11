@@ -601,7 +601,8 @@ module av1_encoder_top #(
             else if (block_has_matching_ref_fn(blk_x_in - 1, blk_y_in - 1, ref_frame))
                 block_has_row_match_fn = 1'b1;
             else begin
-                for (dy = 2; dy <= 4; dy = dy + 1)
+                // Match AOM's MVREF_ROW_COLS == 3 reach for reduced single-ref scans.
+                for (dy = 2; dy <= 3; dy = dy + 1)
                     if (block_has_matching_ref_fn(blk_x_in, blk_y_in - dy, ref_frame))
                         block_has_row_match_fn = 1'b1;
             end
@@ -620,7 +621,8 @@ module av1_encoder_top #(
             else if (block_has_matching_ref_fn(blk_x_in - 1, blk_y_in - 1, ref_frame))
                 block_has_col_match_fn = 1'b1;
             else begin
-                for (dx = 2; dx <= 4; dx = dx + 1)
+                // Match AOM's MVREF_ROW_COLS == 3 reach for reduced single-ref scans.
+                for (dx = 2; dx <= 3; dx = dx + 1)
                     if (block_has_matching_ref_fn(blk_x_in - dx, blk_y_in, ref_frame))
                         block_has_col_match_fn = 1'b1;
             end
@@ -1561,10 +1563,9 @@ module av1_encoder_top #(
         add_cur_mv_candidate(blk_x - 1, blk_y - 1, REF_LAST, 10'd4);
         add_cur_mv_candidate(blk_x,     blk_y - 2, REF_LAST, 10'd4);
         add_cur_mv_candidate(blk_x - 2, blk_y,     REF_LAST, 10'd4);
+        // Match AOM's MVREF_ROW_COLS == 3 reach for reduced single-ref scans.
         add_cur_mv_candidate(blk_x,     blk_y - 3, REF_LAST, 10'd4);
-        add_cur_mv_candidate(blk_x,     blk_y - 4, REF_LAST, 10'd4);
         add_cur_mv_candidate(blk_x - 3, blk_y,     REF_LAST, 10'd4);
-        add_cur_mv_candidate(blk_x - 4, blk_y,     REF_LAST, 10'd4);
 
         cur_ref_mv_count = cur_mv_cand_count[3:0];
         for (cur_mv_i = 0; cur_mv_i < 10; cur_mv_i = cur_mv_i + 1) begin
@@ -1941,9 +1942,15 @@ module av1_encoder_top #(
     reg [23:0] manual_bs_addr;
     reg [7:0]  manual_bs_data;
     reg [23:0] frame_obu_start_addr;
+    reg [1:0]  frame_size_patch_idx;
+    localparam [23:0] FRAME_OBU_SIZE_FIELD_BYTES = 24'd4;
     wire [23:0] frame_obu_payload_bytes =
-        (total_bs_bytes > (frame_obu_start_addr + 24'd2)) ?
-            (total_bs_bytes - frame_obu_start_addr - 24'd2) : 24'd0;
+        (total_bs_bytes > (frame_obu_start_addr + 24'd1 + FRAME_OBU_SIZE_FIELD_BYTES)) ?
+            (total_bs_bytes - frame_obu_start_addr - 24'd1 - FRAME_OBU_SIZE_FIELD_BYTES) : 24'd0;
+    wire [7:0] frame_obu_size_patch_byte0 = {1'b1, frame_obu_payload_bytes[6:0]};
+    wire [7:0] frame_obu_size_patch_byte1 = {1'b1, frame_obu_payload_bytes[13:7]};
+    wire [7:0] frame_obu_size_patch_byte2 = {1'b1, frame_obu_payload_bytes[20:14]};
+    wire [7:0] frame_obu_size_patch_byte3 = {5'd0, frame_obu_payload_bytes[23:21]};
 
     // Register bitstream writes so address/data stay aligned to the same
     // sampled source-valid event.
@@ -2047,6 +2054,7 @@ module av1_encoder_top #(
             intra_best_sad  <= 18'h3FFFF;
             intra_cand_sad  <= 18'd0;
             frame_obu_start_addr <= 24'd0;
+            frame_size_patch_idx <= 2'd0;
             for (i = 0; i < MI_COLS; i = i + 1) begin
                 part_ctx_above[i] <= 8'd0;
                 skip_above[i] <= 1'b0;
@@ -2173,6 +2181,7 @@ module av1_encoder_top #(
                 // Write frame header
                 TS_WRITE_FRM: begin
                     frame_obu_start_addr <= bs_wr_addr;
+                    frame_size_patch_idx <= 2'd0;
                     bs_write_frm <= 1;
                     ec_init      <= 1;  // Initialize entropy coder
                     top_state    <= TS_WAIT_FRM;
@@ -3965,13 +3974,23 @@ module av1_encoder_top #(
                 end
 
                 TS_DONE_COMMIT: begin
-                    // Back-patch the frame OBU size byte only after the final
-                    // entropy byte has had a full cycle to commit into the
-                    // unified output mux and byte counters.
+                    // Back-patch the fixed-width frame OBU leb128 after the
+                    // final entropy byte has had a full cycle to commit into
+                    // the unified output mux and byte counters.
                     manual_bs_wr   <= 1;
-                    manual_bs_addr <= frame_obu_start_addr + 24'd1;
-                    manual_bs_data <= frame_obu_payload_bytes[7:0];
-                    top_state      <= TS_DONE_FINISH;
+                    manual_bs_addr <= frame_obu_start_addr + 24'd1 + frame_size_patch_idx;
+                    case (frame_size_patch_idx)
+                        2'd0: manual_bs_data <= frame_obu_size_patch_byte0;
+                        2'd1: manual_bs_data <= frame_obu_size_patch_byte1;
+                        2'd2: manual_bs_data <= frame_obu_size_patch_byte2;
+                        default: manual_bs_data <= frame_obu_size_patch_byte3;
+                    endcase
+                    if (frame_size_patch_idx == 2'd3) begin
+                        frame_size_patch_idx <= 2'd0;
+                        top_state <= TS_DONE_FINISH;
+                    end else begin
+                        frame_size_patch_idx <= frame_size_patch_idx + 1'b1;
+                    end
                 end
 
                 TS_DONE_FINISH: begin

@@ -1034,7 +1034,8 @@ private:
         if (block_has_matching_ref(blk_x, blk_y - 1, ref_frame)) return true;
         if (include_top_right && block_has_matching_ref(blk_x + 1, blk_y - 1, ref_frame)) return true;
         if (block_has_matching_ref(blk_x - 1, blk_y - 1, ref_frame)) return true;
-        for (int dy = 2; dy <= 4; ++dy) {
+        // Match AOM's MVREF_ROW_COLS == 3 reach for reduced single-ref scans.
+        for (int dy = 2; dy <= 3; ++dy) {
             if (block_has_matching_ref(blk_x, blk_y - dy, ref_frame)) return true;
         }
         return false;
@@ -1043,7 +1044,8 @@ private:
     bool block_has_col_match(int blk_x, int blk_y, uint8_t ref_frame) const {
         if (block_has_matching_ref(blk_x - 1, blk_y, ref_frame)) return true;
         if (block_has_matching_ref(blk_x - 1, blk_y - 1, ref_frame)) return true;
-        for (int dx = 2; dx <= 4; ++dx) {
+        // Match AOM's MVREF_ROW_COLS == 3 reach for reduced single-ref scans.
+        for (int dx = 2; dx <= 3; ++dx) {
             if (block_has_matching_ref(blk_x - dx, blk_y, ref_frame)) return true;
         }
         return false;
@@ -1123,12 +1125,8 @@ private:
         add_reduced_single_ref_mv_candidate(state.stack, blk_x - 1, blk_y - 1, ref_frame, 4);
         add_reduced_single_ref_mv_candidate(state.stack, blk_x,     blk_y - 2, ref_frame, 4);
         add_reduced_single_ref_mv_candidate(state.stack, blk_x - 2, blk_y,     ref_frame, 4);
-        for (int dy = 3; dy <= 4; ++dy) {
-            add_reduced_single_ref_mv_candidate(state.stack, blk_x, blk_y - dy, ref_frame, 4);
-        }
-        for (int dx = 3; dx <= 4; ++dx) {
-            add_reduced_single_ref_mv_candidate(state.stack, blk_x - dx, blk_y, ref_frame, 4);
-        }
+        add_reduced_single_ref_mv_candidate(state.stack, blk_x,     blk_y - 3, ref_frame, 4);
+        add_reduced_single_ref_mv_candidate(state.stack, blk_x - 3, blk_y,     ref_frame, 4);
 
         std::stable_sort(state.stack.begin(), state.stack.end(),
                          [](const ReducedMvCandidate& a, const ReducedMvCandidate& b) {
@@ -1434,7 +1432,7 @@ private:
             out.insert(out.end(), seq_data.begin(), seq_data.end());
         }
         auto frame_obu = build_frame_obu();
-        write_obu_header(out, 6, frame_obu.size());
+        write_obu_header_fixed_leb128(out, 6, frame_obu.size(), 4);
         out.insert(out.end(), frame_obu.begin(), frame_obu.end());
         return out;
     }
@@ -1444,6 +1442,12 @@ private:
         write_leb128(out, size);
     }
 
+    void write_obu_header_fixed_leb128(std::vector<uint8_t>& out, int type,
+                                       size_t size, int width_bytes) {
+        out.push_back(((type & 0xF) << 3) | 0x02);
+        write_leb128_fixed(out, size, width_bytes);
+    }
+
     void write_leb128(std::vector<uint8_t>& out, size_t val) {
         do {
             uint8_t byte = val & 0x7F;
@@ -1451,6 +1455,17 @@ private:
             if (val > 0) byte |= 0x80;
             out.push_back(byte);
         } while (val > 0);
+    }
+
+    void write_leb128_fixed(std::vector<uint8_t>& out, size_t val, int width_bytes) {
+        // AV1's leb128() syntax does not require the most compressed
+        // representation, which allows a fixed-width back-patch path.
+        for (int i = 0; i < width_bytes; ++i) {
+            uint8_t byte = static_cast<uint8_t>(val & 0x7F);
+            val >>= 7;
+            if (i != width_bytes - 1) byte |= 0x80;
+            out.push_back(byte);
+        }
     }
 
     std::vector<uint8_t> build_sequence_header() {
@@ -1575,7 +1590,8 @@ private:
         // to this slot until a fuller reference manager exists.
         hdr_bw.write_bits(refresh_mask, 8);
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
-        hdr_bw.write_bit(1);      // refresh_frame_context = DISABLED
+        // With disable_cdf_update=1, disable_frame_end_update_cdf is inferred
+        // and refresh_frame_context is not signaled.
         write_tile_info(hdr_bw);
         write_quantization_params(hdr_bw);
         hdr_bw.write_bit(0);      // segmentation_enabled = 0
@@ -1608,7 +1624,8 @@ private:
         hdr_bw.write_bit(0);      // interpolation_filter == SWITCHABLE = 0
         hdr_bw.write_bits(0, 2);  // interpolation_filter = regular
         hdr_bw.write_bit(0);      // is_motion_mode_switchable = 0
-        hdr_bw.write_bit(1);      // refresh_frame_context = DISABLED
+        // With disable_cdf_update=1, disable_frame_end_update_cdf is inferred
+        // and refresh_frame_context is not signaled.
         write_tile_info(hdr_bw);
         write_quantization_params(hdr_bw);
         hdr_bw.write_bit(0);      // segmentation_enabled = 0
@@ -1703,6 +1720,16 @@ private:
         }
 
         auto data = rc.finish();
+        if (trace_symbol_ops_) {
+            fprintf(stderr, "[BSSTATE] rng=%u low=%llu cnt=%d buf=%zu\n",
+                    rc.rng_state(),
+                    (unsigned long long)rc.low_state(),
+                    rc.cnt_state(),
+                    rc.buf_size());
+            fprintf(stderr, "[BSHEX] ");
+            for (uint8_t b : data) fprintf(stderr, "%02x", static_cast<unsigned>(b));
+            fprintf(stderr, "\n");
+        }
         // Count non-skip blocks for diagnostics
         for (auto& bi : blocks_) {
             bool has_coeff = false;

@@ -116,6 +116,22 @@ static std::vector<uint8_t> wrap_obu(uint8_t header, const std::vector<uint8_t>&
     return out;
 }
 
+static std::vector<uint8_t> wrap_obu_fixed_leb128(uint8_t header,
+                                                  const std::vector<uint8_t>& payload,
+                                                  int width_bytes) {
+    std::vector<uint8_t> out;
+    out.push_back(header);
+    size_t val = payload.size();
+    for (int i = 0; i < width_bytes; ++i) {
+        uint8_t byte = static_cast<uint8_t>(val & 0x7F);
+        val >>= 7;
+        if (i != width_bytes - 1) byte |= 0x80;
+        out.push_back(byte);
+    }
+    out.insert(out.end(), payload.begin(), payload.end());
+    return out;
+}
+
 static std::vector<uint8_t> build_expected_seq() {
     BitWriter bw;
     bw.write_bits(0, 3);
@@ -169,7 +185,7 @@ static std::vector<uint8_t> build_expected_key(uint8_t qindex) {
     bw.write_bit(0);
     bw.write_bit(0);
     bw.flush_zero_pad();
-    return wrap_obu(0x32, bw.bytes);
+    return wrap_obu_fixed_leb128(0x32, bw.bytes, 4);
 }
 
 static std::vector<uint8_t> build_expected_inter(uint8_t qindex) {
@@ -188,7 +204,6 @@ static std::vector<uint8_t> build_expected_inter(uint8_t qindex) {
     bw.write_bit(0);
     bw.write_bits(0, 2);
     bw.write_bit(0);
-    bw.write_bit(1);
     write_tile_info(bw);
     write_quantization_params(bw, qindex);
     bw.write_bit(0);
@@ -199,7 +214,7 @@ static std::vector<uint8_t> build_expected_inter(uint8_t qindex) {
     bw.write_bit(0);
     for (int ref = 0; ref < 7; ++ref) bw.write_bit(0);
     bw.flush_zero_pad();
-    return wrap_obu(0x32, bw.bytes);
+    return wrap_obu_fixed_leb128(0x32, bw.bytes, 4);
 }
 
 static std::string hex_string(const std::vector<uint8_t>& bytes) {
