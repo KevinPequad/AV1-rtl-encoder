@@ -122,6 +122,9 @@
   - `rtl/av1_encoder_top.v` now derives a reduced neighboring ref-MV stack, stores per-block integer MVs, and emits the real `newmv`, `zeromv`, `refmv`, `drl`, `mv_joint`, sign, class, class0, and class-bit syntax on the RTL byte path
   - `use_inter` is no longer clamped to zero-motion matches on the RTL-owned path
   - do not widen the raw inter subset beyond the current reduced LAST-only `GLOBALMV` / `NEARESTMV` / `NEWMV` subset until longer multi-frame motion guards are in place
+- The ME bottom-right scan bug on longer motion clips is now fixed:
+  - `rtl/av1_me.v` no longer skips the dedicated zero-MV probe when zero is also the last legal raster candidate
+  - that bug previously pushed bottom-right blocks past the valid search window and left `TS_WAIT_ME` spinning on longer clips
 - The smallest real multi-frame zero-motion ownership checkpoint is now exact:
   - on the strict `16x16` 2-frame flat repeated-frame IP repro, `encoded.obu` and `encoded_rtl_raw.obu` now match byte-for-byte
   - on that same repro, `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte and decode back to both `recon.yuv` and source exactly
@@ -135,21 +138,28 @@
   - on those same clips, `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte and the decoded RTL IVF matches `recon.yuv`
   - on `data/natural_motion32_x640_y360_3f.yuv` (`32x32`, `qindex=128`), `encoded.obu` and `encoded_rtl_raw.obu` plus `encoded.ivf` and `encoded_rtl.ivf` now also match byte-for-byte, and the decoded RTL IVF matches `recon.yuv`
   - the last motion-path drift there was not MV packing; it was mis-ported raw `refmv` / `drl` probabilities instead of the actual ICDF entries, and correcting those ICDF values restored exactness
+- The longer-motion guards now extend beyond the old `3`-frame limit:
+  - `output/natural_motion32_x640_y360_5f_fix1/` is exact at `32x32`, `5` frames, `qindex=128`
+  - `output/natural_motion64_x640_y360_5f_fix1/` is exact at `64x64`, `5` frames, `qindex=128`
+  - `output/natural_motion64_x640_y360_6f_fix1/` is exact at `64x64`, `6` frames, `qindex=128`
+- The first new longer-sequence ownership drift is now narrowed to a concrete repro:
+  - `output/natural_motion64_x640_y360_7f_probe/` first differs at byte `449`
+  - that is the start of frame `0006` tile data, so the first six frames of the `64x64` natural-motion sequence are now exact
 - Directional intra availability for the current fixed `8x8` / `TX_8X8` raster-order subset is now partially corrected:
   - real top-right extension samples are loaded and used when the above-right block is already reconstructed
   - bottom-left extension remains intentionally disabled on this subset because it would otherwise read future not-yet-reconstructed pixels and corrupt exactness
   - on the rebuilt live tree, the old `qindex=224` residual no longer reproduces on the verified `qindex=240` probe
   - keep directional edge upsampling disabled while `enable_intra_edge_filter = 0`; re-enable it only when the bitstream path owns and signals that sequence-header feature correctly
-- The next highest-priority ownership move is extending exact inter verification beyond the current `3`-frame motion guards now that the reduced LAST-ref motion syntax is exact:
+- The next highest-priority ownership move is debugging the first `64x64` longer-sequence drift now that the reduced LAST-ref motion syntax and the `5`-/`6`-frame guards are exact:
   - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate when that asset is available in the checkout
   - do not substitute `data/tmp_probe_16x16_1f.yuv` for byte-exact ownership checks; it is currently decode-clean but not exact
-  - keep the new `32x32` and `64x64` `qindex=128` Big Buck Bunny crops, `data/natural_repeat64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_3f.yuv`, and `data/natural_motion32_x640_y360_3f.yuv` as the current exact regression guards
+  - keep the new `32x32` and `64x64` `qindex=128` Big Buck Bunny crops, `data/natural_repeat64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_3f.yuv`, `output/natural_motion32_x640_y360_5f_fix1/`, `output/natural_motion64_x640_y360_5f_fix1/`, and `output/natural_motion64_x640_y360_6f_fix1/` as the current exact regression guards
   - keep `make bitstream-check WIDTH=16 HEIGHT=16` in the normal quick regression loop whenever `rtl/av1_bitstream.v` changes
   - do not spend more time on the old `qindex=224` blocker unless it reappears after a real code change
   - use `output/highdc_q1/` as the strict large-DC regression guard and `data/ac_probe_16x16_1f.yuv` at `qindex=240` as the verified exact-match regression guard
   - then continue the reduced inter roadmap in this order:
-    - practical `5`-frame-plus motion verification without prohibitive runtime
-    - wider motion/tool coverage beyond the current reduced LAST-only subset when that longer guard is stable
+    - debug the first frame-`0006` / byte-`449` ownership drift on `output/natural_motion64_x640_y360_7f_probe/`
+    - widen motion/tool coverage beyond the current reduced LAST-only subset when that longer guard is stable
     - longer multi-frame decode verification on the next widened subset
 - The immediate correctness target after the raw-byte mux fix is the reference-decoder-backed syntax split:
   - the strict non-lossless `output/highdc_q1/` bug is fixed:
