@@ -214,6 +214,20 @@ module av1_encoder_top #(
         TS_SYNTAX_NEWMVW   = 8'd149,
         TS_SYNTAX_ZEROMV   = 8'd150,
         TS_SYNTAX_ZEROMVW  = 8'd151,
+        TS_SYNTAX_REFMV    = 8'd152,
+        TS_SYNTAX_REFMVW   = 8'd153,
+        TS_SYNTAX_DRL      = 8'd154,
+        TS_SYNTAX_DRLW     = 8'd155,
+        TS_SYNTAX_MVJ      = 8'd156,
+        TS_SYNTAX_MVJW     = 8'd157,
+        TS_SYNTAX_MVSIGN   = 8'd158,
+        TS_SYNTAX_MVSIGNW  = 8'd159,
+        TS_SYNTAX_MVCLASS  = 8'd160,
+        TS_SYNTAX_MVCLASSW = 8'd161,
+        TS_SYNTAX_MVCLASS0 = 8'd162,
+        TS_SYNTAX_MVCLASS0W= 8'd163,
+        TS_SYNTAX_MVBIT    = 8'd164,
+        TS_SYNTAX_MVBITW   = 8'd165,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -321,6 +335,8 @@ module av1_encoder_top #(
     reg        blk_inter_coded[0:BLK_COLS*BLK_ROWS-1];
     reg [2:0]  blk_ref0       [0:BLK_COLS*BLK_ROWS-1];
     reg [1:0]  blk_inter_mode [0:BLK_COLS*BLK_ROWS-1];
+    reg signed [8:0] blk_mv_x [0:BLK_COLS*BLK_ROWS-1];
+    reg signed [8:0] blk_mv_y [0:BLK_COLS*BLK_ROWS-1];
     reg [1:0]  dc_sign_above  [0:MI_COLS-1];
     reg [1:0]  dc_sign_left   [0:MI_ROWS-1];
     reg        cur_only_dc_nonzero;
@@ -352,10 +368,33 @@ module av1_encoder_top #(
     localparam [1:0]
         REDUCED_INTER_NONE     = 2'd0,
         REDUCED_INTER_GLOBALMV = 2'd1,
-        REDUCED_INTER_NEWMV    = 2'd2;
+        REDUCED_INTER_NEARESTMV= 2'd2,
+        REDUCED_INTER_NEWMV    = 2'd3;
 
+    localparam integer AV1_REF_CAT_LEVEL = 640;
     localparam integer AV1_GLOBALMV_OFFSET = 3;
     localparam integer AV1_REFMV_OFFSET = 4;
+    localparam integer AV1_NEWMV_CTX_MASK =
+        (1 << AV1_GLOBALMV_OFFSET) - 1;
+    localparam integer AV1_GLOBALMV_CTX_MASK =
+        (1 << (AV1_REFMV_OFFSET - AV1_GLOBALMV_OFFSET)) - 1;
+    localparam integer AV1_REFMV_CTX_MASK =
+        (1 << (8 - AV1_REFMV_OFFSET)) - 1;
+
+    reg signed [15:0] cur_mv_cand_row [0:9];
+    reg signed [15:0] cur_mv_cand_col [0:9];
+    reg [9:0]         cur_mv_cand_weight [0:9];
+    integer           cur_mv_cand_count;
+    reg signed [15:0] cur_ref_mv_row;
+    reg signed [15:0] cur_ref_mv_col;
+    reg [3:0]         cur_ref_mv_count;
+    reg [1:0]         cur_drl_ctx;
+    reg               mv_comp_axis;
+    reg [3:0]         mv_bit_idx;
+    integer           cur_mv_i;
+    integer           cur_mv_nearest_count;
+    integer           cur_mv_best_idx;
+    integer           cur_mv_second_idx;
 
     function [3:0] intra_mode_from_idx;
         input [3:0] idx;
@@ -681,6 +720,119 @@ module av1_encoder_top #(
                 2'd0: zeromv_icdf_flat = {224'd0, 16'd0, 16'd30593};
                 default: zeromv_icdf_flat = {224'd0, 16'd0, 16'd31714};
             endcase
+        end
+    endfunction
+
+    function [255:0] refmv_icdf_flat;
+        input [2:0] ctx;
+        begin
+            case (ctx)
+                3'd0: refmv_icdf_flat = {224'd0, 16'd0, 16'd8794};
+                3'd1: refmv_icdf_flat = {224'd0, 16'd0, 16'd8580};
+                3'd2: refmv_icdf_flat = {224'd0, 16'd0, 16'd14920};
+                3'd3: refmv_icdf_flat = {224'd0, 16'd0, 16'd4146};
+                3'd4: refmv_icdf_flat = {224'd0, 16'd0, 16'd8456};
+                default: refmv_icdf_flat = {224'd0, 16'd0, 16'd12845};
+            endcase
+        end
+    endfunction
+
+    function [255:0] drl_icdf_flat;
+        input [1:0] ctx;
+        begin
+            case (ctx)
+                2'd0: drl_icdf_flat = {224'd0, 16'd0, 16'd19664};
+                2'd1: drl_icdf_flat = {224'd0, 16'd0, 16'd8208};
+                default: drl_icdf_flat = {224'd0, 16'd0, 16'd13823};
+            endcase
+        end
+    endfunction
+
+    function [255:0] mv_joint_icdf_flat;
+        begin
+            mv_joint_icdf_flat = {192'd0, 16'd0, 16'd13440, 16'd21504, 16'd28672};
+        end
+    endfunction
+
+    function [255:0] mv_class_icdf_flat;
+        begin
+            mv_class_icdf_flat = {
+                80'd0,
+                16'd0, 16'd1, 16'd6, 16'd11, 16'd28, 16'd112,
+                16'd217, 16'd448, 16'd910, 16'd1792, 16'd4096
+            };
+        end
+    endfunction
+
+    function [255:0] mv_class0_icdf_flat;
+        begin
+            mv_class0_icdf_flat = {224'd0, 16'd0, 16'd5120};
+        end
+    endfunction
+
+    function [255:0] mv_sign_icdf_flat;
+        begin
+            mv_sign_icdf_flat = {224'd0, 16'd0, 16'd16384};
+        end
+    endfunction
+
+    function [255:0] mv_bits_icdf_flat;
+        input [3:0] idx;
+        begin
+            case (idx)
+                4'd0: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd15360};
+                4'd1: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd14848};
+                4'd2: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd13824};
+                4'd3: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd12288};
+                4'd4: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd10240};
+                4'd5: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd8192};
+                4'd6: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd4096};
+                4'd7: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd2816};
+                4'd8: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd2816};
+                default: mv_bits_icdf_flat = {224'd0, 16'd0, 16'd2048};
+            endcase
+        end
+    endfunction
+
+    function [1:0] get_mv_joint_type_fn;
+        input signed [15:0] row;
+        input signed [15:0] col;
+        begin
+            get_mv_joint_type_fn = {(row != 16'sd0), (col != 16'sd0)};
+        end
+    endfunction
+
+    function [3:0] log_in_base_2_fn;
+        input [15:0] n;
+        reg [15:0] tmp;
+        begin
+            tmp = n;
+            log_in_base_2_fn = 4'd0;
+            while (tmp > 16'd1) begin
+                tmp = tmp >> 1;
+                log_in_base_2_fn = log_in_base_2_fn + 1'b1;
+            end
+        end
+    endfunction
+
+    function [15:0] mv_class_base_fn;
+        input [3:0] mv_class;
+        begin
+            mv_class_base_fn = (mv_class != 4'd0) ? (16'd2 << (mv_class + 2)) : 16'd0;
+        end
+    endfunction
+
+    function [15:0] mv_class_offset_pack_fn;
+        input [15:0] z;
+        reg [3:0] mv_class;
+        reg [11:0] offset;
+        begin
+            if (z >= 16'd8192)
+                mv_class = 4'd10;
+            else
+                mv_class = log_in_base_2_fn(z >> 3);
+            offset = z - mv_class_base_fn(mv_class);
+            mv_class_offset_pack_fn = {mv_class, offset};
         end
     endfunction
 
@@ -1347,8 +1499,108 @@ module av1_encoder_top #(
         end
     endfunction
 
+    task add_cur_mv_candidate;
+        input integer blk_x_in;
+        input integer blk_y_in;
+        input [2:0] ref_frame;
+        input [9:0] weight;
+        integer blk_idx_fn;
+        integer ci;
+        reg found;
+        reg signed [15:0] row;
+        reg signed [15:0] col;
+        begin
+            if (block_has_matching_ref_fn(blk_x_in, blk_y_in, ref_frame)) begin
+                blk_idx_fn = blk_y_in * BLK_COLS + blk_x_in;
+                row = $signed(blk_mv_y[blk_idx_fn]) <<< 3;
+                col = $signed(blk_mv_x[blk_idx_fn]) <<< 3;
+                found = 1'b0;
+                for (ci = 0; ci < 10; ci = ci + 1) begin
+                    if (!found && (ci < cur_mv_cand_count) &&
+                        (cur_mv_cand_row[ci] == row) &&
+                        (cur_mv_cand_col[ci] == col)) begin
+                        cur_mv_cand_weight[ci] = cur_mv_cand_weight[ci] + weight;
+                        found = 1'b1;
+                    end
+                end
+                if (!found && (cur_mv_cand_count < 10)) begin
+                    cur_mv_cand_row[cur_mv_cand_count] = row;
+                    cur_mv_cand_col[cur_mv_cand_count] = col;
+                    cur_mv_cand_weight[cur_mv_cand_count] = weight;
+                    cur_mv_cand_count = cur_mv_cand_count + 1;
+                end
+            end
+        end
+    endtask
+
+    always @* begin
+        for (cur_mv_i = 0; cur_mv_i < 10; cur_mv_i = cur_mv_i + 1) begin
+            cur_mv_cand_row[cur_mv_i] = 16'sd0;
+            cur_mv_cand_col[cur_mv_i] = 16'sd0;
+            cur_mv_cand_weight[cur_mv_i] = 10'd0;
+        end
+        cur_mv_cand_count = 0;
+        cur_ref_mv_row = 16'sd0;
+        cur_ref_mv_col = 16'sd0;
+        cur_ref_mv_count = 4'd0;
+        cur_drl_ctx = 2'd0;
+        cur_mv_nearest_count = 0;
+        cur_mv_best_idx = -1;
+        cur_mv_second_idx = -1;
+
+        add_cur_mv_candidate(blk_x,     blk_y - 1, REF_LAST, 10'd4);
+        if (block_has_top_right_fn(blk_x, blk_y))
+            add_cur_mv_candidate(blk_x + 1, blk_y - 1, REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x - 1, blk_y,     REF_LAST, 10'd4);
+
+        cur_mv_nearest_count = cur_mv_cand_count;
+        for (cur_mv_i = 0; cur_mv_i < 10; cur_mv_i = cur_mv_i + 1)
+            if (cur_mv_i < cur_mv_nearest_count)
+                cur_mv_cand_weight[cur_mv_i] = cur_mv_cand_weight[cur_mv_i] + AV1_REF_CAT_LEVEL;
+
+        add_cur_mv_candidate(blk_x - 1, blk_y - 1, REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x,     blk_y - 2, REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x - 2, blk_y,     REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x,     blk_y - 3, REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x,     blk_y - 4, REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x - 3, blk_y,     REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x - 4, blk_y,     REF_LAST, 10'd4);
+
+        cur_ref_mv_count = cur_mv_cand_count[3:0];
+        for (cur_mv_i = 0; cur_mv_i < 10; cur_mv_i = cur_mv_i + 1) begin
+            if (cur_mv_i < cur_mv_cand_count) begin
+                if ((cur_mv_best_idx < 0) ||
+                    (cur_mv_cand_weight[cur_mv_i] > cur_mv_cand_weight[cur_mv_best_idx])) begin
+                    cur_mv_second_idx = cur_mv_best_idx;
+                    cur_mv_best_idx = cur_mv_i;
+                end else if ((cur_mv_second_idx < 0) ||
+                             (cur_mv_cand_weight[cur_mv_i] > cur_mv_cand_weight[cur_mv_second_idx])) begin
+                    cur_mv_second_idx = cur_mv_i;
+                end
+            end
+        end
+        if (cur_mv_best_idx >= 0) begin
+            cur_ref_mv_row = cur_mv_cand_row[cur_mv_best_idx];
+            cur_ref_mv_col = cur_mv_cand_col[cur_mv_best_idx];
+        end
+        if (cur_mv_second_idx >= 0) begin
+            if ((cur_mv_cand_weight[cur_mv_best_idx] >= AV1_REF_CAT_LEVEL) &&
+                (cur_mv_cand_weight[cur_mv_second_idx] >= AV1_REF_CAT_LEVEL))
+                cur_drl_ctx = 2'd0;
+            else if ((cur_mv_cand_weight[cur_mv_best_idx] >= AV1_REF_CAT_LEVEL) &&
+                     (cur_mv_cand_weight[cur_mv_second_idx] < AV1_REF_CAT_LEVEL))
+                cur_drl_ctx = 2'd1;
+            else
+                cur_drl_ctx = 2'd2;
+        end
+    end
+
     wire [1:0] cur_skip_ctx = get_skip_ctx_cur(blk_x, blk_y);
     wire [1:0] cur_intra_inter_ctx = get_intra_inter_ctx_cur(blk_x, blk_y);
+    wire [7:0] cur_mode_ctx = get_reduced_single_ref_mode_ctx_fn(blk_x, blk_y, REF_LAST);
+    wire [2:0] cur_newmv_ctx = cur_mode_ctx[2:0];
+    wire [0:0] cur_zeromv_ctx = cur_mode_ctx[AV1_GLOBALMV_OFFSET];
+    wire [2:0] cur_refmv_ctx = (cur_mode_ctx >> AV1_REFMV_OFFSET) & AV1_REFMV_CTX_MASK;
     wire       cur_block_skip = ~cur_block_has_coeff;
     wire [2:0] cur_kf_above_ctx = get_kf_mode_above_ctx_cur(blk_x, blk_y);
     wire [2:0] cur_kf_left_ctx  = get_kf_mode_left_ctx_cur(blk_x, blk_y);
@@ -1405,6 +1657,23 @@ module av1_encoder_top #(
     wire [9:0]   next_blk_y_morton = next_blk_morton[19:10];
     wire [9:0]   next_blk_x_morton = next_blk_morton[9:0];
     wire         cur_generic_coeff_path = cur_block_has_coeff;
+    wire signed [15:0] cur_mv_row = $signed(me_mvy) <<< 3;
+    wire signed [15:0] cur_mv_col = $signed(me_mvx) <<< 3;
+    wire signed [15:0] cur_mv_diff_row = cur_mv_row - cur_ref_mv_row;
+    wire signed [15:0] cur_mv_diff_col = cur_mv_col - cur_ref_mv_col;
+    wire [1:0]   cur_mv_joint = get_mv_joint_type_fn(cur_mv_diff_row, cur_mv_diff_col);
+    wire signed [15:0] cur_mv_comp_diff = mv_comp_axis ? cur_mv_diff_col : cur_mv_diff_row;
+    wire         cur_mv_comp_sign = cur_mv_comp_diff[15];
+    wire [15:0]  cur_mv_comp_mag = cur_mv_comp_sign ? -cur_mv_comp_diff : cur_mv_comp_diff;
+    wire [15:0]  cur_mv_class_pack = mv_class_offset_pack_fn(
+        (cur_mv_comp_mag > 16'd0) ? (cur_mv_comp_mag - 16'd1) : 16'd0);
+    wire [3:0]   cur_mv_class = cur_mv_class_pack[15:12];
+    wire [11:0]  cur_mv_offset = cur_mv_class_pack[11:0];
+    wire [11:0]  cur_mv_d = cur_mv_offset >> 3;
+    wire [1:0]   cur_reduced_inter_mode =
+        (me_mvx == 9'sd0 && me_mvy == 9'sd0) ? REDUCED_INTER_GLOBALMV :
+        ((cur_mv_col == cur_ref_mv_col) && (cur_mv_row == cur_ref_mv_row)) ?
+            REDUCED_INTER_NEARESTMV : REDUCED_INTER_NEWMV;
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
@@ -1574,7 +1843,7 @@ module av1_encoder_top #(
     ) u_me (
         .clk(clk), .rst_n(rst_n),
         .start(me_start),
-        .zero_mv_only(1'b1),
+        .zero_mv_only(1'b0),
         .done(me_done),
         .cur_x({1'b0, blk_x} * 8),
         .cur_y({1'b0, blk_y} * 8),
@@ -1798,6 +2067,8 @@ module av1_encoder_top #(
                 blk_inter_coded[i] <= 1'b0;
                 blk_ref0[i] <= REF_NONE;
                 blk_inter_mode[i] <= REDUCED_INTER_NONE;
+                blk_mv_x[i] <= 9'sd0;
+                blk_mv_y[i] <= 9'sd0;
             end
         end else begin
             done <= 0;
@@ -1870,6 +2141,8 @@ module av1_encoder_top #(
                             blk_inter_coded[i] <= 1'b0;
                             blk_ref0[i] <= REF_NONE;
                             blk_inter_mode[i] <= REDUCED_INTER_NONE;
+                            blk_mv_x[i] <= 9'sd0;
+                            blk_mv_y[i] <= 9'sd0;
                         end
                         top_state   <= TS_WRITE_TD;
                     end
@@ -2203,9 +2476,7 @@ module av1_encoder_top #(
                         me_mvy <= me_best_mvy;
                         me_sad <= me_best_sad;
                         use_inter <= force_intra_in ? 1'b0 :
-                                     ((me_best_sad < INTRA_SAD_THRESHOLD) &&
-                                      (me_best_mvx == 9'sd0) &&
-                                      (me_best_mvy == 9'sd0));
+                                     (me_best_sad < INTRA_SAD_THRESHOLD);
                         top_state <= TS_PREDICT_INIT;
                     end
                 end
@@ -2499,30 +2770,183 @@ module av1_encoder_top #(
 
                 TS_SYNTAX_NEWMV: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= 5'd1; // GLOBALMV is not NEWMV
+                    ec_symbol        <=
+                        (cur_reduced_inter_mode == REDUCED_INTER_NEWMV) ? 5'd0 : 5'd1;
                     ec_nsyms         <= 5'd2;
-                    ec_icdf_flat     <= newmv_icdf_flat(
-                        get_reduced_single_ref_mode_ctx_fn(blk_x, blk_y, REF_LAST)[2:0]);
+                    ec_icdf_flat     <= newmv_icdf_flat(cur_newmv_ctx);
                     top_state        <= TS_SYNTAX_NEWMVW;
                 end
 
                 TS_SYNTAX_NEWMVW: begin
-                    if (ec_done)
-                        top_state <= TS_SYNTAX_ZEROMV;
+                    if (ec_done) begin
+                        if (cur_reduced_inter_mode == REDUCED_INTER_NEWMV) begin
+                            if (cur_ref_mv_count > 4'd1)
+                                top_state <= TS_SYNTAX_DRL;
+                            else
+                                top_state <= TS_SYNTAX_MVJ;
+                        end else begin
+                            top_state <= TS_SYNTAX_ZEROMV;
+                        end
+                    end
                 end
 
                 TS_SYNTAX_ZEROMV: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= 5'd0; // GLOBALMV
+                    ec_symbol        <=
+                        (cur_reduced_inter_mode == REDUCED_INTER_GLOBALMV) ? 5'd0 : 5'd1;
                     ec_nsyms         <= 5'd2;
-                    ec_icdf_flat     <= zeromv_icdf_flat(
-                        get_reduced_single_ref_mode_ctx_fn(blk_x, blk_y, REF_LAST)[AV1_GLOBALMV_OFFSET]);
+                    ec_icdf_flat     <= zeromv_icdf_flat(cur_zeromv_ctx);
                     top_state        <= TS_SYNTAX_ZEROMVW;
                 end
 
                 TS_SYNTAX_ZEROMVW: begin
                     if (ec_done) begin
+                        if (cur_reduced_inter_mode == REDUCED_INTER_GLOBALMV) begin
+                            if (cur_block_skip) begin
+                                proc_idx  <= 0;
+                                top_state <= TS_IQ_START;
+                            end else begin
+                                proc_idx  <= 0;
+                                top_state <= TS_TXB_SKIP_Y;
+                            end
+                        end else begin
+                            top_state <= TS_SYNTAX_REFMV;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_REFMV: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <=
+                        (cur_reduced_inter_mode == REDUCED_INTER_NEARESTMV) ? 5'd0 : 5'd1;
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= refmv_icdf_flat(cur_refmv_ctx);
+                    top_state        <= TS_SYNTAX_REFMVW;
+                end
+
+                TS_SYNTAX_REFMVW: begin
+                    if (ec_done) begin
                         if (cur_block_skip) begin
+                            proc_idx  <= 0;
+                            top_state <= TS_IQ_START;
+                        end else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_TXB_SKIP_Y;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_DRL: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= 5'd0; // keep ref_mv_idx = 0
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= drl_icdf_flat(cur_drl_ctx);
+                    top_state        <= TS_SYNTAX_DRLW;
+                end
+
+                TS_SYNTAX_DRLW: begin
+                    if (ec_done)
+                        top_state <= TS_SYNTAX_MVJ;
+                end
+
+                TS_SYNTAX_MVJ: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= {3'd0, cur_mv_joint};
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= mv_joint_icdf_flat();
+                    top_state        <= TS_SYNTAX_MVJW;
+                end
+
+                TS_SYNTAX_MVJW: begin
+                    if (ec_done) begin
+                        if (cur_mv_joint[1]) begin
+                            mv_comp_axis <= 1'b0;
+                            top_state <= TS_SYNTAX_MVSIGN;
+                        end else if (cur_mv_joint[0]) begin
+                            mv_comp_axis <= 1'b1;
+                            top_state <= TS_SYNTAX_MVSIGN;
+                        end else if (cur_block_skip) begin
+                            proc_idx  <= 0;
+                            top_state <= TS_IQ_START;
+                        end else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_TXB_SKIP_Y;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_MVSIGN: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= cur_mv_comp_sign ? 5'd1 : 5'd0;
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= mv_sign_icdf_flat();
+                    top_state        <= TS_SYNTAX_MVSIGNW;
+                end
+
+                TS_SYNTAX_MVSIGNW: begin
+                    if (ec_done)
+                        top_state <= TS_SYNTAX_MVCLASS;
+                end
+
+                TS_SYNTAX_MVCLASS: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= {1'b0, cur_mv_class};
+                    ec_nsyms         <= 5'd11;
+                    ec_icdf_flat     <= mv_class_icdf_flat();
+                    top_state        <= TS_SYNTAX_MVCLASSW;
+                end
+
+                TS_SYNTAX_MVCLASSW: begin
+                    if (ec_done) begin
+                        if (cur_mv_class == 4'd0) begin
+                            top_state <= TS_SYNTAX_MVCLASS0;
+                        end else begin
+                            mv_bit_idx <= 4'd0;
+                            top_state <= TS_SYNTAX_MVBIT;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_MVCLASS0: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= {4'd0, cur_mv_d[0]};
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= mv_class0_icdf_flat();
+                    top_state        <= TS_SYNTAX_MVCLASS0W;
+                end
+
+                TS_SYNTAX_MVCLASS0W: begin
+                    if (ec_done) begin
+                        if (!mv_comp_axis && cur_mv_joint[0]) begin
+                            mv_comp_axis <= 1'b1;
+                            top_state <= TS_SYNTAX_MVSIGN;
+                        end else if (cur_block_skip) begin
+                            proc_idx  <= 0;
+                            top_state <= TS_IQ_START;
+                        end else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_TXB_SKIP_Y;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_MVBIT: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= {4'd0, cur_mv_d[mv_bit_idx]};
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= mv_bits_icdf_flat(mv_bit_idx);
+                    top_state        <= TS_SYNTAX_MVBITW;
+                end
+
+                TS_SYNTAX_MVBITW: begin
+                    if (ec_done) begin
+                        if ((mv_bit_idx + 1'b1) < cur_mv_class) begin
+                            mv_bit_idx <= mv_bit_idx + 1'b1;
+                            top_state <= TS_SYNTAX_MVBIT;
+                        end else if (!mv_comp_axis && cur_mv_joint[0]) begin
+                            mv_comp_axis <= 1'b1;
+                            top_state <= TS_SYNTAX_MVSIGN;
+                        end else if (cur_block_skip) begin
                             proc_idx  <= 0;
                             top_state <= TS_IQ_START;
                         end else begin
@@ -3505,7 +3929,11 @@ module av1_encoder_top #(
                             blk_inter_coded[blk_y * BLK_COLS + blk_x] <= use_inter;
                             blk_ref0[blk_y * BLK_COLS + blk_x] <= use_inter ? REF_LAST : REF_NONE;
                             blk_inter_mode[blk_y * BLK_COLS + blk_x] <=
-                                use_inter ? REDUCED_INTER_GLOBALMV : REDUCED_INTER_NONE;
+                                use_inter ? cur_reduced_inter_mode : REDUCED_INTER_NONE;
+                            blk_mv_x[blk_y * BLK_COLS + blk_x] <=
+                                use_inter ? me_mvx : 9'sd0;
+                            blk_mv_y[blk_y * BLK_COLS + blk_x] <=
+                                use_inter ? me_mvy : 9'sd0;
                             // Both chroma planes done
                             top_state <= TS_NEXT_BLK;
                         end

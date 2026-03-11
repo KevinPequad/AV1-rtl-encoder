@@ -115,10 +115,10 @@ Inventory of the current repo state:
   - directional intra prediction now has a real top-right extension path for the current `8x8` raster-order subset instead of always repeating the last top sample
   - RTL raw block syntax on non-key frames now emits the real `intra_inter` symbol before block-mode syntax instead of falling straight from `skip` to keyframe-style `y_mode`
   - `rtl/av1_bitstream.v` no longer emits a placeholder non-key frame header; it now writes a reduced video `INTER_FRAME` header matching the current software reference subset
-  - the raw-path inter bring-up is now explicitly clamped to the zero-motion subset until `NEARESTMV` / `NEWMV` syntax and MV payload ownership are implemented:
-    - the ME decision now keeps `use_inter=1` only for zero-MV matches on the RTL-owned path
-    - the top-level now tracks reduced inter neighborhood state (`inter`, `ref`, reduced inter mode) needed for the next inter-syntax steps
-    - zero-motion inter blocks with coefficients now enter the real generic coefficient syntax path and use the inter `DCT_DCT` `tx_type` CDF on the RTL path instead of falling back to the old placeholder / intra-coded entry
+  - the raw-path reduced inter subset now owns real single-reference LAST-frame motion syntax instead of only the earlier zero-motion scaffold:
+    - the ME decision is no longer clamped to zero-MV matches on the RTL-owned path
+    - the top-level now derives a reduced LAST-ref MV candidate stack from neighboring blocks, stores per-block integer MVs, and emits the real `newmv`, `zeromv`, `refmv`, `drl`, `mv_joint`, sign, class, class0, and class-bit syntax on the RTL byte path
+    - coefficient-bearing inter blocks continue through the real generic coefficient syntax path and use the inter `DCT_DCT` `tx_type` CDF on the RTL path instead of falling back to the old placeholder / intra-coded entry
   - standalone `rtl/av1_bitstream.v` regression harness in `tb/test_rtl_bitstream.cpp` and `make bitstream-check`
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
@@ -184,10 +184,15 @@ Inventory of the current repo state:
     - at `qindex=128`, `encoded.obu` and `encoded_rtl_raw.obu` now match byte-for-byte
     - at that same checkpoint, `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte and the decoded RTL IVF matches `recon.yuv`
     - the last drift on that clip was zero-motion inter blocks still taking the placeholder coefficient path and the intra `tx_type` CDF; `rtl/av1_encoder_top.v` now routes them through the real generic coefficient path and the inter `DCT_DCT` CDF
+  - reduced single-reference natural-motion ownership now extends beyond the repeated-frame zero-motion cases:
+    - `data/natural_motion64_x640_y360_2f.yuv` at `64x64`, `qindex=128`, and `2` frames is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
+    - `data/natural_motion64_x640_y360_3f.yuv` at `64x64`, `qindex=128`, and `3` frames is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
+    - `data/natural_motion32_x640_y360_3f.yuv` at `32x32`, `qindex=128`, and `3` frames is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
+    - the first motion-path drift on that bring-up was not MV payload packing; it was mis-ported raw `refmv` / `drl` probabilities instead of the actual AV1 ICDF entries, and correcting those ICDF values restored exactness on the motion clips
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
-  - larger inter validation runs are still expensive enough that `64x64` and above need careful debug sizing
+  - longer motion validation runs are still expensive enough that `64x64` and above need careful debug sizing
 - Placeholder or debug-only:
   - the current AV1 writer in `tb/` is still being used as a software debug assembly path
   - chroma handling is still simplified relative to full AV1 completion
@@ -223,8 +228,8 @@ Inventory of the current repo state:
     - the raw RTL path now advances blocks in the same recursive partition-tree / Morton order that the writer and decoder expect inside each superblock
     - this removed the first `32x32` payload divergence that appeared once the frame needed more than the original `16x16` exact-match traversal
   - the remaining ownership gap is extending that reduced non-DC path and matching syntax ownership beyond the current single-frame keyframe subset:
-    - full multi-frame / non-key ownership beyond the current reduced non-key header, zero-motion LAST-ref signaling, and `intra_inter` checkpoints
-    - full inter syntax and motion signaling on the RTL path beyond the current zero-motion `GLOBALMV` ownership scaffold
+    - full multi-frame / non-key ownership beyond the current reduced non-key header and the verified reduced LAST-ref motion checkpoints
+    - full inter syntax and motion signaling on the RTL path beyond the current reduced single-reference LAST `GLOBALMV` / `NEARESTMV` / `NEWMV` ownership subset with integer MV payloads
     - less constrained dense and higher-energy coefficient shapes beyond the current regression clips
 - The current active exactness regression is now reference-decoder-backed:
   - the strict `output/highdc_q1/` first-block bug is now fixed:
@@ -235,18 +240,20 @@ Inventory of the current repo state:
     - AOM reference inspection shows the decoder entering the lossless `TX_4X4` path (`tx_size=0`) when `base_q_idx=0`
     - until that separate lossless path is implemented, the testbench and RTL clamp requested `qindex=0` runs to effective `qindex=1` so the current subset does not emit invalid streams
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
-- The current raw-path inter subset is temporarily restricted to zero-motion decisions only while `NEARESTMV` / `NEWMV`, reference-MV stack derivation, and MV payload syntax are still missing.
-- The strict raw-path zero-motion inter checkpoints are now cleared on both the smallest multi-frame video case and the first larger natural-content repeated-frame guard:
+- The current raw-path inter subset now covers reduced single-reference LAST `GLOBALMV`, `NEARESTMV`, and `NEWMV` with integer MV payload syntax and reduced neighboring ref-MV stack derivation.
+- The strict raw-path inter checkpoints are now cleared on both the zero-motion repeated-frame cases and the first natural-motion cases:
   - the `16x16` 2-frame flat repeated-frame IP repro is byte-exact between software-owned and RTL-owned OBU/IVF outputs
   - the `64x64` 2-frame `data/natural_repeat64_x640_y360_2f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
-  - the next remaining inter ownership work is widening mode coverage beyond zero-motion `GLOBALMV`, starting with `NEARESTMV` / `NEWMV` signaling and then MV payload syntax
+  - the `64x64` `2`-frame and `3`-frame `data/natural_motion64_x640_y360_*f.yuv` crops are byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
+  - the `32x32` `3`-frame `data/natural_motion32_x640_y360_3f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
+  - the next remaining inter ownership work is establishing a practical longer multi-frame motion regression guard beyond `3` frames, then widening beyond the current reduced LAST-only subset
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
-  - scaling exact inter verification beyond the small debug clips without waiting on very long exhaustive-ME simulations
+  - scaling exact inter verification beyond the current `3`-frame motion guards without waiting on very long exhaustive-ME simulations
   - expanding beyond the current reduced single-reference subset once the ownership path is real
   - restoring the original `data/ac_probe_16x16_1f.yuv` local asset in this checkout, because `data/tmp_probe_16x16_1f.yuv` is decode-clean but not a byte-exact substitute ownership gate
 - A lightweight debug probe now exists in the testbench:
@@ -306,10 +313,10 @@ make entropy-check THREADS=24 BUILD_JOBS=24
 For exact reconstruction checks, decode the generated IVF and compare it against `output/recon.yuv`.
 For RTL ownership debug, inspect `rtl_frames/frame_XXXX_rtl_raw.obu` and the concatenated `*_rtl_raw.obu` written beside the software-owned `encoded.obu` / `encoded.ivf` outputs.
 
-For inter bring-up, use a repeated-frame `64x64` clip first so the zero-motion subset is exercised before attempting wider-motion content.
+For inter bring-up, use the repeated-frame `64x64` clip first to clear the zero-motion gate, then move to `data/natural_motion64_x640_y360_2f.yuv` or `data/natural_motion64_x640_y360_3f.yuv` for the reduced motion subset.
 If a syntax blocker appears, check `av1-reference-docs/external/README.md` first and refresh that folder from official sources before guessing.
 For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
-If the ME block dominates runtime, drop to the `16x16` 2-frame debug clips first to validate inter correctness before retrying `64x64` and larger cases.
+If the ME block dominates runtime, keep the `32x32` / `64x64` `2`-frame and `3`-frame motion crops in the loop before retrying `5`-frame and longer motion runs.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
 For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` in the loop as the first exact-match regression check at the verified `qindex=240` subset. Use `output/highdc_q1/` plus the local AOM `inspect` build as the strict large-DC regression guard for the fixed qctx-selected `TX_8X8` path, and treat requested `qindex=0` runs as a deferred lossless / `TX_4X4` task that currently clamps to effective `qindex=1`.
 
