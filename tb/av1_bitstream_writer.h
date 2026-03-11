@@ -236,6 +236,14 @@ static const uint16_t av1_mv_fp_cdf[5] = {
     AV1_ICDF(8192), AV1_ICDF(17408), AV1_ICDF(21248), AV1_ICDF(32768), 0
 };
 
+static const uint16_t av1_mv_class0_hp_cdf[3] = {
+    AV1_ICDF(20480), AV1_ICDF(32768), 0
+};
+
+static const uint16_t av1_mv_hp_cdf[3] = {
+    AV1_ICDF(16384), AV1_ICDF(32768), 0
+};
+
 static const uint16_t av1_mv_sign_cdf[3] = {
     AV1_ICDF(16384), AV1_ICDF(32768), 0
 };
@@ -1179,6 +1187,7 @@ private:
         const int mv_class = get_mv_class(mag - 1, &offset);
         const int d = offset >> 3;
         const int fr = (offset >> 1) & 3;
+        const int hp = offset & 1;
 
         encode_symbol_ctx(rc, sign, av1_mv_sign_cdf, 2);
         encode_symbol_ctx(rc, mv_class, av1_mv_class_cdf, 11);
@@ -1189,8 +1198,10 @@ private:
             for (int i = 0; i < n; ++i)
                 encode_symbol_ctx(rc, (d >> i) & 1, av1_mv_bits_cdf[i], 2);
         }
-        if (use_subpel)
+        if (use_subpel) {
             encode_symbol_ctx(rc, fr, mv_class == 0 ? av1_mv_class0_fp_cdf[d] : av1_mv_fp_cdf, 4);
+            encode_symbol_ctx(rc, hp, mv_class == 0 ? av1_mv_class0_hp_cdf : av1_mv_hp_cdf, 2);
+        }
     }
 
     void encode_mv(AV1RangeCoder& rc, int mv_row, int mv_col, int ref_row, int ref_col,
@@ -1615,12 +1626,13 @@ private:
         hdr_bw.write_bit(1);      // error_resilient_mode = 1
         hdr_bw.write_bit(disable_cdf_update_mode_ ? 1 : 0);
         hdr_bw.write_bit(1);      // allow_screen_content_tools = 1
-        hdr_bw.write_bit(1);      // force_integer_mv = 1
+        hdr_bw.write_bit(0);      // force_integer_mv = 0
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         hdr_bw.write_bits(0x01, 8); // refresh LAST slot only
         for (int ref = 0; ref < 7; ++ref)
             hdr_bw.write_bits(0, 3); // Map every ref type to the valid LAST slot
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
+        hdr_bw.write_bit(1);      // allow_high_precision_mv = 1
         hdr_bw.write_bit(0);      // interpolation_filter == SWITCHABLE = 0
         hdr_bw.write_bits(0, 2);  // interpolation_filter = regular
         hdr_bw.write_bit(0);      // is_motion_mode_switchable = 0
@@ -1930,7 +1942,7 @@ private:
                         encode_symbol_ctx(rc, 0, av1_drl_cdf[drl_ctx], 2); // keep ref_mv_idx = 0
                     }
                     encode_mv(rc, static_cast<int>(block_mvy) * 8, static_cast<int>(block_mvx) * 8,
-                              ref_mv.row, ref_mv.col, /*force_integer_mv=*/true);
+                              ref_mv.row, ref_mv.col, /*force_integer_mv=*/false);
                 }
             } else {
                 encode_symbol_ctx(rc, y_mode, av1_if_y_mode_cdf[1], 13);

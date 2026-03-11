@@ -228,6 +228,10 @@ module av1_encoder_top #(
         TS_SYNTAX_MVCLASS0W= 8'd163,
         TS_SYNTAX_MVBIT    = 8'd164,
         TS_SYNTAX_MVBITW   = 8'd165,
+        TS_SYNTAX_MVFP     = 8'd166,
+        TS_SYNTAX_MVFPW    = 8'd167,
+        TS_SYNTAX_MVHP     = 8'd168,
+        TS_SYNTAX_MVHPW    = 8'd169,
         TS_PREDICT      = 6'd11,
         TS_WAIT_PRED    = 6'd12,
         TS_XFORM_ROW    = 6'd13,
@@ -769,6 +773,34 @@ module av1_encoder_top #(
     function [255:0] mv_class0_icdf_flat;
         begin
             mv_class0_icdf_flat = {224'd0, 16'd0, 16'd5120};
+        end
+    endfunction
+
+    function [255:0] mv_class0_fp_icdf_flat;
+        input [0:0] d;
+        begin
+            case (d)
+                1'b0: mv_class0_fp_icdf_flat = {192'd0, 16'd0, 16'd6144, 16'd8192, 16'd16384};
+                default: mv_class0_fp_icdf_flat = {192'd0, 16'd0, 16'd8640, 16'd11520, 16'd20480};
+            endcase
+        end
+    endfunction
+
+    function [255:0] mv_fp_icdf_flat;
+        begin
+            mv_fp_icdf_flat = {192'd0, 16'd0, 16'd11520, 16'd15360, 16'd24576};
+        end
+    endfunction
+
+    function [255:0] mv_class0_hp_icdf_flat;
+        begin
+            mv_class0_hp_icdf_flat = {224'd0, 16'd0, 16'd12288};
+        end
+    endfunction
+
+    function [255:0] mv_hp_icdf_flat;
+        begin
+            mv_hp_icdf_flat = {224'd0, 16'd0, 16'd16384};
         end
     endfunction
 
@@ -1671,6 +1703,8 @@ module av1_encoder_top #(
     wire [3:0]   cur_mv_class = cur_mv_class_pack[15:12];
     wire [11:0]  cur_mv_offset = cur_mv_class_pack[11:0];
     wire [11:0]  cur_mv_d = cur_mv_offset >> 3;
+    wire [1:0]   cur_mv_fr = (cur_mv_offset >> 1) & 2'b11;
+    wire         cur_mv_hp = cur_mv_offset[0];
     wire [1:0]   cur_reduced_inter_mode =
         (me_mvx == 9'sd0 && me_mvy == 9'sd0) ? REDUCED_INTER_GLOBALMV :
         ((cur_mv_col == cur_ref_mv_col) && (cur_mv_row == cur_ref_mv_row)) ?
@@ -2926,16 +2960,7 @@ module av1_encoder_top #(
 
                 TS_SYNTAX_MVCLASS0W: begin
                     if (ec_done) begin
-                        if (!mv_comp_axis && cur_mv_joint[0]) begin
-                            mv_comp_axis <= 1'b1;
-                            top_state <= TS_SYNTAX_MVSIGN;
-                        end else if (cur_block_skip) begin
-                            proc_idx  <= 0;
-                            top_state <= TS_IQ_START;
-                        end else begin
-                            proc_idx  <= 0;
-                            top_state <= TS_TXB_SKIP_Y;
-                        end
+                        top_state <= TS_SYNTAX_MVFP;
                     end
                 end
 
@@ -2952,7 +2977,41 @@ module av1_encoder_top #(
                         if ((mv_bit_idx + 1'b1) < cur_mv_class) begin
                             mv_bit_idx <= mv_bit_idx + 1'b1;
                             top_state <= TS_SYNTAX_MVBIT;
-                        end else if (!mv_comp_axis && cur_mv_joint[0]) begin
+                        end else begin
+                            top_state <= TS_SYNTAX_MVFP;
+                        end
+                    end
+                end
+
+                TS_SYNTAX_MVFP: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= {3'd0, cur_mv_fr};
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= (cur_mv_class == 4'd0) ?
+                                        mv_class0_fp_icdf_flat(cur_mv_d[0]) :
+                                        mv_fp_icdf_flat();
+                    top_state        <= TS_SYNTAX_MVFPW;
+                end
+
+                TS_SYNTAX_MVFPW: begin
+                    if (ec_done) begin
+                        top_state <= TS_SYNTAX_MVHP;
+                    end
+                end
+
+                TS_SYNTAX_MVHP: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= {4'd0, cur_mv_hp};
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= (cur_mv_class == 4'd0) ?
+                                        mv_class0_hp_icdf_flat() :
+                                        mv_hp_icdf_flat();
+                    top_state        <= TS_SYNTAX_MVHPW;
+                end
+
+                TS_SYNTAX_MVHPW: begin
+                    if (ec_done) begin
+                        if (!mv_comp_axis && cur_mv_joint[0]) begin
                             mv_comp_axis <= 1'b1;
                             top_state <= TS_SYNTAX_MVSIGN;
                         end else if (cur_block_skip) begin
