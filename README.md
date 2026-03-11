@@ -119,6 +119,9 @@ Inventory of the current repo state:
     - the ME decision is no longer clamped to zero-MV matches on the RTL-owned path
     - the top-level now derives a reduced LAST-ref MV candidate stack from neighboring blocks, stores per-block integer MVs, and emits the real `newmv`, `zeromv`, `refmv`, `drl`, `mv_joint`, sign, class, class0, and class-bit syntax on the RTL byte path
     - coefficient-bearing inter blocks continue through the real generic coefficient syntax path and use the inter `DCT_DCT` `tx_type` CDF on the RTL path instead of falling back to the old placeholder / intra-coded entry
+  - `rtl/av1_me.v` now preserves the already-tested zero MV when it is also the final legal raster-search candidate:
+    - the old helper always skipped zero after the dedicated zero-MV probe, which pushed bottom-right blocks past the legal search window and could leave `TS_WAIT_ME` spinning on longer clips
+    - the scan now skips zero only when another in-range candidate still follows it
   - standalone `rtl/av1_bitstream.v` regression harness in `tb/test_rtl_bitstream.cpp` and `make bitstream-check`
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
@@ -189,10 +192,14 @@ Inventory of the current repo state:
     - `data/natural_motion64_x640_y360_3f.yuv` at `64x64`, `qindex=128`, and `3` frames is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
     - `data/natural_motion32_x640_y360_3f.yuv` at `32x32`, `qindex=128`, and `3` frames is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
     - the first motion-path drift on that bring-up was not MV payload packing; it was mis-ported raw `refmv` / `drl` probabilities instead of the actual AV1 ICDF entries, and correcting those ICDF values restored exactness on the motion clips
+  - the longer-motion exactness guards now extend past the earlier `3`-frame limit after the ME bottom-right zero-skip fix:
+    - `output/natural_motion32_x640_y360_5f_fix1/`: `32x32`, `5` frames, `qindex=128`, byte-exact between software-owned and RTL-owned OBU/IVF outputs, decoded RTL IVF matches `recon.yuv`
+    - `output/natural_motion64_x640_y360_5f_fix1/`: `64x64`, `5` frames, `qindex=128`, byte-exact between software-owned and RTL-owned OBU/IVF outputs, decoded RTL IVF matches `recon.yuv`
+    - `output/natural_motion64_x640_y360_6f_fix1/`: `64x64`, `6` frames, `qindex=128`, byte-exact between software-owned and RTL-owned OBU/IVF outputs, decoded RTL IVF matches `recon.yuv`
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
-  - longer motion validation runs are still expensive enough that `64x64` and above need careful debug sizing
+  - the first longer-sequence ownership drift now appears on the `64x64` `7`-frame natural-motion clip rather than as a raw runtime wall
 - Placeholder or debug-only:
   - the current AV1 writer in `tb/` is still being used as a software debug assembly path
   - chroma handling is still simplified relative to full AV1 completion
@@ -246,14 +253,15 @@ Inventory of the current repo state:
   - the `64x64` 2-frame `data/natural_repeat64_x640_y360_2f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
   - the `64x64` `2`-frame and `3`-frame `data/natural_motion64_x640_y360_*f.yuv` crops are byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
   - the `32x32` `3`-frame `data/natural_motion32_x640_y360_3f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
-  - the next remaining inter ownership work is establishing a practical longer multi-frame motion regression guard beyond `3` frames, then widening beyond the current reduced LAST-only subset
+  - `output/natural_motion32_x640_y360_5f_fix1/` and `output/natural_motion64_x640_y360_5f_fix1/` are now byte-exact at `5` frames, and `output/natural_motion64_x640_y360_6f_fix1/` is now byte-exact at `6` frames
+  - the next remaining inter ownership work is debugging the first longer-sequence drift on `output/natural_motion64_x640_y360_7f_probe/`, where the software-owned and RTL-owned streams first differ at byte `449` (the start of frame `0006` tile data)
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
-  - scaling exact inter verification beyond the current `3`-frame motion guards without waiting on very long exhaustive-ME simulations
+  - debugging the first `64x64` natural-motion ownership drift beyond the exact `6`-frame guard, which currently starts on frame `0006` / byte `449` of `output/natural_motion64_x640_y360_7f_probe/encoded.obu`
   - expanding beyond the current reduced single-reference subset once the ownership path is real
   - restoring the original `data/ac_probe_16x16_1f.yuv` local asset in this checkout, because `data/tmp_probe_16x16_1f.yuv` is decode-clean but not a byte-exact substitute ownership gate
 - A lightweight debug probe now exists in the testbench:
@@ -316,7 +324,8 @@ For RTL ownership debug, inspect `rtl_frames/frame_XXXX_rtl_raw.obu` and the con
 For inter bring-up, use the repeated-frame `64x64` clip first to clear the zero-motion gate, then move to `data/natural_motion64_x640_y360_2f.yuv` or `data/natural_motion64_x640_y360_3f.yuv` for the reduced motion subset.
 If a syntax blocker appears, check `av1-reference-docs/external/README.md` first and refresh that folder from official sources before guessing.
 For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
-If the ME block dominates runtime, keep the `32x32` / `64x64` `2`-frame and `3`-frame motion crops in the loop before retrying `5`-frame and longer motion runs.
+The bottom-right zero-skip ME bug is fixed, so the reduced motion guard now extends cleanly through the `32x32` and `64x64` `5`-frame clips plus the `64x64` `6`-frame clip.
+Use `output/natural_motion64_x640_y360_7f_probe/` as the first longer-sequence failure when debugging the next natural-motion ownership drift.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
 For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` in the loop as the first exact-match regression check at the verified `qindex=240` subset. Use `output/highdc_q1/` plus the local AOM `inspect` build as the strict large-DC regression guard for the fixed qctx-selected `TX_8X8` path, and treat requested `qindex=0` runs as a deferred lossless / `TX_4X4` task that currently clamps to effective `qindex=1`.
 

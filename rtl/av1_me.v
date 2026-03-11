@@ -11,6 +11,7 @@ module av1_me #(
     input  wire        clk,
     input  wire        rst_n,
     input  wire        start,
+    input  wire        zero_mv_only,
     output reg         done,
 
     // Current block position (pixel coordinates)
@@ -61,16 +62,20 @@ module av1_me #(
     wire signed [10:0] cand_y = $signed({1'b0, cur_y}) + mv_y;
     wire signed [11:0] cur_x_s = $signed({1'b0, cur_x});
     wire signed [11:0] cur_y_s = $signed({1'b0, cur_y});
-    wire signed [11:0] valid_min_x_w =
+    wire signed [11:0] valid_min_x_full_w =
         (cur_x_s < SEARCH_RANGE_S) ? -cur_x_s : -SEARCH_RANGE_S;
-    wire signed [11:0] valid_min_y_w =
+    wire signed [11:0] valid_min_y_full_w =
         (cur_y_s < SEARCH_RANGE_S) ? -cur_y_s : -SEARCH_RANGE_S;
-    wire signed [11:0] valid_max_x_w =
+    wire signed [11:0] valid_max_x_full_w =
         ((cur_x_s + BLOCK_SIZE_S + SEARCH_RANGE_S) > FRAME_WIDTH_S) ?
             (FRAME_WIDTH_S - BLOCK_SIZE_S - cur_x_s) : SEARCH_RANGE_S;
-    wire signed [11:0] valid_max_y_w =
+    wire signed [11:0] valid_max_y_full_w =
         ((cur_y_s + BLOCK_SIZE_S + SEARCH_RANGE_S) > FRAME_HEIGHT_S) ?
             (FRAME_HEIGHT_S - BLOCK_SIZE_S - cur_y_s) : SEARCH_RANGE_S;
+    wire signed [11:0] valid_min_x_w = zero_mv_only ? 12'sd0 : valid_min_x_full_w;
+    wire signed [11:0] valid_min_y_w = zero_mv_only ? 12'sd0 : valid_min_y_full_w;
+    wire signed [11:0] valid_max_x_w = zero_mv_only ? 12'sd0 : valid_max_x_full_w;
+    wire signed [11:0] valid_max_y_w = zero_mv_only ? 12'sd0 : valid_max_y_full_w;
     wire zero_mv_valid_w =
         (valid_min_x_w <= 0 && valid_max_x_w >= 0 &&
          valid_min_y_w <= 0 && valid_max_y_w >= 0);
@@ -104,6 +109,7 @@ module av1_me #(
         input signed [8:0] cur_mv_y;
         input signed [8:0] min_mv_x;
         input signed [8:0] max_mv_x;
+        input signed [8:0] max_mv_y;
         input              skip_zero;
         reg [17:0] pair;
         reg signed [8:0] next_mv_x;
@@ -112,18 +118,21 @@ module av1_me #(
             pair = advance_raster_pair(cur_mv_x, cur_mv_y, min_mv_x, max_mv_x);
             next_mv_y = pair[17:9];
             next_mv_x = pair[8:0];
-            if (skip_zero && next_mv_x == 0 && next_mv_y == 0)
+            // Zero MV is evaluated first via zero_mv_pending. Skip it during the
+            // raster scan unless it is also the final legal candidate.
+            if (skip_zero && next_mv_x == 0 && next_mv_y == 0 &&
+                !(next_mv_x == max_mv_x && next_mv_y == max_mv_y))
                 pair = advance_raster_pair(next_mv_x, next_mv_y, min_mv_x, max_mv_x);
             advance_raster_skip_zero = pair;
         end
     endfunction
 
     wire [17:0] next_mv_pair_w =
-        advance_raster_skip_zero(mv_x, mv_y, mv_x_min, mv_x_max, 1'b1);
+        advance_raster_skip_zero(mv_x, mv_y, mv_x_min, mv_x_max, mv_y_max, 1'b1);
     wire signed [8:0] next_mv_x_w = next_mv_pair_w[8:0];
     wire signed [8:0] next_mv_y_w = next_mv_pair_w[17:9];
     wire [17:0] first_scan_pair_w =
-        advance_raster_skip_zero(mv_x_min, mv_y_min, mv_x_min, mv_x_max, 1'b1);
+        advance_raster_skip_zero(mv_x_min, mv_y_min, mv_x_min, mv_x_max, mv_y_max, 1'b1);
     wire signed [8:0] first_scan_x_w = first_scan_pair_w[8:0];
     wire signed [8:0] first_scan_y_w = first_scan_pair_w[17:9];
     wire single_candidate_w = (mv_x_min == mv_x_max) && (mv_y_min == mv_y_max);
