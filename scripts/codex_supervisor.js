@@ -47,7 +47,7 @@ function parseArgs(argv) {
     const options = {
         repo: process.cwd(),
         stateDir: ".codex-supervisor",
-        model: "gpt-5.3-codex",
+        model: "gpt-5.4",
         reasoningEffort: "xhigh",
         sandbox: "danger-full-access",
         sleepSeconds: 10,

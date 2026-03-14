@@ -1,6 +1,6 @@
 param(
     [string]$Repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
-    [string]$Model = "gpt-5.3-codex",
+    [string]$Model = "gpt-5.4",
     [string]$ReasoningEffort = "xhigh",
     [string]$Sandbox = "danger-full-access",
     [int]$SleepSeconds = 10,

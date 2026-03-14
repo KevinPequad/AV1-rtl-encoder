@@ -64,7 +64,7 @@ make THREADS=24 BUILD_JOBS=24
 
 ## Continuous Codex Supervisor
 
-The repo now includes a restartable Codex supervisor that keeps a non-interactive `codex exec` session running on `xhigh`, resumes the same thread after each turn, and only exits cleanly when the agent marks the project `complete` (or when you opt into `--stop-on-blocker`).
+The repo now includes a restartable Codex supervisor that keeps a non-interactive `codex exec` session running on `gpt-5.4` with `xhigh` reasoning, resumes the same thread after each turn, and only exits cleanly when the agent marks the project `complete` (or when you opt into `--stop-on-blocker`).
 
 Files:
 
