@@ -83,3 +83,6 @@ run_debug*.bat
 
 # Large local reference repos copied into docs
 av1-reference-docs/h264-rtl-encoder/
+
+# Local Codex supervisor runtime
+.codex-supervisor/
