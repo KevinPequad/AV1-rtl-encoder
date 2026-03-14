@@ -62,6 +62,45 @@ cd tb
 make THREADS=24 BUILD_JOBS=24
 ```
 
+## Continuous Codex Supervisor
+
+The repo now includes a restartable Codex supervisor that keeps a non-interactive `codex exec` session running on `xhigh`, resumes the same thread after each turn, and only exits cleanly when the agent marks the project `complete` (or when you opt into `--stop-on-blocker`).
+
+Files:
+
+- `scripts/codex_supervisor.js`: main loop
+- `scripts/codex_supervisor.ps1`: Windows wrapper
+- `scripts/codex_supervisor.initial.md`: first-turn mission prompt
+- `scripts/codex_supervisor.continue.md`: resume prompt
+
+Runtime artifacts are written under `.codex-supervisor/` and are git-ignored.
+
+Recommended launch from the repo root on this machine:
+
+```powershell
+.\scripts\codex_supervisor.ps1
+```
+
+Equivalent direct Node launch:
+
+```bash
+node scripts/codex_supervisor.js --repo .
+```
+
+Useful flags:
+
+- `--fresh`: ignore any saved session id and start a new Codex thread
+- `--max-runs 1`: do a bounded smoke run
+- `--stop-on-blocker`: exit if the agent reports a true hard blocker
+- `--search`: enable Codex web search on the first launch turn
+
+Supervisor contract:
+
+- the agent must rewrite `.codex-supervisor/status.json` before ending each turn
+- `status` must be one of `continue`, `blocked`, or `complete`
+- `next_prompt` should contain the exact best follow-up instruction for the next resume turn
+- `complete` is only valid once the repo's full AV1 acceptance target is actually verified
+
 ## References
 
 Always use primary references before making codec decisions.
