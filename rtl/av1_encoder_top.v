@@ -42,14 +42,14 @@ module av1_encoder_top #(
     output reg  [7:0]  ref_mem_wr_data,
 
     // Chroma reference memory (Cb)
-    output reg  [17:0] chr_cb_ref_rd_addr,
+    output wire [17:0] chr_cb_ref_rd_addr,
     input  wire [7:0]  chr_cb_ref_rd_data,
     output reg         chr_cb_ref_wr_en,
     output reg  [17:0] chr_cb_ref_wr_addr,
     output reg  [7:0]  chr_cb_ref_wr_data,
 
     // Chroma reference memory (Cr)
-    output reg  [17:0] chr_cr_ref_rd_addr,
+    output wire [17:0] chr_cr_ref_rd_addr,
     input  wire [7:0]  chr_cr_ref_rd_data,
     output reg         chr_cr_ref_wr_en,
     output reg  [17:0] chr_cr_ref_wr_addr,
@@ -1910,6 +1910,14 @@ module av1_encoder_top #(
     wire [7:0]  inter_pred_out [0:63];
     wire        inter_pred_active = (top_state == TS_INTER_READ);
 
+    wire        chroma_pred_done;
+    reg         chroma_pred_start;
+    wire [17:0] chroma_pred_ref_addr;
+    wire [7:0]  chroma_pred_out [0:15];
+    wire        chroma_pred_active = (top_state == TS_CHR_WAIT) && use_inter && !is_keyframe;
+    assign chr_cb_ref_rd_addr = (chroma_pred_active && !chr_plane) ? chroma_pred_ref_addr : 18'd0;
+    assign chr_cr_ref_rd_addr = (chroma_pred_active &&  chr_plane) ? chroma_pred_ref_addr : 18'd0;
+
     // Mux reference read address: neighbor load vs inter predictor vs ME.
     assign ref_mem_rd_addr = neigh_rd_active ? neigh_rd_addr :
                              inter_pred_active ? inter_pred_ref_addr :
@@ -1953,6 +1961,23 @@ module av1_encoder_top #(
         .ref_mem_data(ref_mem_rd_data),
         .done(inter_pred_done),
         .pred(inter_pred_out)
+    );
+
+    av1_chroma_inter_pred #(
+        .CHROMA_WIDTH(CHROMA_W),
+        .CHROMA_HEIGHT(CHROMA_H)
+    ) u_chroma_inter_pred (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(chroma_pred_start),
+        .cur_x({1'b0, blk_x} * 4),
+        .cur_y({1'b0, blk_y} * 4),
+        .mv_x_q3(me_mvx_q3),
+        .mv_y_q3(me_mvy_q3),
+        .ref_mem_addr(chroma_pred_ref_addr),
+        .ref_mem_data(chr_plane ? chr_cr_ref_rd_data : chr_cb_ref_rd_data),
+        .done(chroma_pred_done),
+        .pred(chroma_pred_out)
     );
 
     // Entropy coder
@@ -2122,6 +2147,7 @@ module av1_encoder_top #(
             me_sad      <= 18'd0;
             use_inter   <= 1'b0;
             inter_pred_start <= 0;
+            chroma_pred_start <= 0;
             ec_init     <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
@@ -2196,6 +2222,7 @@ module av1_encoder_top #(
             ixform_start <= 0;
             me_start     <= 0;
             inter_pred_start <= 0;
+            chroma_pred_start <= 0;
             ec_init      <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
@@ -3990,22 +4017,35 @@ module av1_encoder_top #(
                     end
                 end
 
-                // Fetch chroma 4x4 block
+                // Fetch/predict chroma 4x4 block.  Chroma residual coding is
+                // still zero-only, so inter blocks reconstruct from chroma motion
+                // compensation while intra/key blocks stay on the deterministic
+                // DC chroma predictor used by the syntax writer.
                 TS_CHR_FETCH: begin
-                    fetch_start     <= 1;
-                    fetch_is_chroma <= 1;
-                    fetch_chroma_id <= chr_plane;
-                    fetch_blk_x     <= blk_x;
-                    fetch_blk_y     <= blk_y;
-                    top_state       <= TS_CHR_WAIT;
+                    if (use_inter && !is_keyframe) begin
+                        chroma_pred_start <= 1'b1;
+                    end else begin
+                        fetch_start     <= 1;
+                        fetch_is_chroma <= 1;
+                        fetch_chroma_id <= chr_plane;
+                        fetch_blk_x     <= blk_x;
+                        fetch_blk_y     <= blk_y;
+                    end
+                    top_state <= TS_CHR_WAIT;
                 end
 
-                // Wait for chroma fetch, copy to buffer
+                // Wait for chroma fetch/predict, copy to buffer
                 TS_CHR_WAIT: begin
-                    if (fetch_done) begin
-                        // The current software AV1 writer only emits zero-residual
-                        // chroma blocks. Keep RTL reconstruction aligned with that
-                        // path until real chroma residual coding is implemented.
+                    if (use_inter && !is_keyframe) begin
+                        if (chroma_pred_done) begin
+                            for (i = 0; i < 16; i = i + 1)
+                                chr_blk[i] <= chroma_pred_out[i];
+                            chr_wr_idx <= 0;
+                            top_state  <= TS_CHR_WR;
+                        end
+                    end else if (fetch_done) begin
+                        // The writer only emits zero-residual intra/key chroma;
+                        // keep reconstruction aligned with its UV_DC_PRED path.
                         for (i = 0; i < 16; i = i + 1)
                             chr_blk[i] <= 8'd128;
                         chr_wr_idx <= 0;
