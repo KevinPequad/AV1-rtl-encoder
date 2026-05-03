@@ -23,8 +23,8 @@ Completed:
 
 ## Next Slice
 
-1. Expand the new one-block non-zero Cb/Cr TX_4X4 syntax proof to multi-block 16x16+ non-flat chroma by adding decoder-matching chroma intra prediction from reconstructed chroma neighbors.
-2. Keep the current `nonzero-chroma-syntax-check` public-decoder gate passing while widening the fixture.
+1. Widen the now-passing 16x16 multi-block non-zero chroma proof toward larger/natural chroma cases and inter-frame chroma residual cases.
+2. Keep both `nonzero-chroma-syntax-check` and `nonzero-chroma16-syntax-check` public-decoder gates passing while widening the fixture.
 3. Continue widening the real non-zero fractional-pel translational checkpoints on the reduced LAST-only path without regressing the syntax-only subpel guards.
 
 ## Regression Gates
@@ -74,22 +74,23 @@ Verified commands:
 - `make THREADS=16 BUILD_JOBS=16 WIDTH=16 HEIGHT=16 all`
 - `THREADS=16 BUILD_JOBS=16 bash /tmp/av1_chudpc2_smoke.sh`
 
-Latest progress: constrained one-block non-zero Cb/Cr TX_4X4 syntax is now RTL-owned and public-decoder verified with `make THREADS=16 BUILD_JOBS=16 nonzero-chroma-syntax-check`. Remaining blocker for wider proof: multi-block non-flat chroma needs decoder-matching chroma intra-neighbor prediction before the 16x16+ chroma probe can pass recon parity.
+Latest progress: multi-block 16x16 non-zero Cb/Cr TX_4X4 syntax is now RTL-owned and public-decoder verified with `make THREADS=16 BUILD_JOBS=16 nonzero-chroma16-syntax-check`. The one-block 8x8 `nonzero-chroma-syntax-check` remains passing as the isolated syntax gate.
 
 
-## Chud PC 2 non-zero chroma syntax checkpoint
+## Chud PC 2 non-zero chroma syntax checkpoints
 
-Implemented a constrained one-block dynamic proof for non-zero Cb/Cr TX_4X4 syntax:
+Implemented public-decoder gates for both isolated and multi-block non-zero Cb/Cr TX_4X4 syntax:
 
-- C++ oracle and RTL both emit Cb/Cr `txb_skip`, EOB, base, BR/sign syntax from captured chroma qcoeffs.
-- Fixed TX_4X4 EOB symbol count, removed invalid chroma-only luma tx_type insertion, and added separate oracle Cb/Cr entropy contexts.
-- Adjusted chroma residual inverse scaling so public decoder reconstruction matches RTL `recon.yuv` for TX_4X4 DC.
+- `nonzero-chroma-syntax-check` keeps the constrained 8x8 one-block proof for Cb/Cr TX_4X4 `txb_skip`, EOB, base, BR/sign syntax.
+- `nonzero-chroma16-syntax-check` widens that proof to a 16x16 all-key non-flat chroma frame with multiple chroma transform blocks.
+- The 16x16 widening added decoder-matching intra chroma DC prediction from reconstructed current-frame chroma neighbors and mirrored Cb/Cr entropy contexts in RTL.
 
-Verification gate:
+Verification gates:
 
 ```bash
 cd tb
 make THREADS=16 BUILD_JOBS=16 nonzero-chroma-syntax-check
+make THREADS=16 BUILD_JOBS=16 nonzero-chroma16-syntax-check
 ```
 
-The gate uses an 8x8 all-key non-flat chroma probe and verifies RTL raw OBU equality plus FFmpeg/aomdec decode-vs-recon parity. The next expansion is 16x16+ non-flat chroma with decoder-matching chroma intra prediction from reconstructed chroma neighbors.
+Both gates verify RTL raw OBU equality plus FFmpeg/aomdec decode-vs-`recon.yuv` parity.

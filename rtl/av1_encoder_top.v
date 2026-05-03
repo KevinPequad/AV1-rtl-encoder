@@ -51,6 +51,7 @@ module av1_encoder_top #(
     // Chroma reference memory (Cr)
     output wire [17:0] chr_cr_ref_rd_addr,
     input  wire [7:0]  chr_cr_ref_rd_data,
+    output wire        chr_ref_rd_is_neigh,  // 1 = reading current-frame chroma neighbors
     output reg         chr_cr_ref_wr_en,
     output reg  [17:0] chr_cr_ref_wr_addr,
     output reg  [7:0]  chr_cr_ref_wr_data,
@@ -273,7 +274,9 @@ module av1_encoder_top #(
         TS_CHR_GOLOMB_BIT  = 8'd185,
         TS_CHR_GOLOMB_BW   = 8'd186,
         TS_CHR_ONLY_TX_TYPE = 8'd187,
-        TS_CHR_ONLY_TX_WAIT = 8'd188; // Chroma TX_4X4 coefficient syntax
+        TS_CHR_ONLY_TX_WAIT = 8'd188,
+        TS_CHR_NB_ADDR     = 8'd189,
+        TS_CHR_NB_READ     = 8'd190; // Chroma TX_4X4 coefficient syntax
 
     reg [7:0]  top_state;
     reg [9:0]  blk_x, blk_y;    // Current block position (in 8x8 units)
@@ -364,6 +367,10 @@ module av1_encoder_top #(
     reg signed [15:0] blk_mv_y [0:BLK_COLS*BLK_ROWS-1];
     reg [1:0]  dc_sign_above  [0:MI_COLS-1];
     reg [1:0]  dc_sign_left   [0:MI_ROWS-1];
+    reg [4:0]  cb_ctx_above   [0:BLK_COLS-1];
+    reg [4:0]  cb_ctx_left    [0:BLK_ROWS-1];
+    reg [4:0]  cr_ctx_above   [0:BLK_COLS-1];
+    reg [4:0]  cr_ctx_left    [0:BLK_ROWS-1];
     reg        cur_only_dc_nonzero;
     reg        cur_only_reduced_ac_nonzero;
     reg        cur_only_eob9_nonzero;
@@ -1545,6 +1552,19 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [7:0] chroma_dc_pred_from_sum;
+        input [11:0] sum;
+        input [3:0] count;
+        begin
+            case (count)
+                4'd0: chroma_dc_pred_from_sum = 8'd128;
+                4'd4: chroma_dc_pred_from_sum = (sum + 12'd2) >> 2;
+                4'd8: chroma_dc_pred_from_sum = (sum + 12'd4) >> 3;
+                default: chroma_dc_pred_from_sum = (sum + (count >> 1)) / count;
+            endcase
+        end
+    endfunction
+
     function [3:0] eob_to_pos_small_fn;
         input [5:0] eob;
         begin
@@ -1710,6 +1730,63 @@ module av1_encoder_top #(
         input signed [15:0] val;
         begin
             abs16 = val[15] ? -val : val;
+        end
+    endfunction
+
+    function [4:0] chroma_ctx_from_dc;
+        input signed [15:0] dc;
+        begin
+            if (dc < 16'sd0)
+                chroma_ctx_from_dc = 5'd9;
+            else if (dc > 16'sd0)
+                chroma_ctx_from_dc = 5'd17;
+            else
+                chroma_ctx_from_dc = 5'd0;
+        end
+    endfunction
+
+    function [3:0] get_chroma_txb_skip_ctx_cur;
+        input plane;
+        input [9:0] cur_blk_x;
+        input [9:0] cur_blk_y;
+        integer above_ec;
+        integer left_ec;
+        begin
+            if (plane) begin
+                above_ec = ((cur_blk_y > 0) && (cur_blk_x < BLK_COLS) && (cr_ctx_above[cur_blk_x] != 5'd0)) ? 1 : 0;
+                left_ec  = ((cur_blk_x > 0) && (cur_blk_y < BLK_ROWS) && (cr_ctx_left[cur_blk_y] != 5'd0)) ? 1 : 0;
+            end else begin
+                above_ec = ((cur_blk_y > 0) && (cur_blk_x < BLK_COLS) && (cb_ctx_above[cur_blk_x] != 5'd0)) ? 1 : 0;
+                left_ec  = ((cur_blk_x > 0) && (cur_blk_y < BLK_ROWS) && (cb_ctx_left[cur_blk_y] != 5'd0)) ? 1 : 0;
+            end
+            get_chroma_txb_skip_ctx_cur = 4'd7 + above_ec[3:0] + left_ec[3:0];
+        end
+    endfunction
+
+    function [1:0] get_chroma_dc_sign_ctx_cur;
+        input plane;
+        input [9:0] cur_blk_x;
+        input [9:0] cur_blk_y;
+        integer acc;
+        begin
+            acc = 0;
+            if (plane) begin
+                if ((cur_blk_y > 0) && (cur_blk_x < BLK_COLS))
+                    acc = acc + dc_sign_delta((cr_ctx_above[cur_blk_x] >> 3) & 2'd3);
+                if ((cur_blk_x > 0) && (cur_blk_y < BLK_ROWS))
+                    acc = acc + dc_sign_delta((cr_ctx_left[cur_blk_y] >> 3) & 2'd3);
+            end else begin
+                if ((cur_blk_y > 0) && (cur_blk_x < BLK_COLS))
+                    acc = acc + dc_sign_delta((cb_ctx_above[cur_blk_x] >> 3) & 2'd3);
+                if ((cur_blk_x > 0) && (cur_blk_y < BLK_ROWS))
+                    acc = acc + dc_sign_delta((cb_ctx_left[cur_blk_y] >> 3) & 2'd3);
+            end
+            if (acc > 0)
+                get_chroma_dc_sign_ctx_cur = 2'd2;
+            else if (acc < 0)
+                get_chroma_dc_sign_ctx_cur = 2'd1;
+            else
+                get_chroma_dc_sign_ctx_cur = 2'd0;
         end
     endfunction
 
@@ -1910,7 +1987,8 @@ module av1_encoder_top #(
     wire [255:0] cur_uv_icdf    = uv_mode_dc_icdf_flat(best_intra_mode);
     wire [1:0]   cur_coeff_qctx = coeff_qctx_from_qindex_fn(qindex);
     wire [255:0] cur_txb_luma_icdf = txb_skip_luma_icdf_flat_qctx(cur_coeff_qctx, 4'd0);
-    wire [255:0] cur_txb_chr_icdf  = txb_skip_chroma_icdf_flat_qctx(cur_coeff_qctx, 4'd7);
+    wire [3:0]   cur_txb_chr_ctx   = get_chroma_txb_skip_ctx_cur(chr_syntax_plane, blk_x, blk_y);
+    wire [255:0] cur_txb_chr_icdf  = txb_skip_chroma_icdf_flat_qctx(cur_coeff_qctx, cur_txb_chr_ctx);
     wire [255:0] cur_intra_tx_icdf = intra_tx_type_dct_icdf_flat(best_intra_mode);
     wire [255:0] cur_inter_tx_icdf = inter_tx_type_dct_icdf_flat();
     wire [255:0] cur_eob_multi_icdf = eob_multi64_icdf_flat_qctx(cur_coeff_qctx, 1'b0);
@@ -1923,6 +2001,7 @@ module av1_encoder_top #(
     wire [255:0] cur_base6_icdf    = coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, 6'd6);
     wire [255:0] cur_base7_icdf    = coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, 6'd7);
     wire [1:0]   cur_dc_sign_ctx   = get_dc_sign_ctx_cur(blk_x, blk_y);
+    wire [1:0]   cur_chr_dc_sign_ctx = get_chroma_dc_sign_ctx_cur(chr_syntax_plane, blk_x, blk_y);
     wire [255:0] cur_dc_sign_icdf  = dc_sign_ctx0_icdf_flat(cur_dc_sign_ctx);
     wire [255:0] cur_coeff_br_icdf = coeff_br_ctx_icdf_flat_qctx(cur_coeff_qctx, 5'd0);
     wire [255:0] cur_coeff_br1_icdf = coeff_br_ctx_icdf_flat_qctx(cur_coeff_qctx, 5'd1);
@@ -2005,6 +2084,12 @@ module av1_encoder_top #(
     reg        chr_fetch_seen;
     reg        chr_pred_seen;
     reg        chr_capture_only; // pre-syntax chroma qcoeff capture, no ref write
+    reg        chr_ref_neigh_active;
+    reg [17:0] chr_ref_neigh_addr;
+    reg [2:0]  chr_nb_idx;
+    reg        chr_nb_sample_valid;
+    reg [11:0] chr_dc_sum;
+    reg [3:0]  chr_dc_count;
 
     // ====================================================================
     // Sub-module instantiation
@@ -2159,8 +2244,11 @@ module av1_encoder_top #(
     wire [17:0] chroma_pred_ref_addr;
     wire [7:0]  chroma_pred_out [0:15];
     wire        chroma_pred_active = (top_state == TS_CHR_WAIT) && use_inter && !is_keyframe;
-    assign chr_cb_ref_rd_addr = (chroma_pred_active && !chr_plane) ? chroma_pred_ref_addr : 18'd0;
-    assign chr_cr_ref_rd_addr = (chroma_pred_active &&  chr_plane) ? chroma_pred_ref_addr : 18'd0;
+    assign chr_ref_rd_is_neigh = chr_ref_neigh_active;
+    assign chr_cb_ref_rd_addr = (chr_ref_neigh_active && !chr_plane) ? chr_ref_neigh_addr :
+                                (chroma_pred_active && !chr_plane) ? chroma_pred_ref_addr : 18'd0;
+    assign chr_cr_ref_rd_addr = (chr_ref_neigh_active &&  chr_plane) ? chr_ref_neigh_addr :
+                                (chroma_pred_active &&  chr_plane) ? chroma_pred_ref_addr : 18'd0;
 
     // Mux reference read address: neighbor load vs inter predictor vs ME.
     assign ref_mem_rd_addr = neigh_rd_active ? neigh_rd_addr :
@@ -2413,6 +2501,7 @@ module av1_encoder_top #(
             inter_pred_start <= 0;
             chroma_pred_start <= 0;
             chroma_res_start <= 0;
+            chr_ref_neigh_active <= 1'b0;
             ec_init     <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
@@ -2467,6 +2556,12 @@ module av1_encoder_top #(
             chr_fetch_seen <= 1'b0;
             chr_pred_seen <= 1'b0;
             chr_capture_only <= 1'b0;
+            chr_ref_neigh_active <= 1'b0;
+            chr_ref_neigh_addr <= 18'd0;
+            chr_nb_idx <= 3'd0;
+            chr_nb_sample_valid <= 1'b0;
+            chr_dc_sum <= 12'd0;
+            chr_dc_count <= 4'd0;
             for (i = 0; i < MI_COLS; i = i + 1) begin
                 part_ctx_above[i] <= 8'd0;
                 skip_above[i] <= 1'b0;
@@ -2475,6 +2570,10 @@ module av1_encoder_top #(
                 mode_above[i] <= AV1_DC_PRED;
                 dc_sign_above[i] <= 2'd0;
             end
+            for (i = 0; i < BLK_COLS; i = i + 1) begin
+                cb_ctx_above[i] <= 5'd0;
+                cr_ctx_above[i] <= 5'd0;
+            end
             for (i = 0; i < MI_ROWS; i = i + 1) begin
                 part_ctx_left[i] <= 8'd0;
                 skip_left[i] <= 1'b0;
@@ -2482,6 +2581,10 @@ module av1_encoder_top #(
                 ref_left[i] <= REF_NONE;
                 mode_left[i] <= AV1_DC_PRED;
                 dc_sign_left[i] <= 2'd0;
+            end
+            for (i = 0; i < BLK_ROWS; i = i + 1) begin
+                cb_ctx_left[i] <= 5'd0;
+                cr_ctx_left[i] <= 5'd0;
             end
             for (i = 0; i < (BLK_COLS * BLK_ROWS); i = i + 1) begin
                 blk_inter_coded[i] <= 1'b0;
@@ -2504,6 +2607,7 @@ module av1_encoder_top #(
             inter_pred_start <= 0;
             chroma_pred_start <= 0;
             chroma_res_start <= 0;
+            chr_ref_neigh_active <= 1'b0;
             ec_init      <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
@@ -2552,6 +2656,10 @@ module av1_encoder_top #(
                             mode_above[i] <= AV1_DC_PRED;
                             dc_sign_above[i] <= 2'd0;
                         end
+                        for (i = 0; i < BLK_COLS; i = i + 1) begin
+                            cb_ctx_above[i] <= 5'd0;
+                            cr_ctx_above[i] <= 5'd0;
+                        end
                         for (i = 0; i < MI_ROWS; i = i + 1) begin
                             part_ctx_left[i] <= 8'd0;
                             skip_left[i] <= 1'b0;
@@ -2559,6 +2667,10 @@ module av1_encoder_top #(
                             ref_left[i] <= REF_NONE;
                             mode_left[i] <= AV1_DC_PRED;
                             dc_sign_left[i] <= 2'd0;
+                        end
+                        for (i = 0; i < BLK_ROWS; i = i + 1) begin
+                            cb_ctx_left[i] <= 5'd0;
+                            cr_ctx_left[i] <= 5'd0;
                         end
                         for (i = 0; i < (BLK_COLS * BLK_ROWS); i = i + 1) begin
                             blk_inter_coded[i] <= 1'b0;
@@ -4362,7 +4474,7 @@ module av1_encoder_top #(
                             ec_encode_symbol <= 1;
                             ec_symbol        <= (chr_syntax_plane ? chr_cr_qcoeff[scan_4x4_pos(proc_idx[3:0])][15] : chr_cb_qcoeff[scan_4x4_pos(proc_idx[3:0])][15]) ? 5'd1 : 5'd0;
                             ec_nsyms         <= 5'd2;
-                            ec_icdf_flat     <= dc_sign_chroma_icdf_flat(cur_dc_sign_ctx);
+                            ec_icdf_flat     <= dc_sign_chroma_icdf_flat(cur_chr_dc_sign_ctx);
                         end else begin
                             ec_encode_bool <= 1;
                             ec_bool_val    <= chr_syntax_plane ? chr_cr_qcoeff[scan_4x4_pos(proc_idx[3:0])][15] : chr_cb_qcoeff[scan_4x4_pos(proc_idx[3:0])][15];
@@ -4576,10 +4688,73 @@ module av1_encoder_top #(
                     fetch_blk_x     <= blk_x;
                     fetch_blk_y     <= blk_y;
                     chr_fetch_seen  <= 1'b0;
-                    chr_pred_seen   <= !(use_inter && !is_keyframe);
-                    if (use_inter && !is_keyframe)
+                    chr_pred_seen   <= 1'b0;
+                    chr_dc_sum      <= 12'd0;
+                    chr_dc_count    <= 4'd0;
+                    chr_nb_idx      <= 3'd0;
+                    chr_nb_sample_valid <= 1'b0;
+                    if (use_inter && !is_keyframe) begin
                         chroma_pred_start <= 1'b1;
-                    top_state <= TS_CHR_WAIT;
+                        top_state <= TS_CHR_WAIT;
+                    end else if ((blk_x != 0) || (blk_y != 0)) begin
+                        top_state <= TS_CHR_NB_ADDR;
+                    end else begin
+                        for (i = 0; i < 16; i = i + 1)
+                            chr_pred_blk[i] <= 8'd128;
+                        chr_pred_seen <= 1'b1;
+                        top_state <= TS_CHR_WAIT;
+                    end
+                end
+
+                TS_CHR_NB_ADDR: begin
+                    if (fetch_done) begin
+                        for (i = 0; i < 16; i = i + 1)
+                            chr_cur_blk[i] <= fetch_pixel_buf[i];
+                        chr_fetch_seen <= 1'b1;
+                    end
+                    if ((chr_nb_idx < 3'd4) && (blk_y != 0)) begin
+                        chr_ref_neigh_active <= 1'b1;
+                        chr_ref_neigh_addr <= ((blk_y * 4) - 1) * CHROMA_W + (blk_x * 4) + chr_nb_idx;
+                        chr_nb_sample_valid <= 1'b1;
+                    end else if ((chr_nb_idx >= 3'd4) && (blk_x != 0)) begin
+                        chr_ref_neigh_active <= 1'b1;
+                        chr_ref_neigh_addr <= ((blk_y * 4) + (chr_nb_idx - 3'd4)) * CHROMA_W + (blk_x * 4) - 1;
+                        chr_nb_sample_valid <= 1'b1;
+                    end else begin
+                        chr_nb_sample_valid <= 1'b0;
+                    end
+                    top_state <= TS_CHR_NB_READ;
+                end
+
+                TS_CHR_NB_READ: begin
+                    if (fetch_done) begin
+                        for (i = 0; i < 16; i = i + 1)
+                            chr_cur_blk[i] <= fetch_pixel_buf[i];
+                        chr_fetch_seen <= 1'b1;
+                    end
+                    if (chr_nb_sample_valid) begin
+                        if (chr_nb_idx == 3'd7) begin
+                            for (i = 0; i < 16; i = i + 1)
+                                chr_pred_blk[i] <= chroma_dc_pred_from_sum(
+                                    chr_dc_sum + (chr_plane ? chr_cr_ref_rd_data : chr_cb_ref_rd_data),
+                                    chr_dc_count + 4'd1);
+                            chr_pred_seen <= 1'b1;
+                            top_state <= TS_CHR_WAIT;
+                        end else begin
+                            chr_dc_sum <= chr_dc_sum + (chr_plane ? chr_cr_ref_rd_data : chr_cb_ref_rd_data);
+                            chr_dc_count <= chr_dc_count + 4'd1;
+                            chr_nb_idx <= chr_nb_idx + 3'd1;
+                            top_state <= TS_CHR_NB_ADDR;
+                        end
+                    end else if (chr_nb_idx == 3'd7) begin
+                        for (i = 0; i < 16; i = i + 1)
+                            chr_pred_blk[i] <= chroma_dc_pred_from_sum(chr_dc_sum, chr_dc_count);
+                        chr_pred_seen <= 1'b1;
+                        top_state <= TS_CHR_WAIT;
+                    end else begin
+                        chr_nb_idx <= chr_nb_idx + 3'd1;
+                        top_state <= TS_CHR_NB_ADDR;
+                    end
                 end
 
                 // Wait for current chroma fetch and predictor, then launch TX_4X4
@@ -4597,12 +4772,8 @@ module av1_encoder_top #(
                             chr_pred_blk[i] <= chroma_pred_out[i];
                         chr_pred_seen <= 1'b1;
                     end
-                    if (!(use_inter && !is_keyframe)) begin
-                        for (i = 0; i < 16; i = i + 1)
-                            chr_pred_blk[i] <= 8'd128;
-                    end
                     if ((fetch_done || chr_fetch_seen) &&
-                        (chr_pred_seen || (!(use_inter && !is_keyframe)) || chroma_pred_done)) begin
+                        (chr_pred_seen || chroma_pred_done)) begin
                         if (fetch_done) begin
                             for (i = 0; i < 16; i = i + 1)
                                 chr_cur_blk[i] <= fetch_pixel_buf[i];
@@ -4610,9 +4781,6 @@ module av1_encoder_top #(
                         if (use_inter && !is_keyframe && chroma_pred_done) begin
                             for (i = 0; i < 16; i = i + 1)
                                 chr_pred_blk[i] <= chroma_pred_out[i];
-                        end else if (!(use_inter && !is_keyframe)) begin
-                            for (i = 0; i < 16; i = i + 1)
-                                chr_pred_blk[i] <= 8'd128;
                         end
                         chroma_res_start <= 1'b1;
                         top_state <= TS_CHR_RES_WAIT;
@@ -4677,7 +4845,7 @@ module av1_encoder_top #(
                             // the same partition/skip/mode state.
                             if ((blk_x << 1) < MI_COLS) begin
                                 part_ctx_above[blk_x << 1] <= 8'd30;
-                                skip_above[blk_x << 1] <= ~cur_block_has_coeff;
+                                skip_above[blk_x << 1] <= cur_block_skip;
                                 inter_above[blk_x << 1] <= use_inter;
                                 ref_above[blk_x << 1] <= use_inter ? REF_LAST : REF_NONE;
                                 mode_above[blk_x << 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
@@ -4685,7 +4853,7 @@ module av1_encoder_top #(
                             end
                             if (((blk_x << 1) + 1) < MI_COLS) begin
                                 part_ctx_above[(blk_x << 1) + 1] <= 8'd30;
-                                skip_above[(blk_x << 1) + 1] <= ~cur_block_has_coeff;
+                                skip_above[(blk_x << 1) + 1] <= cur_block_skip;
                                 inter_above[(blk_x << 1) + 1] <= use_inter;
                                 ref_above[(blk_x << 1) + 1] <= use_inter ? REF_LAST : REF_NONE;
                                 mode_above[(blk_x << 1) + 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
@@ -4693,7 +4861,7 @@ module av1_encoder_top #(
                             end
                             if ((blk_y << 1) < MI_ROWS) begin
                                 part_ctx_left[blk_y << 1] <= 8'd30;
-                                skip_left[blk_y << 1] <= ~cur_block_has_coeff;
+                                skip_left[blk_y << 1] <= cur_block_skip;
                                 inter_left[blk_y << 1] <= use_inter;
                                 ref_left[blk_y << 1] <= use_inter ? REF_LAST : REF_NONE;
                                 mode_left[blk_y << 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
@@ -4701,7 +4869,7 @@ module av1_encoder_top #(
                             end
                             if (((blk_y << 1) + 1) < MI_ROWS) begin
                                 part_ctx_left[(blk_y << 1) + 1] <= 8'd30;
-                                skip_left[(blk_y << 1) + 1] <= ~cur_block_has_coeff;
+                                skip_left[(blk_y << 1) + 1] <= cur_block_skip;
                                 inter_left[(blk_y << 1) + 1] <= use_inter;
                                 ref_left[(blk_y << 1) + 1] <= use_inter ? REF_LAST : REF_NONE;
                                 mode_left[(blk_y << 1) + 1] <= use_inter ? AV1_DC_PRED : best_intra_mode;
@@ -4715,6 +4883,14 @@ module av1_encoder_top #(
                                 use_inter ? me_mvx_q3 : 16'sd0;
                             blk_mv_y[blk_y * BLK_COLS + blk_x] <=
                                 use_inter ? me_mvy_q3 : 16'sd0;
+                            if (blk_x < BLK_COLS) begin
+                                cb_ctx_above[blk_x] <= chroma_ctx_from_dc(chr_cb_qcoeff[0]);
+                                cr_ctx_above[blk_x] <= chroma_ctx_from_dc(chr_cr_qcoeff[0]);
+                            end
+                            if (blk_y < BLK_ROWS) begin
+                                cb_ctx_left[blk_y] <= chroma_ctx_from_dc(chr_cb_qcoeff[0]);
+                                cr_ctx_left[blk_y] <= chroma_ctx_from_dc(chr_cr_qcoeff[0]);
+                            end
                             // Both chroma planes done
                             top_state <= TS_NEXT_BLK;
                         end
