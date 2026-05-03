@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     int debug_add_coeff_block = -1;
     int debug_add_coeff_idx = -1;
     int debug_add_coeff_delta = 0;
-    int static_cdf_mode = 0;
+    int static_cdf_mode = 1;
     int trace_entropy = 0;
     int trace_bs = 0;
     int trace_entropy_shadow = 0;
@@ -665,7 +665,7 @@ int main(int argc, char** argv) {
                 if (!all_key) {
                     writer.set_still_picture_mode(false);
                     writer.set_include_sequence_header(true);
-                    writer.set_force_video_intra_only((num_frames > 1) && (frame_idx == 0));
+                    writer.set_force_video_intra_only(false);
                     writer.set_keyframe(current_frame_is_key);
                 }
                 int kept_newmv_blocks = 0;
@@ -781,7 +781,7 @@ int main(int argc, char** argv) {
                 writer.set_trace_symbol_ops(trace_writer_entropy != 0);
                 writer.set_still_picture_mode(false);
                 writer.set_include_sequence_header(frame_idx == 0);
-                writer.set_force_video_intra_only(!all_key && (num_frames > 1) && (frame_idx == 0));
+                writer.set_force_video_intra_only(false);
                 writer.set_keyframe(current_frame_is_key);
                 int kept_newmv_blocks = 0;
                 int kept_inter_blocks = 0;
