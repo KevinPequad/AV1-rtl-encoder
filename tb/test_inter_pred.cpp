@@ -49,7 +49,7 @@ uint8_t sample_ref(const std::vector<uint8_t>& ref, int x, int y) {
     return ref[y * W + x];
 }
 
-uint8_t expected_single_axis(const std::vector<uint8_t>& ref, int base_x, int base_y,
+uint8_t expected_pred(const std::vector<uint8_t>& ref, int base_x, int base_y,
                              int mv_x_q3, int mv_y_q3, int px, int py) {
     const int int_x = base_x + (mv_x_q3 >> 3) + px;
     const int int_y = base_y + (mv_y_q3 >> 3) + py;
@@ -74,8 +74,18 @@ uint8_t expected_single_axis(const std::vector<uint8_t>& ref, int base_x, int ba
         }
         return static_cast<uint8_t>(clip8((sum + ROUND_OFFSET) >> FILTER_BITS));
     }
-    std::cerr << "test only covers fullpel or one fractional axis\n";
-    std::abort();
+    const int phase_x = frac_x << 1;
+    const int phase_y = frac_y << 1;
+    int vsum = 0;
+    for (int ky = 0; ky < 8; ++ky) {
+        int hsum = 0;
+        for (int kx = 0; kx < 8; ++kx) {
+            hsum += kRegularSubpel[phase_x][kx] * sample_ref(ref, int_x + kx - 3, int_y + ky - 3);
+        }
+        const int hrounded = (hsum + 4) >> 3;
+        vsum += kRegularSubpel[phase_y][ky] * hrounded;
+    }
+    return static_cast<uint8_t>(clip8((vsum + 1024) >> 11));
 }
 
 void tick(Vav1_inter_pred& dut, vluint64_t& t) {
@@ -115,7 +125,7 @@ bool run_case(const std::string& name, int cur_x, int cur_y, int mv_x_q3, int mv
         const int px = i & 7;
         const int py = i >> 3;
         const uint8_t got = dut.pred[i];
-        const uint8_t exp = expected_single_axis(ref, cur_x, cur_y, mv_x_q3, mv_y_q3, px, py);
+        const uint8_t exp = expected_pred(ref, cur_x, cur_y, mv_x_q3, mv_y_q3, px, py);
         if (got != exp) {
             std::cerr << "[FAIL] " << name << ": pred[" << i << "] got "
                       << static_cast<int>(got) << " expected " << static_cast<int>(exp) << "\n";
@@ -140,5 +150,6 @@ int main(int argc, char** argv) {
     ok = run_case("fullpel_positive_mv", 8, 9, 8, -8, ref) && ok;
     ok = run_case("horizontal_halfpel_regular_filter", 8, 9, 4, 0, ref) && ok;
     ok = run_case("vertical_halfpel_regular_filter", 8, 9, 0, 4, ref) && ok;
+    ok = run_case("hv_halfpel_regular_filter", 8, 9, 4, 4, ref) && ok;
     return ok ? 0 : 1;
 }

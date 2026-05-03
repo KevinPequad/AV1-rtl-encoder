@@ -238,6 +238,31 @@ module av1_inter_pred #(
         end
     endfunction
 
+    // AV1 two-dimensional 8-tap prediction keeps 4 intermediate bits after
+    // the horizontal pass for 8-bit content.  Coefficients in this RTL are the
+    // spec/dav1d coefficients scaled by 2 (sum 128 instead of 64), so the
+    // horizontal stage rounds by 3 and the vertical/output stage rounds by 11.
+    function signed [31:0] round_hv_horizontal;
+        input signed [31:0] sum;
+        begin
+            round_hv_horizontal = (sum + 32'sd4) >>> 3;
+        end
+    endfunction
+
+    function [7:0] clip_round_filter_hv;
+        input signed [31:0] sum;
+        reg signed [31:0] rounded;
+        begin
+            rounded = (sum + 32'sd1024) >>> 11;
+            if (rounded < 0)
+                clip_round_filter_hv = 8'd0;
+            else if (rounded > 255)
+                clip_round_filter_hv = 8'd255;
+            else
+                clip_round_filter_hv = rounded[7:0];
+        end
+    endfunction
+
     task advance_pixel;
         begin
             if (out_idx == 6'd63) begin
@@ -355,11 +380,11 @@ module av1_inter_pred #(
                         default: begin
                             acc_next = h_acc + regular_coeff(phase_x, tap_idx) * $signed({1'b0, ref_mem_data});
                             if (tap_idx == 3'd7) begin
-                                h_rounded = round_filter_signed(acc_next);
+                                h_rounded = round_hv_horizontal(acc_next);
                                 v_next = v_acc + regular_coeff(phase_y, tap_y_idx) * h_rounded;
                                 h_acc <= 32'sd0;
                                 if (tap_y_idx == 3'd7) begin
-                                    pred[out_idx] <= clip_round_filter(v_next);
+                                    pred[out_idx] <= clip_round_filter_hv(v_next);
                                     v_acc <= 32'sd0;
                                     advance_pixel();
                                 end else begin

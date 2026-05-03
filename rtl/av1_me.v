@@ -55,7 +55,7 @@ module av1_me #(
     reg [17:0] sad_after_pixel;
     reg zero_mv_pending;
 
-    reg [2:0] sub_idx;
+    reg [3:0] sub_idx;
     reg sub_start;
     reg signed [15:0] sub_cand_mvx_q3;
     reg signed [15:0] sub_cand_mvy_q3;
@@ -153,22 +153,22 @@ module av1_me #(
     endfunction
 
     function signed [15:0] sub_candidate_x;
-        input [2:0] idx;
+        input [3:0] idx;
         begin
             case (idx)
-                3'd1: sub_candidate_x = ($signed(best_mvx) <<< 3) + 16'sd4;
-                3'd2: sub_candidate_x = ($signed(best_mvx) <<< 3) - 16'sd4;
+                4'd1, 4'd5, 4'd6: sub_candidate_x = ($signed(best_mvx) <<< 3) + 16'sd4;
+                4'd2, 4'd7, 4'd8: sub_candidate_x = ($signed(best_mvx) <<< 3) - 16'sd4;
                 default: sub_candidate_x = $signed(best_mvx) <<< 3;
             endcase
         end
     endfunction
 
     function signed [15:0] sub_candidate_y;
-        input [2:0] idx;
+        input [3:0] idx;
         begin
             case (idx)
-                3'd3: sub_candidate_y = ($signed(best_mvy) <<< 3) + 16'sd4;
-                3'd4: sub_candidate_y = ($signed(best_mvy) <<< 3) - 16'sd4;
+                4'd3, 4'd5, 4'd7: sub_candidate_y = ($signed(best_mvy) <<< 3) + 16'sd4;
+                4'd4, 4'd6, 4'd8: sub_candidate_y = ($signed(best_mvy) <<< 3) - 16'sd4;
                 default: sub_candidate_y = $signed(best_mvy) <<< 3;
             endcase
         end
@@ -201,7 +201,7 @@ module av1_me #(
             cur_sad  <= 0;
             sad_after_pixel <= 0;
             zero_mv_pending <= 0;
-            sub_idx <= 3'd0;
+            sub_idx <= 4'd0;
             sub_start <= 1'b0;
             sub_cand_mvx_q3 <= 16'sd0;
             sub_cand_mvy_q3 <= 16'sd0;
@@ -276,7 +276,7 @@ module av1_me #(
                     end else if (zero_mv_pending) begin
                         zero_mv_pending <= 0;
                         if (single_candidate_w) begin
-                            sub_idx <= zero_mv_only ? 3'd5 : 3'd0;
+                            sub_idx <= zero_mv_only ? 4'd9 : 4'd0;
                             state <= zero_mv_only ? S_DONE : S_SUB_START;
                         end else if (mv_x_min == 9'sd0 && mv_y_min == 9'sd0) begin
                             mv_x  <= first_scan_x_w;
@@ -288,7 +288,7 @@ module av1_me #(
                             state <= S_INIT;
                         end
                     end else if (mv_x == mv_x_max && mv_y == mv_y_max) begin
-                        sub_idx <= zero_mv_only ? 3'd5 : 3'd0;
+                        sub_idx <= zero_mv_only ? 4'd9 : 4'd0;
                         state <= zero_mv_only ? S_DONE : S_SUB_START;
                     end else begin
                         mv_x <= next_mv_x_w;
@@ -298,7 +298,7 @@ module av1_me #(
                 end
 
                 S_SUB_START: begin
-                    if (sub_idx >= 3'd5) begin
+                    if (sub_idx >= 4'd9) begin
                         state <= S_DONE;
                     end else begin
                         sub_cand_mvx_q3 <= sub_candidate_x(sub_idx);
