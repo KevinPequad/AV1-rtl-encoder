@@ -23,9 +23,9 @@ Completed:
 
 ## Next Slice
 
-1. Enable the first real non-zero fractional-pel translational checkpoint on the reduced LAST-only path.
-2. Bring fractional predictor / ME behavior onto the smallest natural-motion guard without regressing the new syntax-only subpel checkpoints.
-3. Reuse the `2f`, `7f`, and `10f` subpel exact guards after the first non-zero subpel datapath step lands.
+1. Finish Cb/Cr TX_4X4 coefficient syntax ownership from the new captured `chr_cb_qcoeff[]` / `chr_cr_qcoeff[]` fields: emit chroma `txb_skip=0`, EOB/base/sign symbols from RTL when chroma residuals are non-zero, and mirror that in the C++ oracle without repairing RTL bytes.
+2. Gate the chroma syntax step with a non-flat chroma probe where FFmpeg/libdav1d and `aomdec` decode match `recon.yuv`.
+3. Continue widening the real non-zero fractional-pel translational checkpoints on the reduced LAST-only path without regressing the syntax-only subpel guards.
 
 ## Regression Gates
 
@@ -57,3 +57,21 @@ On Chud PC 2, Verilator 5.020 required two top-level compile fixes in `rtl/av1_e
 - avoid mixed blocking/nonblocking assignments on `intra_cand_sad`; compute the SAD into `intra_cand_sad_next` and register it separately
 
 Post-fix quick checks pass for `entropy-check`, `bitstream-check WIDTH=16 HEIGHT=16`, and `inv-xform-check` with `THREADS=16 BUILD_JOBS=16`. The generated Chud PC 2 `16x16` all-key and 2-frame IP smoke cases now also pass the strict ownership/decode gate: `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and both FFmpeg/libdav1d and `aomdec` decoded output match `recon.yuv`. Resume the first real non-zero fractional-pel datapath checkpoint next.
+
+
+## Chud PC 2 chroma residual top-level slice
+
+Completed in the current working tree:
+- top-level `av1_chroma_residual` instantiation for Cb/Cr 4x4 blocks
+- captured `chr_cb_qcoeff[]`, `chr_cr_qcoeff[]`, `chr_cb_has_coeff`, and `chr_cr_has_coeff` for oracle/syntax integration
+- `top-chroma-integration-check` static regression guard
+- fixed the inter chroma wait hang by latching raw fetch and chroma predictor completion separately
+
+Verified commands:
+- `python3 tb/test_top_chroma_integration.py`
+- `make THREADS=16 BUILD_JOBS=16 chroma-residual-check`
+- `make THREADS=16 BUILD_JOBS=16 chroma-coeff-table-check`
+- `make THREADS=16 BUILD_JOBS=16 WIDTH=16 HEIGHT=16 all`
+- `THREADS=16 BUILD_JOBS=16 bash /tmp/av1_chudpc2_smoke.sh`
+
+Remaining blocker for AV1 proof: chroma qcoeffs are captured but not yet encoded into the final RTL-owned tile stream; chroma syntax still needs to move beyond unconditional `txb_skip=1`.

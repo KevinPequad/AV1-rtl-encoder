@@ -248,6 +248,7 @@ int main(int argc, char** argv) {
     // FSM state constants (must match av1_encoder_top.v)
     constexpr int TS_PREDICT = 11;
     constexpr int TS_WAIT_PRED = 12;
+    constexpr int TS_NEXT_BLK = 19;
     constexpr int TS_REF_WR = 20;
     constexpr int TS_CHR_FETCH = 21;
     constexpr int TS_IXFORM_COL = 28;
@@ -515,6 +516,16 @@ int main(int argc, char** argv) {
                     bi.mvx = sign_extend_16(root->av1_encoder_top__DOT__me_mvx_q3);
                     bi.mvy = sign_extend_16(root->av1_encoder_top__DOT__me_mvy_q3);
                 }
+            }
+
+            if (state == TS_NEXT_BLK && blk_idx >= 0 && blk_idx < (int)frame_blocks.size()) {
+                auto& bi = frame_blocks[blk_idx];
+                for (int i = 0; i < 16; i++) {
+                    bi.cb_qcoeff[i] = (int16_t)root->av1_encoder_top__DOT__chr_cb_qcoeff[i];
+                    bi.cr_qcoeff[i] = (int16_t)root->av1_encoder_top__DOT__chr_cr_qcoeff[i];
+                }
+                bi.cb_has_coeff = root->av1_encoder_top__DOT__chr_cb_has_coeff;
+                bi.cr_has_coeff = root->av1_encoder_top__DOT__chr_cr_has_coeff;
             }
 
             if (trace_block >= 0 && blk_idx == trace_block &&

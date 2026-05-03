@@ -654,6 +654,10 @@ public:
 
     struct BlockInfo {
         int16_t qcoeff[64];
+        int16_t cb_qcoeff[16];
+        int16_t cr_qcoeff[16];
+        bool    cb_has_coeff;
+        bool    cr_has_coeff;
         uint8_t pred_mode;
         bool    is_inter;
         int16_t mvx;  // q3 luma MV component
