@@ -103,7 +103,7 @@ ModelOut model(const std::array<uint8_t, 16>& cur,
         auto col = idct4({inv_tmp[0 * 4 + x], inv_tmp[1 * 4 + x], inv_tmp[2 * 4 + x], inv_tmp[3 * 4 + x]});
         for (int y = 0; y < 4; ++y) {
             const int idx = y * 4 + x;
-            out.recon[idx] = clip8(static_cast<int>(pred[idx]) + round_shift(col[y], 4));
+            out.recon[idx] = clip8(static_cast<int>(pred[idx]) + round_shift(col[y], 3));
         }
     }
     return out;

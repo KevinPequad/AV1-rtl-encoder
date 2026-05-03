@@ -261,6 +261,20 @@ Inventory of the current repo state:
 
 ## Latest Chud PC 2 RTL proof progress
 
+### Non-zero chroma TX_4X4 syntax checkpoint
+
+- Added a constrained dynamic proof for RTL-owned non-zero Cb/Cr coefficient syntax:
+  - C++ oracle now emits Cb/Cr TX_4X4 `txb_skip`, EOB, base-level, BR/sign syntax from captured chroma qcoeffs using the AOM-derived chroma tables.
+  - RTL top now emits the matching Cb/Cr TX_4X4 syntax on its raw tile path instead of forcing chroma `txb_skip=1`.
+  - The public-decoder gate is `make THREADS=16 BUILD_JOBS=16 nonzero-chroma-syntax-check`, which builds an 8x8 all-key frame with flat luma and non-zero Cb/Cr DC residuals, then verifies RTL raw OBU equals the oracle OBU and FFmpeg/aomdec decoded output matches `recon.yuv`.
+- Root-cause fixes from this checkpoint:
+  - TX_4X4 `eob_flag_cdf16` uses 5 symbols, not 6.
+  - If luma `txb_skip=1` but chroma is non-zero, no luma `tx_type` is signaled; chroma coefficient syntax follows directly.
+  - Chroma DC sign/txb contexts must track Cb and Cr neighbor entropy contexts separately in the oracle.
+  - The chroma residual inverse scaling was adjusted so RTL `recon.yuv` matches public AV1 decoder reconstruction for the TX_4X4 DC path.
+- Remaining expansion: the dynamic non-zero chroma proof is currently one 8x8 block. Wider 16x16+ non-flat chroma still needs decoder-matching chroma intra prediction from reconstructed chroma neighbors before it can be used as the multi-block chroma proof gate.
+
+
 - Added the first top-level chroma residual plumbing slice after the TX_4X4 table checkpoint:
   - `av1_encoder_top` now instantiates `av1_chroma_residual` and runs it for each 4x4 Cb/Cr block before chroma reference write-back.
   - The top-level stores public Verilator-visible `chr_cb_qcoeff[]`, `chr_cr_qcoeff[]`, `chr_cb_has_coeff`, and `chr_cr_has_coeff` for the software oracle / ownership path.
@@ -268,7 +282,7 @@ Inventory of the current repo state:
   - `tb/test_top_chroma_integration.py` plus `make top-chroma-integration-check` guard that the top-level does not regress to predictor-only chroma.
 - Important fix from this slice: raw chroma fetch and chroma inter prediction complete on different cycles, so `TS_CHR_WAIT` latches their done pulses (`chr_fetch_seen` / `chr_pred_seen`) instead of requiring same-cycle completion. The old same-cycle wait caused the 16x16 2-frame IP smoke to hang in state 30.
 - Verified after the fix: generated 16x16 all-key and 2-frame IP smoke still pass raw OBU exactness, IVF exactness, FFmpeg/libdav1d decode-vs-`recon.yuv`, and `aomdec` decode-vs-`recon.yuv`.
-- This is still a preparatory proof slice: non-zero Cb/Cr coefficient syntax is not yet emitted on the RTL byte path; the next step is to use the captured `chr_*_qcoeff` fields to emit real TX_4X4 Cb/Cr coefficient syntax instead of unconditional chroma `txb_skip=1`.
+- The first constrained non-zero Cb/Cr TX_4X4 syntax proof is now in place for a one-block 8x8 all-key probe; broader 16x16+ non-flat chroma proof still needs decoder-matching chroma intra-neighbor prediction.
 
 ## Known Gaps
 
