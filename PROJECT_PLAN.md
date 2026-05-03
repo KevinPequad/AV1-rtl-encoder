@@ -43,3 +43,13 @@ Completed:
   - `mv_hp` was missing after `mv_fr` on reduced `NEWMV` components
   - `allow_high_precision_mv` was missing in the reduced inter frame header after `force_integer_mv=0`
 - The full `10`-frame `64x64` natural-motion guard remains runtime-heavy after the subpel syntax step. The bounded `+progress_every=5000000 +timeout=70000000` run is still the reference command when checking that guard.
+
+
+## Chud PC 2 smoke blocker
+
+On Chud PC 2, Verilator 5.020 required two top-level compile fixes in `rtl/av1_encoder_top.v`:
+
+- avoid slicing a function-call result directly; route those coefficient symbols through helper functions instead
+- avoid mixed blocking/nonblocking assignments on `intra_cand_sad`; compute the SAD into `intra_cand_sad_next` and register it separately
+
+Post-fix quick checks pass for `entropy-check`, `bitstream-check WIDTH=16 HEIGHT=16`, and `inv-xform-check` with `THREADS=16 BUILD_JOBS=16`. The top-level `16x16` simulator builds and a flat all-key RTL IVF decodes in FFmpeg/aomdec to `recon.yuv`. However, generated non-flat all-key and generated 2-frame IP smoke cases show RTL raw OBU/IVF drift from the software-owned path, with public-decoder rejection on the failing RTL IVF. Fix that ownership drift before resuming the first real non-zero fractional-pel datapath checkpoint.

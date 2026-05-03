@@ -37,9 +37,9 @@ The RTL must own the final AV1 syntax generation needed for completion. The test
 
 Simulation and Verilator builds must use all available host threads by default.
 
-- On this machine, the expected host thread count is `24`.
+- On Chud PC 2, `nproc` currently reports `16`, so use `THREADS=16 BUILD_JOBS=16` there.
 - Leave `THREADS` unset only when the runtime environment correctly exposes all host CPUs via `nproc`.
-- When in doubt, force both `THREADS=24` and `BUILD_JOBS=24`.
+- Do not force `THREADS` above the host's real thread count; Verilator 5.020 aborts at runtime if the model is built for more threads than the `VerilatedContext` can create.
 
 Current build scripts already default to maximum detected threads:
 
@@ -50,16 +50,16 @@ Current build scripts already default to maximum detected threads:
 Recommended commands on this machine:
 
 ```bash
-THREADS=24 BUILD_JOBS=24 bash docker_run.sh
+THREADS=16 BUILD_JOBS=16 bash docker_run.sh
 ```
 
 ```bash
-THREADS=24 BUILD_JOBS=24 bash run.sh
+THREADS=16 BUILD_JOBS=16 bash run.sh
 ```
 
 ```bash
 cd tb
-make THREADS=24 BUILD_JOBS=24
+make THREADS=16 BUILD_JOBS=16
 ```
 
 ## Continuous Codex Supervisor
@@ -376,6 +376,22 @@ The reduced motion guards now extend cleanly through the repaired `64x64` `7`-fr
 Use `output/natural_motion64_x640_y360_10f_progress70m/` as the long exact guard and budget `+timeout=70000000` or higher when rerunning it.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
 For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` in the loop as the first exact-match regression check at the verified `qindex=240` subset. Use `output/highdc_q1/` plus the local AOM `inspect` build as the strict large-DC regression guard for the fixed qctx-selected `TX_8X8` path, and treat requested `qindex=0` runs as a deferred lossless / `TX_4X4` task that currently clamps to effective `qindex=1`.
+
+
+### Chud PC 2 Verilator Check - 2026-05-02
+
+Verified directly on Chud PC 2 (`chudpc2-MS-7C91`, Verilator 5.020, `nproc=16`):
+
+- `make THREADS=16 BUILD_JOBS=16 entropy-check` passes.
+- `make THREADS=16 BUILD_JOBS=16 WIDTH=16 HEIGHT=16 bitstream-check` passes.
+- `make THREADS=16 BUILD_JOBS=16 inv-xform-check` passes.
+- The top-level `16x16` Verilator build now compiles on Chud PC 2 after removing function-call result slicing that Verilator 5.020 rejects and avoiding mixed blocking/nonblocking assignments to `intra_cand_sad`.
+- A generated `16x16` flat all-key RTL IVF decodes in both FFmpeg/libdav1d and `aomdec`, and decoded output matches `recon.yuv`.
+
+Current blocker found on Chud PC 2:
+
+- Generated non-flat `16x16` all-key and generated flat `16x16` 2-frame IP smoke cases expose an RTL raw-stream ownership issue: `encoded_rtl_raw.obu` / `encoded_rtl.ivf` are not byte-exact against the software-owned path, and the generated non-flat all-key / 2-frame IP RTL IVF can be rejected by public decoders due to OBU length/payload drift.
+- Keep the standalone checks in the normal loop, but do not claim public-decoder compatibility beyond the verified flat all-key smoke until this RTL raw-stream drift is fixed.
 
 ## Verification Rules
 
