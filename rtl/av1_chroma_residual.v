@@ -326,7 +326,7 @@ module av1_chroma_residual (
                     if (inv_done) begin
                         for (i = 0; i < 4; i = i + 1)
                             recon[{i[1:0], col_idx[1:0]}] <=
-                                clip_pred_res(pred[{i[1:0], col_idx[1:0]}], round_shift16(inv_out[i], 4));
+                                clip_pred_res(pred[{i[1:0], col_idx[1:0]}], round_shift16(inv_out[i], 3));
                         if (col_idx < 3'd3) begin
                             col_idx <= col_idx + 1'b1;
                             state <= S_INV_COL;

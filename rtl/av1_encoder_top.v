@@ -255,7 +255,25 @@ module av1_encoder_top #(
         TS_DONE         = 6'd22,
         TS_NEIGH_ADDR   = 6'd32,  // Neighbor loading: issue address
         TS_NEIGH_READ   = 6'd33,  // Neighbor loading: read data
-        TS_CHR_RES_WAIT = 8'd170; // Wait for chroma residual core
+        TS_CHR_RES_WAIT = 8'd170, // Wait for chroma residual core
+        TS_CHR_EOB       = 8'd171,
+        TS_CHR_EOB_WAIT  = 8'd172,
+        TS_CHR_EOB_EXTRA = 8'd173,
+        TS_CHR_EOB_EXWAIT= 8'd174,
+        TS_CHR_EOB_BIT   = 8'd175,
+        TS_CHR_EOB_BITW  = 8'd176,
+        TS_CHR_BASE      = 8'd177,
+        TS_CHR_BASEW     = 8'd178,
+        TS_CHR_BR        = 8'd179,
+        TS_CHR_BRW       = 8'd180,
+        TS_CHR_SIGN      = 8'd181,
+        TS_CHR_SIGNW     = 8'd182,
+        TS_CHR_GOLOMB_ZERO = 8'd183,
+        TS_CHR_GOLOMB_ZW   = 8'd184,
+        TS_CHR_GOLOMB_BIT  = 8'd185,
+        TS_CHR_GOLOMB_BW   = 8'd186,
+        TS_CHR_ONLY_TX_TYPE = 8'd187,
+        TS_CHR_ONLY_TX_WAIT = 8'd188; // Chroma TX_4X4 coefficient syntax
 
     reg [7:0]  top_state;
     reg [9:0]  blk_x, blk_y;    // Current block position (in 8x8 units)
@@ -354,6 +372,7 @@ module av1_encoder_top #(
     reg [4:0]  coeff_br_remaining;
     reg        coeff_br_capped;
     reg [3:0]  coeff_eob_bit_idx;
+    reg        chr_syntax_plane; // 0 = Cb, 1 = Cr for TX_4X4 syntax
     reg [4:0]  golomb_zero_remaining;
     reg [4:0]  golomb_bit_idx;
     reg [15:0] golomb_x;
@@ -1168,6 +1187,17 @@ module av1_encoder_top #(
         end
     endfunction
 
+    function [255:0] dc_sign_chroma_icdf_flat;
+        input [1:0] ctx;
+        begin
+            case (ctx)
+                2'd1:    dc_sign_chroma_icdf_flat = {224'd0,16'd0,16'd19840};
+                2'd2:    dc_sign_chroma_icdf_flat = {224'd0,16'd0,16'd15488};
+                default: dc_sign_chroma_icdf_flat = {224'd0,16'd0,16'd17536};
+            endcase
+        end
+    endfunction
+
     function [255:0] coeff_br_ctx0_icdf_flat;
         begin
             coeff_br_ctx0_icdf_flat = {192'd0,16'd0,16'd4878,16'd7955,16'd14494};
@@ -1315,6 +1345,203 @@ module av1_encoder_top #(
                 get_br_ctx_qcoeff = mag + 5'd7;
             else
                 get_br_ctx_qcoeff = mag + 5'd14;
+        end
+    endfunction
+
+
+    function [3:0] scan_4x4_pos;
+        input [3:0] idx;
+        begin
+            case (idx)
+                4'd0:  scan_4x4_pos = 4'd0;
+                4'd1:  scan_4x4_pos = 4'd4;
+                4'd2:  scan_4x4_pos = 4'd1;
+                4'd3:  scan_4x4_pos = 4'd2;
+                4'd4:  scan_4x4_pos = 4'd5;
+                4'd5:  scan_4x4_pos = 4'd8;
+                4'd6:  scan_4x4_pos = 4'd12;
+                4'd7:  scan_4x4_pos = 4'd9;
+                4'd8:  scan_4x4_pos = 4'd6;
+                4'd9:  scan_4x4_pos = 4'd3;
+                4'd10: scan_4x4_pos = 4'd7;
+                4'd11: scan_4x4_pos = 4'd10;
+                4'd12: scan_4x4_pos = 4'd13;
+                4'd13: scan_4x4_pos = 4'd14;
+                4'd14: scan_4x4_pos = 4'd11;
+                4'd15: scan_4x4_pos = 4'd15;
+                default: scan_4x4_pos = 4'd0;
+            endcase
+        end
+    endfunction
+
+    function [5:0] nz_map_ctx_offset_4x4_fn;
+        input [3:0] pos;
+        begin
+            case (pos)
+                4'd0:  nz_map_ctx_offset_4x4_fn = 6'd0;
+                4'd1:  nz_map_ctx_offset_4x4_fn = 6'd1;
+                4'd2:  nz_map_ctx_offset_4x4_fn = 6'd6;
+                4'd3:  nz_map_ctx_offset_4x4_fn = 6'd6;
+                4'd4:  nz_map_ctx_offset_4x4_fn = 6'd1;
+                4'd5:  nz_map_ctx_offset_4x4_fn = 6'd6;
+                4'd6:  nz_map_ctx_offset_4x4_fn = 6'd6;
+                4'd7:  nz_map_ctx_offset_4x4_fn = 6'd21;
+                4'd8:  nz_map_ctx_offset_4x4_fn = 6'd6;
+                4'd9:  nz_map_ctx_offset_4x4_fn = 6'd6;
+                4'd10: nz_map_ctx_offset_4x4_fn = 6'd21;
+                4'd11: nz_map_ctx_offset_4x4_fn = 6'd21;
+                4'd12: nz_map_ctx_offset_4x4_fn = 6'd6;
+                4'd13: nz_map_ctx_offset_4x4_fn = 6'd21;
+                4'd14: nz_map_ctx_offset_4x4_fn = 6'd21;
+                default: nz_map_ctx_offset_4x4_fn = 6'd21;
+            endcase
+        end
+    endfunction
+
+    function [15:0] coeff_abs_level_chroma_flat;
+        input plane;
+        input [3:0] pos;
+        begin
+            coeff_abs_level_chroma_flat = plane ? abs16(chr_cr_qcoeff[pos]) : abs16(chr_cb_qcoeff[pos]);
+        end
+    endfunction
+
+    function [15:0] coeff_abs_level_chroma_rc;
+        input plane;
+        input integer row;
+        input integer col;
+        begin
+            if ((row < 0) || (row > 3) || (col < 0) || (col > 3))
+                coeff_abs_level_chroma_rc = 16'd0;
+            else
+                coeff_abs_level_chroma_rc = coeff_abs_level_chroma_flat(plane, (row << 2) + col);
+        end
+    endfunction
+
+    function [3:0] coeff_clipped_level_chroma_rc;
+        input plane;
+        input integer row;
+        input integer col;
+        reg [15:0] level;
+        begin
+            if ((row < 0) || (row > 3) || (col < 0) || (col > 3)) begin
+                coeff_clipped_level_chroma_rc = 4'd0;
+            end else begin
+                level = coeff_abs_level_chroma_flat(plane, (row << 2) + col);
+                coeff_clipped_level_chroma_rc = clip_max3_fn(level);
+            end
+        end
+    endfunction
+
+    function [5:0] get_nz_map_ctx_chroma;
+        input plane;
+        input [3:0] pos;
+        integer row;
+        integer col;
+        integer stats;
+        integer ctx;
+        begin
+            if (pos == 4'd0) begin
+                get_nz_map_ctx_chroma = 6'd0;
+            end else begin
+                row = pos[3:2];
+                col = pos[1:0];
+                stats =
+                    coeff_clipped_level_chroma_rc(plane, row,     col + 1) +
+                    coeff_clipped_level_chroma_rc(plane, row + 1, col    ) +
+                    coeff_clipped_level_chroma_rc(plane, row + 1, col + 1) +
+                    coeff_clipped_level_chroma_rc(plane, row,     col + 2) +
+                    coeff_clipped_level_chroma_rc(plane, row + 2, col    );
+                ctx = ((stats + 1) >> 1);
+                if (ctx > 4)
+                    ctx = 4;
+                get_nz_map_ctx_chroma = nz_map_ctx_offset_4x4_fn(pos) + ctx;
+            end
+        end
+    endfunction
+
+    function [4:0] get_br_ctx_chroma;
+        input plane;
+        input [3:0] pos;
+        integer row;
+        integer col;
+        integer mag;
+        begin
+            row = pos[3:2];
+            col = pos[1:0];
+            mag =
+                coeff_abs_level_chroma_rc(plane, row,     col + 1) +
+                coeff_abs_level_chroma_rc(plane, row + 1, col    ) +
+                coeff_abs_level_chroma_rc(plane, row + 1, col + 1);
+            mag = ((mag + 1) >> 1);
+            if (mag > 6)
+                mag = 6;
+            if (pos == 4'd0)
+                get_br_ctx_chroma = mag;
+            else if ((row < 2) && (col < 2))
+                get_br_ctx_chroma = mag + 5'd7;
+            else
+                get_br_ctx_chroma = mag + 5'd14;
+        end
+    endfunction
+
+    function [4:0] coeff_chroma_eob_base_sym_from_scan;
+        input plane;
+        input [3:0] scan_idx;
+        reg [15:0] level;
+        begin
+            level = coeff_abs_level_chroma_flat(plane, scan_4x4_pos(scan_idx));
+            coeff_chroma_eob_base_sym_from_scan = (level > 16'd3) ?
+                5'd2 : ({1'b0, level[3:0]} - 5'd1);
+        end
+    endfunction
+
+    function [4:0] coeff_chroma_base_sym_from_scan;
+        input plane;
+        input [3:0] scan_idx;
+        reg [15:0] level;
+        begin
+            level = coeff_abs_level_chroma_flat(plane, scan_4x4_pos(scan_idx));
+            coeff_chroma_base_sym_from_scan = (level > 16'd3) ?
+                5'd3 : {1'b0, level[3:0]};
+        end
+    endfunction
+
+    function [4:0] coeff_chroma_br_remaining_from_scan;
+        input plane;
+        input [3:0] scan_idx;
+        reg [15:0] level;
+        begin
+            level = coeff_abs_level_chroma_flat(plane, scan_4x4_pos(scan_idx));
+            coeff_chroma_br_remaining_from_scan = level[4:0] - 5'd3;
+        end
+    endfunction
+
+    function [4:0] coeff_base_eob_chroma_ctx_from_scan_fn;
+        input [3:0] scan_idx;
+        begin
+            if (scan_idx == 4'd0)
+                coeff_base_eob_chroma_ctx_from_scan_fn = 5'd0;
+            else if (scan_idx <= 4'd2)
+                coeff_base_eob_chroma_ctx_from_scan_fn = 5'd1;
+            else if (scan_idx <= 4'd4)
+                coeff_base_eob_chroma_ctx_from_scan_fn = 5'd2;
+            else
+                coeff_base_eob_chroma_ctx_from_scan_fn = 5'd3;
+        end
+    endfunction
+
+    function [4:0] compute_eob_chroma;
+        input plane;
+        integer c;
+        reg [4:0] eob;
+        begin
+            eob = 5'd0;
+            for (c = 0; c < 16; c = c + 1) begin
+                if ((plane ? chr_cr_qcoeff[scan_4x4_pos(c[3:0])] : chr_cb_qcoeff[scan_4x4_pos(c[3:0])]) != 16'sd0)
+                    eob = c[4:0] + 5'd1;
+            end
+            compute_eob_chroma = eob;
         end
     endfunction
 
@@ -1674,7 +1901,7 @@ module av1_encoder_top #(
     wire [2:0] cur_newmv_ctx = cur_mode_ctx[2:0];
     wire [0:0] cur_zeromv_ctx = cur_mode_ctx[AV1_GLOBALMV_OFFSET];
     wire [2:0] cur_refmv_ctx = (cur_mode_ctx >> AV1_REFMV_OFFSET) & AV1_REFMV_CTX_MASK;
-    wire       cur_block_skip = ~cur_block_has_coeff;
+    wire       cur_block_skip = ~(cur_block_has_coeff || chr_cb_has_coeff || chr_cr_has_coeff);
     wire [2:0] cur_kf_above_ctx = get_kf_mode_above_ctx_cur(blk_x, blk_y);
     wire [2:0] cur_kf_left_ctx  = get_kf_mode_left_ctx_cur(blk_x, blk_y);
     wire [255:0] cur_kf_y_icdf  = kf_y_mode_icdf_flat(cur_kf_above_ctx, cur_kf_left_ctx);
@@ -1725,6 +1952,10 @@ module av1_encoder_top #(
     wire [3:0]   cur_generic_eob_pt = get_eob_pos_token_fn(cur_generic_eob);
     wire [9:0]   cur_generic_eob_extra = get_eob_extra_fn(cur_generic_eob, cur_generic_eob_pt);
     wire [3:0]   cur_generic_eob_bits = eob_offset_bits_fn(cur_generic_eob_pt);
+    wire [4:0]   cur_chr_eob = compute_eob_chroma(chr_syntax_plane);
+    wire [3:0]   cur_chr_eob_pt = get_eob_pos_token_fn({2'd0, cur_chr_eob});
+    wire [9:0]   cur_chr_eob_extra = get_eob_extra_fn({2'd0, cur_chr_eob}, cur_chr_eob_pt);
+    wire [3:0]   cur_chr_eob_bits = eob_offset_bits_fn(cur_chr_eob_pt);
     wire [20:0]  next_blk_morton = next_blk_morton_packed(blk_x, blk_y);
     wire         has_next_blk_morton = next_blk_morton[20];
     wire [9:0]   next_blk_y_morton = next_blk_morton[19:10];
@@ -1773,6 +2004,7 @@ module av1_encoder_top #(
     reg        chr_cr_has_coeff /* verilator public_flat */;
     reg        chr_fetch_seen;
     reg        chr_pred_seen;
+    reg        chr_capture_only; // pre-syntax chroma qcoeff capture, no ref write
 
     // ====================================================================
     // Sub-module instantiation
@@ -2207,6 +2439,7 @@ module av1_encoder_top #(
             coeff_br_remaining <= 5'd0;
             coeff_br_capped <= 1'b0;
             coeff_eob_bit_idx <= 4'd0;
+            chr_syntax_plane <= 1'b0;
             golomb_zero_remaining <= 5'd0;
             golomb_bit_idx <= 5'd0;
             golomb_x <= 16'd0;
@@ -2233,6 +2466,7 @@ module av1_encoder_top #(
             chr_cr_has_coeff <= 1'b0;
             chr_fetch_seen <= 1'b0;
             chr_pred_seen <= 1'b0;
+            chr_capture_only <= 1'b0;
             for (i = 0; i < MI_COLS; i = i + 1) begin
                 part_ctx_above[i] <= 8'd0;
                 skip_above[i] <= 1'b0;
@@ -2846,12 +3080,21 @@ module av1_encoder_top #(
                             proc_idx  <= proc_idx + 1;
                             top_state <= TS_QCOEFF_START;
                         end else begin
-                            // All 64 coefficients are available. Begin the
-                            // block-level syntax pass from the RTL-owned skip
-                            // symbol before falling through the older
-                            // coefficient placeholder stream.
+                            // All 64 luma coefficients are available. Capture
+                            // Cb/Cr TX_4X4 coefficients before syntax so the
+                            // RTL-owned block skip and chroma coefficient
+                            // stream see current-plane data, not the previous
+                            // block's chroma qcoeffs.
                             proc_idx  <= 0;
-                            top_state <= TS_SYNTAX_SKIP;
+                            chr_plane <= 1'b0;
+                            chr_capture_only <= 1'b1;
+                            chr_cb_has_coeff <= 1'b0;
+                            chr_cr_has_coeff <= 1'b0;
+                            for (i = 0; i < 16; i = i + 1) begin
+                                chr_cb_qcoeff[i] <= 16'sd0;
+                                chr_cr_qcoeff[i] <= 16'sd0;
+                            end
+                            top_state <= TS_CHR_FETCH;
                         end
                     end
                 end
@@ -3227,7 +3470,7 @@ module av1_encoder_top #(
 
                 TS_TXB_SKIP_Y: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= 5'd0; // luma txb_skip = 0, coefficients present
+                    ec_symbol        <= cur_block_has_coeff ? 5'd0 : 5'd1; // luma txb_skip
                     ec_nsyms         <= 5'd2;
                     ec_icdf_flat     <= cur_txb_luma_icdf;
                     top_state        <= TS_TXB_SKIP_YW;
@@ -3235,7 +3478,11 @@ module av1_encoder_top #(
 
                 TS_TXB_SKIP_YW: begin
                     if (ec_done) begin
-                        if (!use_inter && cur_scan01_coeff_path)
+                        if (!cur_block_has_coeff) begin
+                            // If luma TXB is all-zero, AV1 does not signal a luma tx_type.
+                            // Chroma TX_4X4 coefficient syntax follows directly.
+                            top_state <= TS_TXB_SKIP_CB;
+                        end else if (!use_inter && cur_scan01_coeff_path)
                             top_state <= TS_AC01_TX_TYPE;
                         else if (!use_inter && cur_eob9_coeff_path)
                             top_state <= TS_AC09_TX_TYPE;
@@ -3928,22 +4175,42 @@ module av1_encoder_top #(
                     end
                 end
 
-                TS_TXB_SKIP_CB: begin
+
+                TS_CHR_ONLY_TX_TYPE: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= 5'd1; // Cb txb_skip = 1, all zero
+                    ec_symbol        <= use_inter ? 5'd7 : 5'd1; // DCT_DCT tx_type
+                    ec_nsyms         <= use_inter ? 5'd16 : 5'd7;
+                    ec_icdf_flat     <= use_inter ? cur_inter_tx_icdf : cur_intra_tx_icdf;
+                    top_state        <= TS_CHR_ONLY_TX_WAIT;
+                end
+
+                TS_CHR_ONLY_TX_WAIT: begin
+                    if (ec_done)
+                        top_state <= TS_TXB_SKIP_CB;
+                end
+
+                TS_TXB_SKIP_CB: begin
+                    chr_syntax_plane <= 1'b0;
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= chr_cb_has_coeff ? 5'd0 : 5'd1; // txb_skip: 0 has coeffs
                     ec_nsyms         <= 5'd2;
                     ec_icdf_flat     <= cur_txb_chr_icdf;
                     top_state        <= TS_TXB_SKIP_CBW;
                 end
 
                 TS_TXB_SKIP_CBW: begin
-                    if (ec_done)
-                        top_state <= TS_TXB_SKIP_CR;
+                    if (ec_done) begin
+                        if (chr_cb_has_coeff)
+                            top_state <= TS_CHR_EOB;
+                        else
+                            top_state <= TS_TXB_SKIP_CR;
+                    end
                 end
 
                 TS_TXB_SKIP_CR: begin
+                    chr_syntax_plane <= 1'b1;
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= 5'd1; // Cr txb_skip = 1, all zero
+                    ec_symbol        <= chr_cr_has_coeff ? 5'd0 : 5'd1; // txb_skip: 0 has coeffs
                     ec_nsyms         <= 5'd2;
                     ec_icdf_flat     <= cur_txb_chr_icdf;
                     top_state        <= TS_TXB_SKIP_CRW;
@@ -3951,8 +4218,237 @@ module av1_encoder_top #(
 
                 TS_TXB_SKIP_CRW: begin
                     if (ec_done) begin
-                        proc_idx  <= 0;
-                        top_state <= TS_IQ_START;
+                        if (chr_cr_has_coeff)
+                            top_state <= TS_CHR_EOB;
+                        else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_IQ_START;
+                        end
+                    end
+                end
+
+                TS_CHR_EOB: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= cur_chr_eob_pt - 4'd1;
+                    ec_nsyms         <= 5'd5;
+                    ec_icdf_flat     <= eob_multi16_chroma_icdf_flat_qctx(cur_coeff_qctx);
+                    top_state        <= TS_CHR_EOB_WAIT;
+                end
+
+                TS_CHR_EOB_WAIT: begin
+                    if (ec_done) begin
+                        if (cur_chr_eob_bits != 4'd0)
+                            top_state <= TS_CHR_EOB_EXTRA;
+                        else begin
+                            proc_idx  <= {2'd0, cur_chr_eob[3:0]} - 6'd1;
+                            top_state <= TS_CHR_BASE;
+                        end
+                    end
+                end
+
+                TS_CHR_EOB_EXTRA: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= (cur_chr_eob_extra >> (cur_chr_eob_bits - 4'd1)) & 10'd1;
+                    ec_nsyms         <= 5'd2;
+                    ec_icdf_flat     <= eob_extra_chroma4_icdf_flat_qctx(cur_coeff_qctx, cur_chr_eob_pt - 4'd3);
+                    top_state        <= TS_CHR_EOB_EXWAIT;
+                end
+
+                TS_CHR_EOB_EXWAIT: begin
+                    if (ec_done) begin
+                        if (cur_chr_eob_bits > 4'd1) begin
+                            coeff_eob_bit_idx <= cur_chr_eob_bits - 4'd2;
+                            top_state <= TS_CHR_EOB_BIT;
+                        end else begin
+                            proc_idx  <= {2'd0, cur_chr_eob[3:0]} - 6'd1;
+                            top_state <= TS_CHR_BASE;
+                        end
+                    end
+                end
+
+                TS_CHR_EOB_BIT: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= (cur_chr_eob_extra >> coeff_eob_bit_idx) & 10'd1;
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_CHR_EOB_BITW;
+                end
+
+                TS_CHR_EOB_BITW: begin
+                    if (ec_done) begin
+                        if (coeff_eob_bit_idx > 4'd0) begin
+                            coeff_eob_bit_idx <= coeff_eob_bit_idx - 4'd1;
+                            top_state <= TS_CHR_EOB_BIT;
+                        end else begin
+                            proc_idx  <= {2'd0, cur_chr_eob[3:0]} - 6'd1;
+                            top_state <= TS_CHR_BASE;
+                        end
+                    end
+                end
+
+                TS_CHR_BASE: begin
+                    ec_encode_symbol <= 1;
+                    if (proc_idx[3:0] == (cur_chr_eob[3:0] - 4'd1)) begin
+                        ec_symbol    <= coeff_chroma_eob_base_sym_from_scan(chr_syntax_plane, proc_idx[3:0]);
+                        ec_nsyms     <= 5'd3;
+                        ec_icdf_flat <= coeff_base_eob_chroma4_icdf_flat_qctx(cur_coeff_qctx, coeff_base_eob_chroma_ctx_from_scan_fn(proc_idx[3:0]));
+                    end else begin
+                        ec_symbol    <= coeff_chroma_base_sym_from_scan(chr_syntax_plane, proc_idx[3:0]);
+                        ec_nsyms     <= 5'd4;
+                        ec_icdf_flat <= coeff_base_chroma4_icdf_flat_qctx(cur_coeff_qctx, get_nz_map_ctx_chroma(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])));
+                    end
+                    top_state <= TS_CHR_BASEW;
+                end
+
+                TS_CHR_BASEW: begin
+                    if (ec_done) begin
+                        if (coeff_abs_level_chroma_flat(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])) > 16'd2) begin
+                            if (coeff_abs_level_chroma_flat(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])) > 16'd14) begin
+                                coeff_br_remaining <= 5'd12;
+                                coeff_br_capped    <= 1'b1;
+                            end else begin
+                                coeff_br_remaining <= coeff_chroma_br_remaining_from_scan(chr_syntax_plane, proc_idx[3:0]);
+                                coeff_br_capped    <= 1'b0;
+                            end
+                            top_state <= TS_CHR_BR;
+                        end else if (proc_idx > 6'd0) begin
+                            coeff_br_capped <= 1'b0;
+                            proc_idx  <= proc_idx - 6'd1;
+                            top_state <= TS_CHR_BASE;
+                        end else begin
+                            coeff_br_capped <= 1'b0;
+                            proc_idx  <= 6'd0;
+                            top_state <= TS_CHR_SIGN;
+                        end
+                    end
+                end
+
+                TS_CHR_BR: begin
+                    ec_encode_symbol <= 1;
+                    ec_symbol        <= (coeff_br_remaining > 5'd3) ? 5'd3 : coeff_br_remaining;
+                    ec_nsyms         <= 5'd4;
+                    ec_icdf_flat     <= coeff_br_chroma4_icdf_flat_qctx(cur_coeff_qctx, get_br_ctx_chroma(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])));
+                    top_state        <= TS_CHR_BRW;
+                end
+
+                TS_CHR_BRW: begin
+                    if (ec_done) begin
+                        if (coeff_br_remaining >= 5'd3) begin
+                            if ((coeff_br_remaining == 5'd3) && coeff_br_capped) begin
+                                coeff_br_capped <= 1'b0;
+                                top_state <= (proc_idx > 6'd0) ? TS_CHR_BASE : TS_CHR_SIGN;
+                                if (proc_idx > 6'd0)
+                                    proc_idx <= proc_idx - 6'd1;
+                                else
+                                    proc_idx <= 6'd0;
+                            end else begin
+                                coeff_br_remaining <= coeff_br_remaining - 5'd3;
+                                top_state <= TS_CHR_BR;
+                            end
+                        end else if (proc_idx > 6'd0) begin
+                            coeff_br_capped <= 1'b0;
+                            proc_idx  <= proc_idx - 6'd1;
+                            top_state <= TS_CHR_BASE;
+                        end else begin
+                            coeff_br_capped <= 1'b0;
+                            proc_idx  <= 6'd0;
+                            top_state <= TS_CHR_SIGN;
+                        end
+                    end
+                end
+
+                TS_CHR_SIGN: begin
+                    if ((chr_syntax_plane ? chr_cr_qcoeff[scan_4x4_pos(proc_idx[3:0])] : chr_cb_qcoeff[scan_4x4_pos(proc_idx[3:0])]) != 16'sd0) begin
+                        if (proc_idx == 6'd0) begin
+                            ec_encode_symbol <= 1;
+                            ec_symbol        <= (chr_syntax_plane ? chr_cr_qcoeff[scan_4x4_pos(proc_idx[3:0])][15] : chr_cb_qcoeff[scan_4x4_pos(proc_idx[3:0])][15]) ? 5'd1 : 5'd0;
+                            ec_nsyms         <= 5'd2;
+                            ec_icdf_flat     <= dc_sign_chroma_icdf_flat(cur_dc_sign_ctx);
+                        end else begin
+                            ec_encode_bool <= 1;
+                            ec_bool_val    <= chr_syntax_plane ? chr_cr_qcoeff[scan_4x4_pos(proc_idx[3:0])][15] : chr_cb_qcoeff[scan_4x4_pos(proc_idx[3:0])][15];
+                            ec_bool_prob   <= 15'd16384;
+                        end
+                        top_state <= TS_CHR_SIGNW;
+                    end else if (proc_idx < ({2'd0, cur_chr_eob[3:0]} - 6'd1)) begin
+                        proc_idx  <= proc_idx + 6'd1;
+                        top_state <= TS_CHR_SIGN;
+                    end else begin
+                        if (!chr_syntax_plane)
+                            top_state <= TS_TXB_SKIP_CR;
+                        else begin
+                            proc_idx  <= 0;
+                            top_state <= TS_IQ_START;
+                        end
+                    end
+                end
+
+                TS_CHR_SIGNW: begin
+                    if (ec_done) begin
+                        if (coeff_abs_level_chroma_flat(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])) > 16'd14) begin
+                            golomb_x <= coeff_abs_level_chroma_flat(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])) - 16'd14;
+                            golomb_zero_remaining <= bit_length16_fn(
+                                coeff_abs_level_chroma_flat(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])) - 16'd14) - 5'd1;
+                            golomb_bit_idx <= bit_length16_fn(
+                                coeff_abs_level_chroma_flat(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])) - 16'd14) - 5'd1;
+                            if (bit_length16_fn(coeff_abs_level_chroma_flat(chr_syntax_plane, scan_4x4_pos(proc_idx[3:0])) - 16'd14) > 5'd1)
+                                top_state <= TS_CHR_GOLOMB_ZERO;
+                            else
+                                top_state <= TS_CHR_GOLOMB_BIT;
+                        end else if (proc_idx < ({2'd0, cur_chr_eob[3:0]} - 6'd1)) begin
+                            proc_idx  <= proc_idx + 6'd1;
+                            top_state <= TS_CHR_SIGN;
+                        end else begin
+                            if (!chr_syntax_plane)
+                                top_state <= TS_TXB_SKIP_CR;
+                            else begin
+                                proc_idx  <= 0;
+                                top_state <= TS_IQ_START;
+                            end
+                        end
+                    end
+                end
+
+                TS_CHR_GOLOMB_ZERO: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= 1'b0;
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_CHR_GOLOMB_ZW;
+                end
+
+                TS_CHR_GOLOMB_ZW: begin
+                    if (ec_done) begin
+                        if (golomb_zero_remaining > 5'd1) begin
+                            golomb_zero_remaining <= golomb_zero_remaining - 5'd1;
+                            top_state <= TS_CHR_GOLOMB_ZERO;
+                        end else begin
+                            top_state <= TS_CHR_GOLOMB_BIT;
+                        end
+                    end
+                end
+
+                TS_CHR_GOLOMB_BIT: begin
+                    ec_encode_bool <= 1;
+                    ec_bool_val    <= (golomb_x >> golomb_bit_idx) & 16'd1;
+                    ec_bool_prob   <= 15'd16384;
+                    top_state      <= TS_CHR_GOLOMB_BW;
+                end
+
+                TS_CHR_GOLOMB_BW: begin
+                    if (ec_done) begin
+                        if (golomb_bit_idx > 5'd0) begin
+                            golomb_bit_idx <= golomb_bit_idx - 5'd1;
+                            top_state <= TS_CHR_GOLOMB_BIT;
+                        end else if (proc_idx < ({2'd0, cur_chr_eob[3:0]} - 6'd1)) begin
+                            proc_idx  <= proc_idx + 6'd1;
+                            top_state <= TS_CHR_SIGN;
+                        end else begin
+                            if (!chr_syntax_plane)
+                                top_state <= TS_TXB_SKIP_CR;
+                            else begin
+                                proc_idx  <= 0;
+                                top_state <= TS_IQ_START;
+                            end
+                        end
                     end
                 end
 
@@ -4138,8 +4634,20 @@ module av1_encoder_top #(
                             chr_cb_has_coeff <= chroma_res_has_coeff;
                         else
                             chr_cr_has_coeff <= chroma_res_has_coeff;
-                        chr_wr_idx <= 0;
-                        top_state  <= TS_CHR_WR;
+
+                        if (chr_capture_only) begin
+                            if (!chr_plane) begin
+                                chr_plane <= 1'b1;
+                                top_state <= TS_CHR_FETCH;
+                            end else begin
+                                chr_capture_only <= 1'b0;
+                                proc_idx <= 0;
+                                top_state <= TS_SYNTAX_SKIP;
+                            end
+                        end else begin
+                            chr_wr_idx <= 0;
+                            top_state  <= TS_CHR_WR;
+                        end
                     end
                 end
 

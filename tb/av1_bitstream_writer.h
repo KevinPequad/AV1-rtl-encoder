@@ -17,6 +17,7 @@
 #include <unordered_map>
 
 #include "av1_tx8x8_qctx_tables.h"
+#include "av1_tx4x4_chroma_tables.h"
 
 // ============================================================
 // AV1 Default CDF Tables (ICDF format: value = 32768 - cumprob)
@@ -436,7 +437,11 @@ static const uint16_t av1_intra_tx_type_cdf_8x8[13][8] = {
     {AV1_ICDF(3511), AV1_ICDF(6332),  AV1_ICDF(11165), AV1_ICDF(15335), AV1_ICDF(19323), AV1_ICDF(23594), AV1_ICDF(32768), 0},
 };
 
-// ---- Scan order for TX_8X8 (diagonal) ----
+// ---- Scan orders (diagonal) ----
+static const int16_t default_scan_4x4[16] = {
+    0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15
+};
+
 static const int16_t default_scan_8x8[64] = {
     0,  8,  1,  2,  9,  16, 24, 17, 10, 3,  4,  11, 18, 25, 32, 40,
     33, 26, 19, 12, 5,  6,  13, 20, 27, 34, 41, 48, 56, 49, 42, 35,
@@ -444,7 +449,14 @@ static const int16_t default_scan_8x8[64] = {
     23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63
 };
 
-// nz_map context offset for TX_8X8 (64 entries, raster order)
+// nz_map context offsets (raster order)
+static const int8_t nz_map_ctx_offset_4x4[16] = {
+    0, 1, 6, 6,
+    1, 6, 6, 21,
+    6, 6, 21, 21,
+    6, 21, 21, 21,
+};
+
 static const int8_t nz_map_ctx_offset_8x8[64] = {
     0,  1,  6,  6,  21, 21, 21, 21,  1,  6,  6,  21, 21, 21, 21, 21,
     6,  6,  21, 21, 21, 21, 21, 21,  6,  21, 21, 21, 21, 21, 21, 21,
@@ -470,9 +482,9 @@ static const int16_t eob_offset_bits[12]  = {0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 // ============================================================
 static inline int clip_max3(int v) { return v > 3 ? 3 : (v < 0 ? 0 : v); }
 
-static inline int get_padded_idx_8x8(int idx) {
-    // bwl=3 for 8x8, TX_PAD_HOR_LOG2=2, TX_PAD_HOR=4
-    return idx + ((idx >> 3) << 2);
+static inline int get_padded_idx(int idx, int bwl) {
+    // TX_PAD_HOR_LOG2=2, TX_PAD_HOR=4
+    return idx + ((idx >> bwl) << 2);
 }
 
 static inline int get_nz_mag_2d(const uint8_t* levels, int bwl) {
@@ -487,10 +499,18 @@ static inline int get_nz_mag_2d(const uint8_t* levels, int bwl) {
 
 static inline int get_nz_map_ctx(const uint8_t* levels, int coeff_idx, int bwl) {
     if (coeff_idx == 0) return 0;
-    int pidx = get_padded_idx_8x8(coeff_idx);
+    int pidx = get_padded_idx(coeff_idx, bwl);
     int stats = get_nz_mag_2d(levels + pidx, bwl);
     int ctx = std::min((stats + 1) >> 1, 4);
     return ctx + nz_map_ctx_offset_8x8[coeff_idx];
+}
+
+static inline int get_nz_map_ctx_4x4(const uint8_t* levels, int coeff_idx) {
+    if (coeff_idx == 0) return 0;
+    int pidx = get_padded_idx(coeff_idx, 2);
+    int stats = get_nz_mag_2d(levels + pidx, 2);
+    int ctx = std::min((stats + 1) >> 1, 4);
+    return ctx + nz_map_ctx_offset_4x4[coeff_idx];
 }
 
 static inline int get_br_ctx_2d(const uint8_t* levels, int c, int bwl) {
@@ -810,6 +830,8 @@ private:
     std::vector<uint8_t> inter_above_, inter_left_;
     std::vector<uint8_t> ref_above_, ref_left_;
     std::vector<uint8_t> dc_sign_above_, dc_sign_left_;
+    std::vector<uint8_t> cb_ctx_above_, cb_ctx_left_;
+    std::vector<uint8_t> cr_ctx_above_, cr_ctx_left_;
     std::vector<uint8_t> blk_inter_coded_;
     std::vector<uint8_t> blk_ref0_;
     std::vector<uint8_t> blk_inter_mode_;
@@ -897,6 +919,10 @@ private:
         ref_left_.assign(mi_rows_, REF_NONE);
         dc_sign_above_.assign(mi_cols_, 0);
         dc_sign_left_.assign(mi_rows_, 0);
+        cb_ctx_above_.assign(blk_cols_, 0);
+        cb_ctx_left_.assign(blk_rows_, 0);
+        cr_ctx_above_.assign(blk_cols_, 0);
+        cr_ctx_left_.assign(blk_rows_, 0);
         blk_inter_coded_.assign(blk_cols_ * blk_rows_, 0);
         blk_ref0_.assign(blk_cols_ * blk_rows_, REF_NONE);
         blk_inter_mode_.assign(blk_cols_ * blk_rows_, REDUCED_INTER_NONE);
@@ -974,6 +1000,42 @@ private:
     static int compare_ref_counts(int a, int b) {
         if (a == b) return 1;
         return (a < b) ? 0 : 2;
+    }
+
+    static uint8_t coeff_context_from_dc(int16_t dc) {
+        if (dc < 0) return static_cast<uint8_t>(1 | (1 << 3));
+        if (dc > 0) return static_cast<uint8_t>(1 | (2 << 3));
+        return 0;
+    }
+
+    int get_chroma_txb_skip_ctx(int blk_x, int blk_y, bool cr_plane) const {
+        const auto& above = cr_plane ? cr_ctx_above_ : cb_ctx_above_;
+        const auto& left  = cr_plane ? cr_ctx_left_  : cb_ctx_left_;
+        const int above_ec = (blk_y > 0 && blk_x < blk_cols_ && above[blk_x] != 0) ? 1 : 0;
+        const int left_ec  = (blk_x > 0 && blk_y < blk_rows_ && left[blk_y] != 0) ? 1 : 0;
+        // Chroma TX_4X4 inside 8x8 luma / 4x4 chroma block uses ctx_offset=7.
+        return 7 + above_ec + left_ec;
+    }
+
+    int get_chroma_dc_sign_ctx(int blk_x, int blk_y, bool cr_plane) const {
+        static const int8_t signs[3] = {0, -1, 1};
+        const auto& above = cr_plane ? cr_ctx_above_ : cb_ctx_above_;
+        const auto& left  = cr_plane ? cr_ctx_left_  : cb_ctx_left_;
+        int dc_sign = 0;
+        if (blk_y > 0 && blk_x < blk_cols_) dc_sign += signs[(above[blk_x] >> 3) & 3];
+        if (blk_x > 0 && blk_y < blk_rows_) dc_sign += signs[(left[blk_y] >> 3) & 3];
+        if (dc_sign > 0) return 2;
+        if (dc_sign < 0) return 1;
+        return 0;
+    }
+
+    void update_chroma_ctx(int blk_x, int blk_y, bool cr_plane, const int16_t* qcoeff) {
+        uint8_t ctx = 0;
+        if (qcoeff) ctx = coeff_context_from_dc(qcoeff[0]);
+        auto& above = cr_plane ? cr_ctx_above_ : cb_ctx_above_;
+        auto& left  = cr_plane ? cr_ctx_left_  : cb_ctx_left_;
+        if (blk_x >= 0 && blk_x < blk_cols_) above[blk_x] = ctx;
+        if (blk_y >= 0 && blk_y < blk_rows_) left[blk_y] = ctx;
     }
 
     void encode_last_frame_ref(AV1RangeCoder& rc, int mi_row, int mi_col) {
@@ -1291,6 +1353,15 @@ private:
         return eob;
     }
 
+    int compute_eob_4x4(const int16_t* qcoeff) {
+        int eob = 0;
+        for (int c = 0; c < 16; c++) {
+            int pos = default_scan_4x4[c];
+            if (qcoeff[pos] != 0) eob = c + 1;
+        }
+        return eob;
+    }
+
     void encode_coeffs_txb(AV1RangeCoder& rc, const int16_t* qcoeff, int plane, int dc_sign_ctx = 0,
                            bool debug = false, bool inter_block = false, int intra_mode = 0) {
         int eob = compute_eob(qcoeff);
@@ -1431,6 +1502,99 @@ private:
                         rc.encode_bit((x >> i) & 1);
                     }
                 }
+            }
+        }
+    }
+
+
+    void encode_chroma_coeffs_txb4x4(AV1RangeCoder& rc, const int16_t* qcoeff, int plane,
+                                     int txb_skip_ctx, int dc_sign_ctx = 0, bool debug = false) {
+        int eob = compute_eob_4x4(qcoeff);
+        const int coeff_qctx = av1_coeff_qctx_from_qindex(qindex_);
+
+        if (debug) fprintf(stderr, "[CHR_COEFF] plane=%d eob=%d txb_skip=%d\n", plane, eob, eob==0?1:0);
+        encode_symbol_ctx(rc, eob == 0 ? 1 : 0, av1_txb_skip_cdf_4x4_qctx[coeff_qctx][txb_skip_ctx], 2, debug);
+        if (eob == 0) return;
+
+        int eob_extra;
+        int eob_pt = get_eob_pos_token(eob, &eob_extra);
+        if (debug) fprintf(stderr, "[CHR_COEFF] eob_pt=%d symbol=%d eob_extra=%d nsyms=5\n", eob_pt, eob_pt-1, eob_extra);
+        encode_symbol_ctx(rc, eob_pt - 1, av1_eob_multi16_chroma_cdf_qctx[coeff_qctx], 5, debug);
+
+        int eob_ob = eob_offset_bits[eob_pt];
+        if (eob_ob > 0) {
+            int eob_ctx = eob_pt - 3;
+            int eob_shift = eob_ob - 1;
+            int bit = (eob_extra >> eob_shift) & 1;
+            encode_symbol_ctx(rc, bit, av1_eob_extra_chroma4_cdf_qctx[coeff_qctx][eob_ctx], 2, debug);
+            for (int i = 1; i < eob_ob; i++) {
+                eob_shift = eob_ob - 1 - i;
+                bit = (eob_extra >> eob_shift) & 1;
+                trace_bit_op(bit);
+                rc.encode_bit(bit);
+            }
+        }
+
+        uint8_t levels_buf[8 * 10 + 16];
+        memset(levels_buf, 0, sizeof(levels_buf));
+        uint8_t* levels = levels_buf + 2 * 8;
+        init_levels_buf(qcoeff, 4, 4, levels);
+
+        int8_t coeff_contexts[16];
+        for (int c = 0; c < eob; c++) {
+            int pos = default_scan_4x4[c];
+            if (c == eob - 1)
+                coeff_contexts[pos] = (c == 0) ? 0 : (c <= (4 * 4) / 8) ? 1 : (c <= (4 * 4) / 4) ? 2 : 3;
+            else
+                coeff_contexts[pos] = (int8_t)get_nz_map_ctx_4x4(levels, pos);
+        }
+
+        for (int c = eob - 1; c >= 0; --c) {
+            int pos = default_scan_4x4[c];
+            int level = abs((int)qcoeff[pos]);
+            int coeff_ctx = coeff_contexts[pos];
+            if (c == eob - 1) {
+                int sym = std::min(level, 3) - 1;
+                int ctx = coeff_ctx < 4 ? coeff_ctx : 3;
+                if (debug) fprintf(stderr, "[CHR_COEFF] base_eob c=%d pos=%d level=%d sym=%d ctx=%d\n", c, pos, level, sym, ctx);
+                encode_symbol_ctx(rc, sym, av1_coeff_base_eob_chroma4_cdf_qctx[coeff_qctx][ctx], 3, debug);
+            } else {
+                int sym = std::min(level, 3);
+                int ctx = coeff_ctx < 42 ? coeff_ctx : 41;
+                if (debug) fprintf(stderr, "[CHR_COEFF] base c=%d pos=%d level=%d sym=%d ctx=%d\n", c, pos, level, sym, ctx);
+                encode_symbol_ctx(rc, sym, av1_coeff_base_chroma4_cdf_qctx[coeff_qctx][ctx], 4, debug);
+            }
+            if (level > 2) {
+                int base_range = level - 1 - 2;
+                int br_ctx = get_br_ctx_2d(levels, pos, 2);
+                if (debug) fprintf(stderr, "[CHR_COEFF] br level=%d base_range=%d br_ctx=%d\n", level, base_range, br_ctx);
+                for (int idx = 0; idx < 12; idx += 3) {
+                    int k = std::min(base_range - idx, 3);
+                    encode_symbol_ctx(rc, k, av1_coeff_br_chroma4_cdf_qctx[coeff_qctx][br_ctx < 21 ? br_ctx : 20], 4, debug);
+                    if (k < 3) break;
+                }
+            }
+        }
+
+        for (int c = 0; c < eob; c++) {
+            int pos = default_scan_4x4[c];
+            int v = (int)qcoeff[pos];
+            int level = abs(v);
+            if (!level) continue;
+            int sign = (v < 0) ? 1 : 0;
+            if (c == 0) {
+                encode_symbol_ctx(rc, sign, av1_dc_sign_cdf[plane][dc_sign_ctx], 2, debug);
+            } else {
+                trace_bit_op(sign);
+                rc.encode_bit(sign);
+            }
+            if (level > 14) {
+                int x = (level - 14 - 1) + 1;
+                int length = 0;
+                int tmp = x;
+                while (tmp > 0) { length++; tmp >>= 1; }
+                for (int i = 0; i < length - 1; i++) { trace_bit_op(0); rc.encode_bit(0); }
+                for (int i = length - 1; i >= 0; i--) { trace_bit_op((x >> i) & 1); rc.encode_bit((x >> i) & 1); }
             }
         }
     }
@@ -1756,6 +1920,11 @@ private:
                     if (bi.qcoeff[i] != 0) { has_coeff = true; break; }
                 }
             }
+            if (!has_coeff) {
+                for (int i = 0; i < 16; i++) {
+                    if (bi.cb_qcoeff[i] != 0 || bi.cr_qcoeff[i] != 0) { has_coeff = true; break; }
+                }
+            }
             if (has_coeff) non_skip_count++;
         }
         fprintf(stderr, "[BS] Tile data: %zu bytes, %d SBs (%dx%d), %d/%d blocks with coefficients\n",
@@ -1834,6 +2003,10 @@ private:
         const int16_t* qcoeff = nullptr;
         const int16_t* enc_qcoeff = nullptr;
         bool has_coeff = false;
+        bool cb_has_coeff = false;
+        bool cr_has_coeff = false;
+        const int16_t* cb_qcoeff = nullptr;
+        const int16_t* cr_qcoeff = nullptr;
         int16_t dc_only_qcoeff[64] = {};
 
         if (blk_idx >= 0 && blk_idx < (int)blocks_.size()) {
@@ -1846,13 +2019,22 @@ private:
             for (int i = 0; i < 64; i++) {
                 if (enc_qcoeff[i] != 0) { has_coeff = true; break; }
             }
+            cb_qcoeff = blocks_[blk_idx].cb_qcoeff;
+            cr_qcoeff = blocks_[blk_idx].cr_qcoeff;
+            cb_has_coeff = blocks_[blk_idx].cb_has_coeff;
+            cr_has_coeff = blocks_[blk_idx].cr_has_coeff;
+            if (!cb_has_coeff) {
+                for (int i = 0; i < 16; i++) { if (cb_qcoeff[i] != 0) { cb_has_coeff = true; break; } }
+            }
+            if (!cr_has_coeff) {
+                for (int i = 0; i < 16; i++) { if (cr_qcoeff[i] != 0) { cr_has_coeff = true; break; } }
+            }
         }
 
         const bool video_inter_frame = !still_picture_mode_ && !is_keyframe_ && frame_has_inter_blocks();
 
-        // Skip flag: 1 if ALL planes are all-zero, 0 otherwise
-        // For now, skip is based on luma only (chroma always all-zero)
-        int skip = has_coeff ? 0 : 1;
+        // Skip flag: 1 if ALL planes are all-zero, 0 otherwise.
+        int skip = (has_coeff || cb_has_coeff || cr_has_coeff) ? 0 : 1;
         // Force skip=0 for first block if force_skip0_ is set (testing)
         if (force_skip0_ && blk_idx == 0) skip = 0;
         int skip_ctx = get_skip_ctx(mi_row, mi_col);
@@ -1982,14 +2164,27 @@ private:
             bool debug = coeff_debug_mode_ && has_coeff;
             if (debug) fprintf(stderr, "[BLK] skip=0 blk_idx=%d mi_row=%d mi_col=%d\n", blk_idx, mi_row, mi_col);
             // Luma 8x8 TX block
-            encode_coeffs_txb(rc, enc_qcoeff, 0, dc_sign_ctx, debug, is_inter_block, y_mode);
+            if (has_coeff) {
+                encode_coeffs_txb(rc, enc_qcoeff, 0, dc_sign_ctx, debug, is_inter_block, y_mode);
+            } else {
+                // Luma transform block is all-zero. Do not signal a luma tx_type;
+                // chroma uses its own TX_4X4 coefficient syntax below.
+                encode_symbol_ctx(rc, 1, av1_txb_skip_cdf_8x8_qctx[av1_coeff_qctx_from_qindex(qindex_)][0], 2, debug);
+            }
 
-            // Chroma Cb/Cr 4x4 — all zero
-            // Chroma TX_4X4: txs_ctx=0, use TX_4X4 CDF, ctx 0
-            const int coeff_qctx = av1_coeff_qctx_from_qindex(qindex_);
-            encode_symbol_ctx(rc, 1, av1_txb_skip_cdf_4x4_qctx[coeff_qctx][7], 2);  // Cb all zero
-            encode_symbol_ctx(rc, 1, av1_txb_skip_cdf_4x4_qctx[coeff_qctx][7], 2);  // Cr all zero
+            // Chroma Cb/Cr TX_4X4 from captured RTL chroma qcoeffs.
+            if (cb_qcoeff) encode_chroma_coeffs_txb4x4(rc, cb_qcoeff, 1,
+                                                       get_chroma_txb_skip_ctx(blk_x, blk_y, false),
+                                                       get_chroma_dc_sign_ctx(blk_x, blk_y, false),
+                                                       debug && cb_has_coeff);
+            if (cr_qcoeff) encode_chroma_coeffs_txb4x4(rc, cr_qcoeff, 1,
+                                                       get_chroma_txb_skip_ctx(blk_x, blk_y, true),
+                                                       get_chroma_dc_sign_ctx(blk_x, blk_y, true),
+                                                       debug && cr_has_coeff);
         }
+
+        update_chroma_ctx(blk_x, blk_y, false, cb_qcoeff);
+        update_chroma_ctx(blk_x, blk_y, true, cr_qcoeff);
 
         update_block_ctx(mi_row, mi_col, mi_size, skip, y_mode, dc_sign_code, is_inter_block, ref_frame,
                          inter_mode, block_mvx, block_mvy);

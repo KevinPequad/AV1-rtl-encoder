@@ -23,8 +23,8 @@ Completed:
 
 ## Next Slice
 
-1. Finish Cb/Cr TX_4X4 coefficient syntax ownership from the new captured `chr_cb_qcoeff[]` / `chr_cr_qcoeff[]` fields: emit chroma `txb_skip=0`, EOB/base/sign symbols from RTL when chroma residuals are non-zero, and mirror that in the C++ oracle without repairing RTL bytes.
-2. Gate the chroma syntax step with a non-flat chroma probe where FFmpeg/libdav1d and `aomdec` decode match `recon.yuv`.
+1. Expand the new one-block non-zero Cb/Cr TX_4X4 syntax proof to multi-block 16x16+ non-flat chroma by adding decoder-matching chroma intra prediction from reconstructed chroma neighbors.
+2. Keep the current `nonzero-chroma-syntax-check` public-decoder gate passing while widening the fixture.
 3. Continue widening the real non-zero fractional-pel translational checkpoints on the reduced LAST-only path without regressing the syntax-only subpel guards.
 
 ## Regression Gates
@@ -74,4 +74,22 @@ Verified commands:
 - `make THREADS=16 BUILD_JOBS=16 WIDTH=16 HEIGHT=16 all`
 - `THREADS=16 BUILD_JOBS=16 bash /tmp/av1_chudpc2_smoke.sh`
 
-Remaining blocker for AV1 proof: chroma qcoeffs are captured but not yet encoded into the final RTL-owned tile stream; chroma syntax still needs to move beyond unconditional `txb_skip=1`.
+Latest progress: constrained one-block non-zero Cb/Cr TX_4X4 syntax is now RTL-owned and public-decoder verified with `make THREADS=16 BUILD_JOBS=16 nonzero-chroma-syntax-check`. Remaining blocker for wider proof: multi-block non-flat chroma needs decoder-matching chroma intra-neighbor prediction before the 16x16+ chroma probe can pass recon parity.
+
+
+## Chud PC 2 non-zero chroma syntax checkpoint
+
+Implemented a constrained one-block dynamic proof for non-zero Cb/Cr TX_4X4 syntax:
+
+- C++ oracle and RTL both emit Cb/Cr `txb_skip`, EOB, base, BR/sign syntax from captured chroma qcoeffs.
+- Fixed TX_4X4 EOB symbol count, removed invalid chroma-only luma tx_type insertion, and added separate oracle Cb/Cr entropy contexts.
+- Adjusted chroma residual inverse scaling so public decoder reconstruction matches RTL `recon.yuv` for TX_4X4 DC.
+
+Verification gate:
+
+```bash
+cd tb
+make THREADS=16 BUILD_JOBS=16 nonzero-chroma-syntax-check
+```
+
+The gate uses an 8x8 all-key non-flat chroma probe and verifies RTL raw OBU equality plus FFmpeg/aomdec decode-vs-recon parity. The next expansion is 16x16+ non-flat chroma with decoder-matching chroma intra prediction from reconstructed chroma neighbors.
