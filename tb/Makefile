@@ -29,6 +29,8 @@ INTER_TOP       := av1_inter_pred
 INTER_TB_CPP    := test_inter_pred.cpp
 ME_TOP          := av1_me
 ME_TB_CPP       := test_me.cpp
+CHROMA_INTER_TOP := av1_chroma_inter_pred
+CHROMA_INTER_TB_CPP := test_chroma_inter_pred.cpp
 RTL_DIR         := ../rtl
 OBJ_DIR         := obj_dir
 TRACE_OBJ_DIR   := obj_dir_trace
@@ -44,6 +46,8 @@ INTER_OBJ_DIR   := obj_dir_inter_pred
 INTER_SIM_BIN   := V$(INTER_TOP)
 ME_OBJ_DIR      := obj_dir_me
 ME_SIM_BIN      := V$(ME_TOP)
+CHROMA_INTER_OBJ_DIR := obj_dir_chroma_inter_pred
+CHROMA_INTER_SIM_BIN := V$(CHROMA_INTER_TOP)
 
 # Resolution (override on command line for different sizes)
 WIDTH           ?= 1280
@@ -84,7 +88,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check clean help
+.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check clean help
 
 all: $(SIM_BIN)
 
@@ -209,11 +213,22 @@ inv-xform-check: $(INV_XFORM_SIM_BIN)
 inter-pred-check: $(INTER_SIM_BIN)
 	./$(INTER_SIM_BIN)
 
+
+$(CHROMA_INTER_SIM_BIN): $(CHROMA_INTER_TB_CPP) $(RTL_DIR)/av1_chroma_inter_pred.v
+	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(CHROMA_INTER_TOP) 		-I$(RTL_DIR) 		-GCHROMA_WIDTH=$(shell expr $(WIDTH) / 2) -GCHROMA_HEIGHT=$(shell expr $(HEIGHT) / 2) 		-Mdir $(CHROMA_INTER_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)" 		$(RTL_DIR)/av1_chroma_inter_pred.v 		$(CHROMA_INTER_TB_CPP) 		-o $(CHROMA_INTER_SIM_BIN)
+	$(MAKE) -C $(CHROMA_INTER_OBJ_DIR) -f V$(CHROMA_INTER_TOP).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
+	@cp -f $(CHROMA_INTER_OBJ_DIR)/$(CHROMA_INTER_SIM_BIN) ./$(CHROMA_INTER_SIM_BIN) 2>/dev/null || true
+	@echo ""
+	@echo "Build complete: ./$(CHROMA_INTER_SIM_BIN)"
+
+chroma-inter-pred-check: $(CHROMA_INTER_SIM_BIN)
+	./$(CHROMA_INTER_SIM_BIN)
+
 me-check: $(ME_SIM_BIN)
 	./$(ME_SIM_BIN)
 
 clean:
-	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) *.vcd
+	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) *.vcd
 
 help:
 	@echo "Targets:"
@@ -225,6 +240,7 @@ help:
 	@echo "  inv-xform-check Build and run the standalone av1_inverse_transform reference check"
 	@echo "  inter-pred-check Build and run the standalone av1_inter_pred reference check"
 	@echo "  me-check Build and run the standalone av1_me subpel reference check"
+	@echo "  chroma-inter-pred-check Build and run the standalone av1_chroma_inter_pred reference check"
 	@echo "  clean  Remove build artifacts"
 	@echo ""
 	@echo "Variables (override on command line):"
