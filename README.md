@@ -272,6 +272,10 @@ Inventory of the current repo state:
   - RTL now mirrors the oracle's Cb/Cr entropy context state for chroma `txb_skip` and DC-sign contexts across neighboring blocks.
   - New chroma-neighbor fetch states use unique state encodings so they do not collide with the chroma-only TX-type states.
 - The earlier one-block `nonzero-chroma-syntax-check` remains as the isolated 8x8 syntax gate; the new 16x16 gate closes the first multi-block non-flat chroma blocker.
+- Added the next 32x32 natural-ish all-key gate:
+  - `make THREADS=16 BUILD_JOBS=16 natural32-chroma-syntax-check` builds a 32x32 deterministic gradient probe with non-flat luma and chroma.
+  - Root cause fixed here: `TS_TXB_SKIP_CB` / `TS_TXB_SKIP_CR` selected `cur_txb_chr_icdf` while updating `chr_syntax_plane` in the same cycle, so multi-block frames could swap Cb/Cr txb contexts. Those states now select the Cb/Cr plane explicitly.
+  - The 32x32 gate verifies RTL raw OBU equality plus FFmpeg/libdav1d and `aomdec` decode-vs-`recon.yuv` parity.
 
 
 - Added the first top-level chroma residual plumbing slice after the TX_4X4 table checkpoint:
