@@ -41,6 +41,9 @@ static int16_t sign_extend_9(uint16_t v) {
     v &= 0x1FFu;
     return (v & 0x100u) ? static_cast<int16_t>(v | 0xFE00u) : static_cast<int16_t>(v);
 }
+static int16_t sign_extend_16(uint16_t v) {
+    return static_cast<int16_t>(v);
+}
 
 struct EncodedTemporalUnit {
     uint64_t pts;
@@ -321,7 +324,7 @@ int main(int argc, char** argv) {
         if (progress_every && frame_active && cycle >= next_progress_cycle) {
             auto* root = dut->rootp;
             fprintf(stderr,
-                    "[TB] progress frame=%d/%d cycle=%llu state=%d blk=(%d,%d) key=%d force_intra=%d use_inter=%d me_mv=(%d,%d) done=%d\n",
+                    "[TB] progress frame=%d/%d cycle=%llu state=%d blk=(%d,%d) key=%d force_intra=%d use_inter=%d me_mv_q3=(%d,%d) done=%d\n",
                     frame_idx, num_frames,
                     (unsigned long long)cycle,
                     root->av1_encoder_top__DOT__top_state,
@@ -330,8 +333,8 @@ int main(int argc, char** argv) {
                     dut->is_keyframe_in ? 1 : 0,
                     dut->force_intra_in ? 1 : 0,
                     root->av1_encoder_top__DOT__use_inter ? 1 : 0,
-                    sign_extend_9(root->av1_encoder_top__DOT__me_mvx),
-                    sign_extend_9(root->av1_encoder_top__DOT__me_mvy),
+                    sign_extend_16(root->av1_encoder_top__DOT__me_mvx_q3),
+                    sign_extend_16(root->av1_encoder_top__DOT__me_mvy_q3),
                     dut->done ? 1 : 0);
             std::fflush(stderr);
             do {
@@ -509,8 +512,8 @@ int main(int argc, char** argv) {
                     }
                     bi.pred_mode = root->av1_encoder_top__DOT__best_intra_mode;
                     bi.is_inter = root->av1_encoder_top__DOT__use_inter;
-                    bi.mvx = sign_extend_9(root->av1_encoder_top__DOT__me_mvx);
-                    bi.mvy = sign_extend_9(root->av1_encoder_top__DOT__me_mvy);
+                    bi.mvx = sign_extend_16(root->av1_encoder_top__DOT__me_mvx_q3);
+                    bi.mvy = sign_extend_16(root->av1_encoder_top__DOT__me_mvy_q3);
                 }
             }
 
@@ -968,7 +971,7 @@ int main(int argc, char** argv) {
         auto* root = dut->rootp;
         fprintf(stderr,
                 "[TB] EXIT before completion: frame_idx=%d/%d cycle=%llu timeout=%llu state=%d blk=(%d,%d) "
-                "use_inter=%d me_mv=(%d,%d) inter_fetch_idx=%d done=%d\n",
+                "use_inter=%d me_mv_q3=(%d,%d) inter_fetch_idx=%d done=%d\n",
                 frame_idx, num_frames,
                 (unsigned long long)cycle,
                 (unsigned long long)timeout_cycles,
@@ -976,8 +979,8 @@ int main(int argc, char** argv) {
                 root->av1_encoder_top__DOT__blk_x,
                 root->av1_encoder_top__DOT__blk_y,
                 root->av1_encoder_top__DOT__use_inter ? 1 : 0,
-                sign_extend_9(root->av1_encoder_top__DOT__me_mvx),
-                sign_extend_9(root->av1_encoder_top__DOT__me_mvy),
+                sign_extend_16(root->av1_encoder_top__DOT__me_mvx_q3),
+                sign_extend_16(root->av1_encoder_top__DOT__me_mvy_q3),
                 root->av1_encoder_top__DOT__inter_fetch_idx,
                 dut->done ? 1 : 0);
     }
