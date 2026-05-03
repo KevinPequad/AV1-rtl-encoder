@@ -93,7 +93,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check clean help
+.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check clean help
 
 all: $(SIM_BIN)
 
@@ -260,6 +260,9 @@ chroma-coeff-table-check: $(CHROMA_COEFF_TABLE_TB_CPP) av1_tx4x4_chroma_tables.h
 	$(CXX) -O2 -std=c++17 $(CHROMA_COEFF_TABLE_TB_CPP) -o test_chroma_coeff_tables
 	./test_chroma_coeff_tables
 
+top-chroma-integration-check:
+	python3 test_top_chroma_integration.py
+
 clean:
 	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) test_chroma_coeff_tables *.vcd
 
@@ -276,6 +279,7 @@ help:
 	@echo "  chroma-inter-pred-check Build and run the standalone av1_chroma_inter_pred reference check"
 	@echo "  chroma-residual-check Build and run the standalone av1_chroma_residual transform/quant/recon check"
 	@echo "  chroma-coeff-table-check Build and run TX_4X4 chroma coefficient table sanity check"
+	@echo "  top-chroma-integration-check Static guard for top-level chroma residual plumbing"
 	@echo "  clean  Remove build artifacts"
 	@echo ""
 	@echo "Variables (override on command line):"

@@ -254,7 +254,8 @@ module av1_encoder_top #(
         TS_IQ_WAIT      = 6'd25,
         TS_DONE         = 6'd22,
         TS_NEIGH_ADDR   = 6'd32,  // Neighbor loading: issue address
-        TS_NEIGH_READ   = 6'd33;  // Neighbor loading: read data
+        TS_NEIGH_READ   = 6'd33,  // Neighbor loading: read data
+        TS_CHR_RES_WAIT = 8'd170; // Wait for chroma residual core
 
     reg [7:0]  top_state;
     reg [9:0]  blk_x, blk_y;    // Current block position (in 8x8 units)
@@ -1761,7 +1762,17 @@ module av1_encoder_top #(
     // Chroma processing
     reg        chr_plane;     // 0=Cb, 1=Cr
     reg [4:0]  chr_wr_idx;    // 0..15 for 4x4 block
-    reg [7:0]  chr_blk [0:15]; // 4x4 chroma block buffer
+    reg [7:0]  chr_cur_blk [0:15];
+    reg [7:0]  chr_pred_blk [0:15];
+    reg [7:0]  chr_blk [0:15]; // 4x4 reconstructed chroma block buffer
+    reg signed [15:0] chr_qcoeff [0:15] /* verilator public_flat */;
+    reg signed [15:0] chr_cb_qcoeff [0:15] /* verilator public_flat */;
+    reg signed [15:0] chr_cr_qcoeff [0:15] /* verilator public_flat */;
+    reg        chr_block_has_coeff /* verilator public_flat */;
+    reg        chr_cb_has_coeff /* verilator public_flat */;
+    reg        chr_cr_has_coeff /* verilator public_flat */;
+    reg        chr_fetch_seen;
+    reg        chr_pred_seen;
 
     // ====================================================================
     // Sub-module instantiation
@@ -1981,6 +1992,26 @@ module av1_encoder_top #(
         .pred(chroma_pred_out)
     );
 
+    wire        chroma_res_done;
+    reg         chroma_res_start;
+    wire signed [15:0] chroma_res_qcoeff [0:15];
+    wire [7:0]  chroma_res_recon [0:15];
+    wire        chroma_res_has_coeff;
+
+    av1_chroma_residual u_chroma_residual (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(chroma_res_start),
+        .qindex(qindex),
+        .dc_only(dc_only_in),
+        .done(chroma_res_done),
+        .cur(chr_cur_blk),
+        .pred(chr_pred_blk),
+        .qcoeff(chroma_res_qcoeff),
+        .recon(chroma_res_recon),
+        .block_has_coeff(chroma_res_has_coeff)
+    );
+
     // Entropy coder
     wire        ec_done, ec_busy;
     reg         ec_init, ec_encode_bool, ec_encode_lit, ec_encode_symbol, ec_finalize;
@@ -2149,6 +2180,7 @@ module av1_encoder_top #(
             use_inter   <= 1'b0;
             inter_pred_start <= 0;
             chroma_pred_start <= 0;
+            chroma_res_start <= 0;
             ec_init     <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
@@ -2188,6 +2220,19 @@ module av1_encoder_top #(
             intra_cand_sad  <= 18'd0;
             frame_obu_start_addr <= 24'd0;
             frame_size_patch_idx <= 2'd0;
+            for (i = 0; i < 16; i = i + 1) begin
+                chr_cur_blk[i] <= 8'd128;
+                chr_pred_blk[i] <= 8'd128;
+                chr_blk[i] <= 8'd128;
+                chr_qcoeff[i] <= 16'sd0;
+                chr_cb_qcoeff[i] <= 16'sd0;
+                chr_cr_qcoeff[i] <= 16'sd0;
+            end
+            chr_block_has_coeff <= 1'b0;
+            chr_cb_has_coeff <= 1'b0;
+            chr_cr_has_coeff <= 1'b0;
+            chr_fetch_seen <= 1'b0;
+            chr_pred_seen <= 1'b0;
             for (i = 0; i < MI_COLS; i = i + 1) begin
                 part_ctx_above[i] <= 8'd0;
                 skip_above[i] <= 1'b0;
@@ -2224,6 +2269,7 @@ module av1_encoder_top #(
             me_start     <= 0;
             inter_pred_start <= 0;
             chroma_pred_start <= 0;
+            chroma_res_start <= 0;
             ec_init      <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
@@ -4012,49 +4058,92 @@ module av1_encoder_top #(
                         ref_mem_wr_data <= recon_blk[ref_wr_idx];
                         ref_wr_idx      <= ref_wr_idx + 1;
                     end else begin
-                        // Luma done, now process chroma (Cb then Cr)
+                        // Luma done, now process chroma residual/recon (Cb then Cr).
                         chr_plane <= 0;  // Start with Cb
+                        chr_cb_has_coeff <= 1'b0;
+                        chr_cr_has_coeff <= 1'b0;
+                        for (i = 0; i < 16; i = i + 1) begin
+                            chr_cb_qcoeff[i] <= 16'sd0;
+                            chr_cr_qcoeff[i] <= 16'sd0;
+                        end
                         top_state <= TS_CHR_FETCH;
                     end
                 end
 
-                // Fetch/predict chroma 4x4 block.  Chroma residual coding is
-                // still zero-only, so inter blocks reconstruct from chroma motion
-                // compensation while intra/key blocks stay on the deterministic
-                // DC chroma predictor used by the syntax writer.
+                // Fetch the current chroma 4x4 block and build the predictor.
+                // Inter blocks use chroma motion compensation; intra/key blocks keep
+                // the deterministic UV_DC_PRED predictor until full chroma syntax lands.
                 TS_CHR_FETCH: begin
-                    if (use_inter && !is_keyframe) begin
+                    fetch_start     <= 1'b1;
+                    fetch_is_chroma <= 1'b1;
+                    fetch_chroma_id <= chr_plane;
+                    fetch_blk_x     <= blk_x;
+                    fetch_blk_y     <= blk_y;
+                    chr_fetch_seen  <= 1'b0;
+                    chr_pred_seen   <= !(use_inter && !is_keyframe);
+                    if (use_inter && !is_keyframe)
                         chroma_pred_start <= 1'b1;
-                    end else begin
-                        fetch_start     <= 1;
-                        fetch_is_chroma <= 1;
-                        fetch_chroma_id <= chr_plane;
-                        fetch_blk_x     <= blk_x;
-                        fetch_blk_y     <= blk_y;
-                    end
                     top_state <= TS_CHR_WAIT;
                 end
 
-                // Wait for chroma fetch/predict, copy to buffer
+                // Wait for current chroma fetch and predictor, then launch TX_4X4
+                // residual/quant/reconstruct for oracle capture and reference memory.
+                // The raw fetch and inter predictor finish on different cycles, so
+                // latch their done pulses instead of requiring same-cycle completion.
                 TS_CHR_WAIT: begin
-                    if (use_inter && !is_keyframe) begin
-                        if (chroma_pred_done) begin
-                            for (i = 0; i < 16; i = i + 1)
-                                chr_blk[i] <= chroma_pred_out[i];
-                            chr_wr_idx <= 0;
-                            top_state  <= TS_CHR_WR;
-                        end
-                    end else if (fetch_done) begin
-                        // The writer only emits zero-residual intra/key chroma;
-                        // keep reconstruction aligned with its UV_DC_PRED path.
+                    if (fetch_done) begin
                         for (i = 0; i < 16; i = i + 1)
-                            chr_blk[i] <= 8'd128;
+                            chr_cur_blk[i] <= fetch_pixel_buf[i];
+                        chr_fetch_seen <= 1'b1;
+                    end
+                    if (chroma_pred_done) begin
+                        for (i = 0; i < 16; i = i + 1)
+                            chr_pred_blk[i] <= chroma_pred_out[i];
+                        chr_pred_seen <= 1'b1;
+                    end
+                    if (!(use_inter && !is_keyframe)) begin
+                        for (i = 0; i < 16; i = i + 1)
+                            chr_pred_blk[i] <= 8'd128;
+                    end
+                    if ((fetch_done || chr_fetch_seen) &&
+                        (chr_pred_seen || (!(use_inter && !is_keyframe)) || chroma_pred_done)) begin
+                        if (fetch_done) begin
+                            for (i = 0; i < 16; i = i + 1)
+                                chr_cur_blk[i] <= fetch_pixel_buf[i];
+                        end
+                        if (use_inter && !is_keyframe && chroma_pred_done) begin
+                            for (i = 0; i < 16; i = i + 1)
+                                chr_pred_blk[i] <= chroma_pred_out[i];
+                        end else if (!(use_inter && !is_keyframe)) begin
+                            for (i = 0; i < 16; i = i + 1)
+                                chr_pred_blk[i] <= 8'd128;
+                        end
+                        chroma_res_start <= 1'b1;
+                        top_state <= TS_CHR_RES_WAIT;
+                    end
+                end
+
+                TS_CHR_RES_WAIT: begin
+                    if (chroma_res_done) begin
+                        for (i = 0; i < 16; i = i + 1) begin
+                            chr_blk[i] <= chroma_res_recon[i];
+                            chr_qcoeff[i] <= chroma_res_qcoeff[i];
+                            if (!chr_plane)
+                                chr_cb_qcoeff[i] <= chroma_res_qcoeff[i];
+                            else
+                                chr_cr_qcoeff[i] <= chroma_res_qcoeff[i];
+                        end
+                        chr_block_has_coeff <= chroma_res_has_coeff;
+                        if (!chr_plane)
+                            chr_cb_has_coeff <= chroma_res_has_coeff;
+                        else
+                            chr_cr_has_coeff <= chroma_res_has_coeff;
                         chr_wr_idx <= 0;
                         top_state  <= TS_CHR_WR;
                     end
                 end
 
-                // Write chroma block to reference memory (passthrough)
+                // Write reconstructed chroma block to reference memory
                 TS_CHR_WR: begin
                     if (chr_wr_idx < 16) begin
                         if (!chr_plane) begin
