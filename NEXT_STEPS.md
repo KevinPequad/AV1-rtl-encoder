@@ -2,6 +2,12 @@
 
 ## Completed
 
+- Fixed the Chud PC 2 generated `16x16` smoke ownership blocker:
+  - frame OBU size back-patching now uses `bs_wr_addr`, the append address used by the RTL byte mux, rather than the drift-prone debug total counter
+  - the testbench default now uses static CDF mode (`disable_cdf_update=1`) to match the current RTL entropy subset until adaptive CDF ownership exists
+  - the IP bootstrap writer no longer forces a software-only `INTRA_ONLY_FRAME` header for frame 0; it stays on the RTL-owned video keyframe header path
+  - `/tmp/av1_chudpc2_smoke.sh` now passes generated non-flat `16x16` all-key and flat `16x16` 2-frame IP checks: raw OBU exact, IVF exact, `ffmpeg` decode matches `recon.yuv`, and `aomdec` decode matches `recon.yuv`
+
 - Landed the first fractional-pel syntax-only inter slice on the reduced LAST-only path:
   - `tb/av1_bitstream_writer.h`, `rtl/av1_encoder_top.v`, and `rtl/av1_bitstream.v` now emit `force_integer_mv=0`, `allow_high_precision_mv=1`, plus the real `mv_fr` and `mv_hp` symbols on reduced `NEWMV` components
   - `tb/test_rtl_bitstream.cpp` and `make bitstream-check WIDTH=16 HEIGHT=16` now lock that reduced inter header / payload syntax order
@@ -25,15 +31,14 @@
 
 ## Blockers
 
-- Chud PC 2 top-level smoke blocker: after the Verilator-5.020 compile fixes, generated non-flat `16x16` all-key and flat `16x16` 2-frame IP RTL raw outputs are not byte-exact with the software-owned path; the non-flat all-key / 2-frame IP RTL IVF can be rejected by public decoders because of OBU length/payload drift.
+- No current Chud PC 2 generated `16x16` smoke ownership blocker; the all-key and 2-frame IP generated smoke cases now pass raw/IVF exactness and public-decoder checks.
 - `data/ac_probe_16x16_1f.yuv` is missing from this checkout.
 - `data/tmp_probe_16x16_1f.yuv` is not a byte-exact substitute ownership gate.
 - The full `10`-frame `64x64` natural-motion guard still needs `+timeout=70000000` or higher on this machine.
 
 ## Exact Next Command Or File To Edit
 
-- First blocker file to inspect: `rtl/av1_encoder_top.v`
-- Immediate debug target: RTL raw byte capture / OBU payload length drift on the Chud PC 2 generated `16x16` smoke cases, before widening fractional-pel datapath work.
-- After that drift is fixed, return to file: `rtl/av1_me.v`
+- First file to edit for the next ownership move: `rtl/av1_me.v`
+- Immediate debug target: first real non-zero fractional-pel translational checkpoint on the reduced LAST-only path.
 - Original fractional-pel search command:
   - `rg -n "best_mvx|best_mvy|ref_x|ref_y|cand_x|cand_y|me_mvx|me_mvy|inter_base_x|inter_base_y|>>> 3|<< 3" rtl/av1_me.v rtl/av1_encoder_top.v`

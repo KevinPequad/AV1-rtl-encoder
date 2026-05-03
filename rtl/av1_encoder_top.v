@@ -2016,8 +2016,8 @@ module av1_encoder_top #(
     reg [1:0]  frame_size_patch_idx;
     localparam [23:0] FRAME_OBU_SIZE_FIELD_BYTES = 24'd4;
     wire [23:0] frame_obu_payload_bytes =
-        (total_bs_bytes > (frame_obu_start_addr + 24'd1 + FRAME_OBU_SIZE_FIELD_BYTES)) ?
-            (total_bs_bytes - frame_obu_start_addr - 24'd1 - FRAME_OBU_SIZE_FIELD_BYTES) : 24'd0;
+        (bs_wr_addr > (frame_obu_start_addr + 24'd1 + FRAME_OBU_SIZE_FIELD_BYTES)) ?
+            (bs_wr_addr - frame_obu_start_addr - 24'd1 - FRAME_OBU_SIZE_FIELD_BYTES) : 24'd0;
     wire [7:0] frame_obu_size_patch_byte0 = {1'b1, frame_obu_payload_bytes[6:0]};
     wire [7:0] frame_obu_size_patch_byte1 = {1'b1, frame_obu_payload_bytes[13:7]};
     wire [7:0] frame_obu_size_patch_byte2 = {1'b1, frame_obu_payload_bytes[20:14]};
@@ -2028,7 +2028,7 @@ module av1_encoder_top #(
     assign bs_mem_wr   = bs_mem_wr_r;
     assign bs_mem_data = bs_mem_data_r;
     assign bs_mem_addr = bs_mem_addr_r;
-    assign bs_bytes_written = total_bs_bytes;
+    assign bs_bytes_written = bs_wr_addr;
     assign ec_dbg_accept_valid_out = ec_dbg_accept_valid;
     assign ec_dbg_accept_kind_out = ec_dbg_accept_kind;
     assign ec_dbg_accept_symbol_out = ec_dbg_accept_symbol;

@@ -3,6 +3,10 @@
 ## Current Slice
 
 Completed:
+- Fix the Chud PC 2 generated `16x16` smoke ownership blocker:
+  - generated non-flat all-key and 2-frame IP smoke cases are now byte-exact between software-owned and RTL-owned raw OBU/IVF artifacts
+  - both `ffmpeg`/libdav1d and `aomdec` decode the RTL IVF back to `recon.yuv`
+  - the fix keeps the bootstrap frame on the RTL-owned video keyframe header path, aligns the software writer with static-CDF mode, and uses the actual RTL append address for frame OBU size back-patching
 - Land the first fractional-pel syntax-only inter slice on the reduced LAST-only path without widening the predictor datapath yet:
   - `tb/av1_bitstream_writer.h`, `rtl/av1_encoder_top.v`, and `rtl/av1_bitstream.v` now emit `force_integer_mv=0`, `allow_high_precision_mv=1`, plus the real `mv_fr` and `mv_hp` symbols on reduced `NEWMV` components
   - `tb/test_rtl_bitstream.cpp` and `make bitstream-check WIDTH=16 HEIGHT=16` now lock the reduced inter header against that header order
@@ -52,4 +56,4 @@ On Chud PC 2, Verilator 5.020 required two top-level compile fixes in `rtl/av1_e
 - avoid slicing a function-call result directly; route those coefficient symbols through helper functions instead
 - avoid mixed blocking/nonblocking assignments on `intra_cand_sad`; compute the SAD into `intra_cand_sad_next` and register it separately
 
-Post-fix quick checks pass for `entropy-check`, `bitstream-check WIDTH=16 HEIGHT=16`, and `inv-xform-check` with `THREADS=16 BUILD_JOBS=16`. The top-level `16x16` simulator builds and a flat all-key RTL IVF decodes in FFmpeg/aomdec to `recon.yuv`. However, generated non-flat all-key and generated 2-frame IP smoke cases show RTL raw OBU/IVF drift from the software-owned path, with public-decoder rejection on the failing RTL IVF. Fix that ownership drift before resuming the first real non-zero fractional-pel datapath checkpoint.
+Post-fix quick checks pass for `entropy-check`, `bitstream-check WIDTH=16 HEIGHT=16`, and `inv-xform-check` with `THREADS=16 BUILD_JOBS=16`. The generated Chud PC 2 `16x16` all-key and 2-frame IP smoke cases now also pass the strict ownership/decode gate: `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and both FFmpeg/libdav1d and `aomdec` decoded output match `recon.yuv`. Resume the first real non-zero fractional-pel datapath checkpoint next.

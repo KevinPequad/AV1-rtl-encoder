@@ -147,6 +147,10 @@
   - `output/natural_motion64_x640_y360_10f_progress70m/` is exact at `64x64`, `10` frames, `qindex=128`
   - the root cause was not MV payload packing; the reduced ref-MV stack was walking one row and one column farther than AOM's `MVREF_ROW_COLS == 3` scan and was overweighting a later NEWMV candidate by `+4`
   - the full `10`-frame guard is runtime-heavy but not hung; it completes at cycle `65669905`, so use `+timeout=70000000` or higher when rerunning it
+- The Chud PC 2 generated `16x16` smoke ownership blocker is fixed:
+  - the generated non-flat all-key and flat 2-frame IP smokes now pass raw OBU exactness, IVF exactness, FFmpeg/libdav1d decode-vs-`recon.yuv`, and `aomdec` decode-vs-`recon.yuv`
+  - keep the testbench default in static-CDF mode (`disable_cdf_update=1`) until adaptive CDF updates are owned by RTL
+  - keep the IP bootstrap on the RTL-owned video keyframe header path; do not reintroduce a software-only first-frame `INTRA_ONLY_FRAME` header unless RTL header ownership is added for it too
 - The first fractional-pel syntax-only inter slice is now exact while the predictor / ME datapath remains integer:
   - the reduced inter frame header now signals `force_integer_mv=0` and `allow_high_precision_mv=1`
   - reduced `NEWMV` components now emit the real `mv_fr` and `mv_hp` symbols on both the writer path and the RTL-owned syntax path
