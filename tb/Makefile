@@ -27,6 +27,8 @@ INV_XFORM_TOP   := av1_inverse_transform
 INV_XFORM_TB_CPP:= test_inv_transform.cpp
 INTER_TOP       := av1_inter_pred
 INTER_TB_CPP    := test_inter_pred.cpp
+ME_TOP          := av1_me
+ME_TB_CPP       := test_me.cpp
 RTL_DIR         := ../rtl
 OBJ_DIR         := obj_dir
 TRACE_OBJ_DIR   := obj_dir_trace
@@ -40,6 +42,8 @@ INV_XFORM_OBJ_DIR := obj_dir_inv_xform
 INV_XFORM_SIM_BIN := V$(INV_XFORM_TOP)
 INTER_OBJ_DIR   := obj_dir_inter_pred
 INTER_SIM_BIN   := V$(INTER_TOP)
+ME_OBJ_DIR      := obj_dir_me
+ME_SIM_BIN      := V$(ME_TOP)
 
 # Resolution (override on command line for different sizes)
 WIDTH           ?= 1280
@@ -80,7 +84,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check clean help
+.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check clean help
 
 all: $(SIM_BIN)
 
@@ -140,6 +144,14 @@ $(BITSTREAM_SIM_BIN): $(BITSTREAM_TB_CPP) $(RTL_DIR)/av1_bitstream.v
 	@echo "Build complete: ./$(BITSTREAM_SIM_BIN)"
 
 
+
+$(ME_SIM_BIN): $(ME_TB_CPP) $(RTL_DIR)/av1_me.v $(RTL_DIR)/av1_inter_pred.v
+	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(ME_TOP) 		-I$(RTL_DIR) 		-GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT) -GSEARCH_RANGE=2 		-Mdir $(ME_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)" 		$(RTL_DIR)/av1_inter_pred.v 		$(RTL_DIR)/av1_me.v 		$(ME_TB_CPP) 		-o $(ME_SIM_BIN)
+	$(MAKE) -C $(ME_OBJ_DIR) -f V$(ME_TOP).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
+	@cp -f $(ME_OBJ_DIR)/$(ME_SIM_BIN) ./$(ME_SIM_BIN) 2>/dev/null || true
+	@echo ""
+	@echo "Build complete: ./$(ME_SIM_BIN)"
+
 $(INTER_SIM_BIN): $(INTER_TB_CPP) $(RTL_DIR)/av1_inter_pred.v
 	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(INTER_TOP) 		-I$(RTL_DIR) 		-GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT) 		-Mdir $(INTER_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)" 		$(RTL_DIR)/av1_inter_pred.v 		$(INTER_TB_CPP) 		-o $(INTER_SIM_BIN)
 	$(MAKE) -C $(INTER_OBJ_DIR) -f V$(INTER_TOP).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
@@ -197,8 +209,11 @@ inv-xform-check: $(INV_XFORM_SIM_BIN)
 inter-pred-check: $(INTER_SIM_BIN)
 	./$(INTER_SIM_BIN)
 
+me-check: $(ME_SIM_BIN)
+	./$(ME_SIM_BIN)
+
 clean:
-	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) *.vcd
+	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) *.vcd
 
 help:
 	@echo "Targets:"
@@ -209,6 +224,7 @@ help:
 	@echo "  bitstream-check Build and run the standalone av1_bitstream header check"
 	@echo "  inv-xform-check Build and run the standalone av1_inverse_transform reference check"
 	@echo "  inter-pred-check Build and run the standalone av1_inter_pred reference check"
+	@echo "  me-check Build and run the standalone av1_me subpel reference check"
 	@echo "  clean  Remove build artifacts"
 	@echo ""
 	@echo "Variables (override on command line):"

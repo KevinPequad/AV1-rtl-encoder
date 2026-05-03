@@ -656,8 +656,8 @@ public:
         int16_t qcoeff[64];
         uint8_t pred_mode;
         bool    is_inter;
-        int16_t mvx;
-        int16_t mvy;
+        int16_t mvx;  // q3 luma MV component
+        int16_t mvy;  // q3 luma MV component
     };
 
     AV1BitstreamWriter(int width, int height, int qindex)
@@ -1106,8 +1106,8 @@ private:
         if (!block_has_matching_ref(blk_x, blk_y, ref_frame)) return;
 
         const int blk_idx = blk_y * blk_cols_ + blk_x;
-        const int16_t row = static_cast<int16_t>(blk_mv_y_[blk_idx] * 8);
-        const int16_t col = static_cast<int16_t>(blk_mv_x_[blk_idx] * 8);
+        const int16_t row = blk_mv_y_[blk_idx];
+        const int16_t col = blk_mv_x_[blk_idx];
 
         for (auto& cand : stack) {
             if (cand.row == row && cand.col == col) {
@@ -1908,8 +1908,8 @@ private:
                     (mode_ctx >> AV1_REFMV_OFFSET) & AV1_REFMV_CTX_MASK;
                 const ReducedMvState mv_state = collect_reduced_single_ref_mv_state(blk_x, blk_y, ref_frame);
                 const ReducedMvCandidate ref_mv = get_reduced_newmv_ref_mv(mv_state);
-                const int ref_mvx = ref_mv.col / 8;
-                const int ref_mvy = ref_mv.row / 8;
+                const int ref_mvx = ref_mv.col;
+                const int ref_mvy = ref_mv.row;
                 if (coeff_debug_mode_) {
                     fprintf(stderr,
                             "[INTER] blk=%d ref=%u mv=(%d,%d) ref_mv=(%d,%d) mode_ctx=%d newmv_ctx=%d zeromv_ctx=%d refmv_ctx=%d\n",
@@ -1919,8 +1919,8 @@ private:
                     for (size_t si = 0; si < mv_state.stack.size() && si < 6; ++si) {
                         fprintf(stderr, " cand%zu=(%d,%d,w=%u)",
                                 si,
-                                mv_state.stack[si].col / 8,
-                                mv_state.stack[si].row / 8,
+                                mv_state.stack[si].col,
+                                mv_state.stack[si].row,
                                 mv_state.stack[si].weight);
                     }
                     fprintf(stderr, "\n");
@@ -1941,7 +1941,7 @@ private:
                         const int drl_ctx = get_drl_ctx_from_weights(mv_state, 0);
                         encode_symbol_ctx(rc, 0, av1_drl_cdf[drl_ctx], 2); // keep ref_mv_idx = 0
                     }
-                    encode_mv(rc, static_cast<int>(block_mvy) * 8, static_cast<int>(block_mvx) * 8,
+                    encode_mv(rc, static_cast<int>(block_mvy), static_cast<int>(block_mvx),
                               ref_mv.row, ref_mv.col, /*force_integer_mv=*/false);
                 }
             } else {

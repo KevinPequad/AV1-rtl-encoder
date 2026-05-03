@@ -295,6 +295,7 @@ module av1_encoder_top #(
 
     // Motion estimation results
     reg signed [8:0] me_mvx, me_mvy;
+    reg signed [15:0] me_mvx_q3, me_mvy_q3;
     reg [17:0] me_sad;
     reg        use_inter;  // 1 if P-frame and ME result is good
     reg signed [11:0] inter_base_x, inter_base_y;
@@ -340,8 +341,8 @@ module av1_encoder_top #(
     reg        blk_inter_coded[0:BLK_COLS*BLK_ROWS-1];
     reg [2:0]  blk_ref0       [0:BLK_COLS*BLK_ROWS-1];
     reg [1:0]  blk_inter_mode [0:BLK_COLS*BLK_ROWS-1];
-    reg signed [8:0] blk_mv_x [0:BLK_COLS*BLK_ROWS-1];
-    reg signed [8:0] blk_mv_y [0:BLK_COLS*BLK_ROWS-1];
+    reg signed [15:0] blk_mv_x [0:BLK_COLS*BLK_ROWS-1];
+    reg signed [15:0] blk_mv_y [0:BLK_COLS*BLK_ROWS-1];
     reg [1:0]  dc_sign_above  [0:MI_COLS-1];
     reg [1:0]  dc_sign_left   [0:MI_ROWS-1];
     reg        cur_only_dc_nonzero;
@@ -1583,8 +1584,8 @@ module av1_encoder_top #(
         begin
             if (block_has_matching_ref_fn(blk_x_in, blk_y_in, ref_frame)) begin
                 blk_idx_fn = blk_y_in * BLK_COLS + blk_x_in;
-                row = $signed(blk_mv_y[blk_idx_fn]) <<< 3;
-                col = $signed(blk_mv_x[blk_idx_fn]) <<< 3;
+                row = $signed(blk_mv_y[blk_idx_fn]);
+                col = $signed(blk_mv_x[blk_idx_fn]);
                 found = 1'b0;
                 for (ci = 0; ci < 10; ci = ci + 1) begin
                     if (!found && (ci < cur_mv_cand_count) &&
@@ -1727,8 +1728,8 @@ module av1_encoder_top #(
     wire [9:0]   next_blk_y_morton = next_blk_morton[19:10];
     wire [9:0]   next_blk_x_morton = next_blk_morton[9:0];
     wire         cur_generic_coeff_path = cur_block_has_coeff;
-    wire signed [15:0] cur_mv_row = $signed(me_mvy) <<< 3;
-    wire signed [15:0] cur_mv_col = $signed(me_mvx) <<< 3;
+    wire signed [15:0] cur_mv_row = me_mvy_q3;
+    wire signed [15:0] cur_mv_col = me_mvx_q3;
     wire signed [15:0] cur_mv_diff_row = cur_mv_row - cur_ref_mv_row;
     wire signed [15:0] cur_mv_diff_col = cur_mv_col - cur_ref_mv_col;
     wire [1:0]   cur_mv_joint = get_mv_joint_type_fn(cur_mv_diff_row, cur_mv_diff_col);
@@ -1743,7 +1744,7 @@ module av1_encoder_top #(
     wire [1:0]   cur_mv_fr = (cur_mv_offset >> 1) & 2'b11;
     wire         cur_mv_hp = cur_mv_offset[0];
     wire [1:0]   cur_reduced_inter_mode =
-        (me_mvx == 9'sd0 && me_mvy == 9'sd0) ? REDUCED_INTER_GLOBALMV :
+        (me_mvx_q3 == 16'sd0 && me_mvy_q3 == 16'sd0) ? REDUCED_INTER_GLOBALMV :
         ((cur_mv_col == cur_ref_mv_col) && (cur_mv_row == cur_ref_mv_row)) ?
             REDUCED_INTER_NEARESTMV : REDUCED_INTER_NEWMV;
 
@@ -1893,6 +1894,7 @@ module av1_encoder_top #(
     wire        me_done;
     reg         me_start;
     wire signed [8:0] me_best_mvx, me_best_mvy;
+    wire signed [15:0] me_best_mvx_q3, me_best_mvy_q3;
     wire [17:0] me_best_sad;
     wire [19:0] me_ref_rd_addr;
 
@@ -1931,6 +1933,8 @@ module av1_encoder_top #(
         .ref_mem_data(ref_mem_rd_data),
         .best_mvx(me_best_mvx),
         .best_mvy(me_best_mvy),
+        .best_mvx_q3(me_best_mvx_q3),
+        .best_mvy_q3(me_best_mvy_q3),
         .best_sad(me_best_sad)
     );
 
@@ -1943,8 +1947,8 @@ module av1_encoder_top #(
         .start(inter_pred_start),
         .cur_x({1'b0, blk_x} * 8),
         .cur_y({1'b0, blk_y} * 8),
-        .mv_x_q3($signed(me_mvx) <<< 3),
-        .mv_y_q3($signed(me_mvy) <<< 3),
+        .mv_x_q3(me_mvx_q3),
+        .mv_y_q3(me_mvy_q3),
         .ref_mem_addr(inter_pred_ref_addr),
         .ref_mem_data(ref_mem_rd_data),
         .done(inter_pred_done),
@@ -2111,6 +2115,12 @@ module av1_encoder_top #(
             iq_start    <= 0;
             ixform_start <= 0;
             me_start    <= 0;
+            me_mvx      <= 9'sd0;
+            me_mvy      <= 9'sd0;
+            me_mvx_q3   <= 16'sd0;
+            me_mvy_q3   <= 16'sd0;
+            me_sad      <= 18'd0;
+            use_inter   <= 1'b0;
             inter_pred_start <= 0;
             ec_init     <= 0;
             ec_encode_bool <= 0;
@@ -2171,8 +2181,8 @@ module av1_encoder_top #(
                 blk_inter_coded[i] <= 1'b0;
                 blk_ref0[i] <= REF_NONE;
                 blk_inter_mode[i] <= REDUCED_INTER_NONE;
-                blk_mv_x[i] <= 9'sd0;
-                blk_mv_y[i] <= 9'sd0;
+                blk_mv_x[i] <= 16'sd0;
+                blk_mv_y[i] <= 16'sd0;
             end
         end else begin
             done <= 0;
@@ -2246,8 +2256,8 @@ module av1_encoder_top #(
                             blk_inter_coded[i] <= 1'b0;
                             blk_ref0[i] <= REF_NONE;
                             blk_inter_mode[i] <= REDUCED_INTER_NONE;
-                            blk_mv_x[i] <= 9'sd0;
-                            blk_mv_y[i] <= 9'sd0;
+                            blk_mv_x[i] <= 16'sd0;
+                            blk_mv_y[i] <= 16'sd0;
                         end
                         top_state   <= TS_WRITE_TD;
                     end
@@ -2580,6 +2590,8 @@ module av1_encoder_top #(
                     if (me_done) begin
                         me_mvx <= me_best_mvx;
                         me_mvy <= me_best_mvy;
+                        me_mvx_q3 <= me_best_mvx_q3;
+                        me_mvy_q3 <= me_best_mvy_q3;
                         me_sad <= me_best_sad;
                         use_inter <= force_intra_in ? 1'b0 :
                                      (me_best_sad < INTRA_SAD_THRESHOLD);
@@ -2591,8 +2603,8 @@ module av1_encoder_top #(
                 // search for keyframes / intra-coded blocks.
                 TS_PREDICT_INIT: begin
                     if (use_inter && !is_keyframe) begin
-                        inter_base_x <= ($signed({1'b0, blk_x}) <<< 3) + me_mvx;
-                        inter_base_y <= ($signed({1'b0, blk_y}) <<< 3) + me_mvy;
+                        inter_base_x <= ($signed({1'b0, blk_x}) <<< 3) + (me_mvx_q3 >>> 3);
+                        inter_base_y <= ($signed({1'b0, blk_y}) <<< 3) + (me_mvy_q3 >>> 3);
                         inter_fetch_idx <= 6'd0;
                         inter_pred_start <= 1'b1;
                         best_intra_mode <= AV1_DC_PRED;
@@ -4062,9 +4074,9 @@ module av1_encoder_top #(
                             blk_inter_mode[blk_y * BLK_COLS + blk_x] <=
                                 use_inter ? cur_reduced_inter_mode : REDUCED_INTER_NONE;
                             blk_mv_x[blk_y * BLK_COLS + blk_x] <=
-                                use_inter ? me_mvx : 9'sd0;
+                                use_inter ? me_mvx_q3 : 16'sd0;
                             blk_mv_y[blk_y * BLK_COLS + blk_x] <=
-                                use_inter ? me_mvy : 9'sd0;
+                                use_inter ? me_mvy_q3 : 16'sd0;
                             // Both chroma planes done
                             top_state <= TS_NEXT_BLK;
                         end
