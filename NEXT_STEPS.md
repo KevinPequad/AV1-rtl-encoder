@@ -25,12 +25,15 @@
 
 ## Blockers
 
+- Chud PC 2 top-level smoke blocker: after the Verilator-5.020 compile fixes, generated non-flat `16x16` all-key and flat `16x16` 2-frame IP RTL raw outputs are not byte-exact with the software-owned path; the non-flat all-key / 2-frame IP RTL IVF can be rejected by public decoders because of OBU length/payload drift.
 - `data/ac_probe_16x16_1f.yuv` is missing from this checkout.
 - `data/tmp_probe_16x16_1f.yuv` is not a byte-exact substitute ownership gate.
 - The full `10`-frame `64x64` natural-motion guard still needs `+timeout=70000000` or higher on this machine.
 
 ## Exact Next Command Or File To Edit
 
-- File to edit: `rtl/av1_me.v`
-- Next command:
+- First blocker file to inspect: `rtl/av1_encoder_top.v`
+- Immediate debug target: RTL raw byte capture / OBU payload length drift on the Chud PC 2 generated `16x16` smoke cases, before widening fractional-pel datapath work.
+- After that drift is fixed, return to file: `rtl/av1_me.v`
+- Original fractional-pel search command:
   - `rg -n "best_mvx|best_mvy|ref_x|ref_y|cand_x|cand_y|me_mvx|me_mvy|inter_base_x|inter_base_y|>>> 3|<< 3" rtl/av1_me.v rtl/av1_encoder_top.v`

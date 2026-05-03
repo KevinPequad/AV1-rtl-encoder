@@ -321,6 +321,7 @@ module av1_encoder_top #(
     reg [3:0] intra_eval_idx;
     reg [17:0] intra_best_sad;
     reg [17:0] intra_cand_sad;
+    reg [17:0] intra_cand_sad_next;
     reg        cur_block_has_coeff;
 
     // Tile/block syntax context state mirrored from the software writer.
@@ -1211,6 +1212,42 @@ module av1_encoder_top #(
                 coeff_abs_level_qcoeff_rc = 16'd0;
             else
                 coeff_abs_level_qcoeff_rc = coeff_abs_level_qcoeff_flat((row << 3) + col);
+        end
+    endfunction
+
+    function [4:0] coeff_base_sym_from_level;
+        input [15:0] level;
+        begin
+            coeff_base_sym_from_level = {3'd0, level[1:0]};
+        end
+    endfunction
+
+    function [4:0] coeff_generic_eob_base_sym_from_scan;
+        input [5:0] scan_idx;
+        reg [15:0] level;
+        begin
+            level = coeff_abs_level_qcoeff_flat(scan_8x8_pos(scan_idx));
+            coeff_generic_eob_base_sym_from_scan = (level > 16'd3) ?
+                5'd2 : ({1'b0, level[3:0]} - 5'd1);
+        end
+    endfunction
+
+    function [4:0] coeff_generic_base_sym_from_scan;
+        input [5:0] scan_idx;
+        reg [15:0] level;
+        begin
+            level = coeff_abs_level_qcoeff_flat(scan_8x8_pos(scan_idx));
+            coeff_generic_base_sym_from_scan = (level > 16'd3) ?
+                5'd3 : {1'b0, level[3:0]};
+        end
+    endfunction
+
+    function [4:0] coeff_br_remaining_from_scan;
+        input [5:0] scan_idx;
+        reg [15:0] level;
+        begin
+            level = coeff_abs_level_qcoeff_flat(scan_8x8_pos(scan_idx));
+            coeff_br_remaining_from_scan = level[4:0] - 5'd3;
         end
     endfunction
 
@@ -2571,17 +2608,18 @@ module av1_encoder_top #(
                 end
                 TS_WAIT_PRED: begin
                     if (pred_done) begin
-                        intra_cand_sad = 18'd0;
+                        intra_cand_sad_next = 18'd0;
                         for (i = 0; i < 64; i = i + 1) begin
                             if (cur_blk[i] > pred_out[i])
-                                intra_cand_sad = intra_cand_sad + (cur_blk[i] - pred_out[i]);
+                                intra_cand_sad_next = intra_cand_sad_next + (cur_blk[i] - pred_out[i]);
                             else
-                                intra_cand_sad = intra_cand_sad + (pred_out[i] - cur_blk[i]);
+                                intra_cand_sad_next = intra_cand_sad_next + (pred_out[i] - cur_blk[i]);
                         end
+                        intra_cand_sad <= intra_cand_sad_next;
 
                         if (intra_eval_idx < 4'd10) begin
-                            if (intra_cand_sad < intra_best_sad) begin
-                                intra_best_sad <= intra_cand_sad;
+                            if (intra_cand_sad_next < intra_best_sad) begin
+                                intra_best_sad <= intra_cand_sad_next;
                                 best_intra_mode <= intra_eval_mode;
                                 for (i = 0; i < 64; i = i + 1)
                                     pred_blk[i] <= pred_out[i];
@@ -2590,8 +2628,8 @@ module av1_encoder_top #(
                             intra_eval_idx <= intra_eval_idx + 1'b1;
                             top_state <= TS_PREDICT;
                         end else begin
-                            if (intra_cand_sad < intra_best_sad) begin
-                                intra_best_sad <= intra_cand_sad;
+                            if (intra_cand_sad_next < intra_best_sad) begin
+                                intra_best_sad <= intra_cand_sad_next;
                                 best_intra_mode <= intra_eval_mode;
                                 for (i = 0; i < 64; i = i + 1) begin
                                     pred_blk[i] <= pred_out[i];
@@ -3244,7 +3282,7 @@ module av1_encoder_top #(
 
                 TS_AC01_DC_BASE: begin
                     ec_encode_symbol <= 1;
-                    ec_symbol        <= {3'd0, abs16(qcoeff[0])[1:0]}; // non-EOB base symbol
+                    ec_symbol        <= coeff_base_sym_from_level(abs16(qcoeff[0])); // non-EOB base symbol
                     ec_nsyms         <= 5'd4;
                     ec_icdf_flat     <= cur_base0_icdf;
                     top_state        <= TS_AC01_DC_WAIT;
@@ -3609,13 +3647,11 @@ module av1_encoder_top #(
                 TS_GEN_BASE: begin
                     ec_encode_symbol <= 1;
                     if (proc_idx == (cur_generic_eob[5:0] - 6'd1)) begin
-                        ec_symbol    <= (coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) > 16'd3) ?
-                                        5'd2 : ({1'b0, coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx))[3:0]} - 5'd1);
+                        ec_symbol    <= coeff_generic_eob_base_sym_from_scan(proc_idx);
                         ec_nsyms     <= 5'd3;
                         ec_icdf_flat <= coeff_base_eob_ctx_icdf_flat_qctx(cur_coeff_qctx, coeff_base_eob_ctx_from_scan_fn({1'b0, proc_idx}));
                     end else begin
-                        ec_symbol    <= (coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx)) > 16'd3) ?
-                                        5'd3 : {1'b0, coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx))[3:0]};
+                        ec_symbol    <= coeff_generic_base_sym_from_scan(proc_idx);
                         ec_nsyms     <= 5'd4;
                         ec_icdf_flat <= coeff_base_ctx_icdf_flat_qctx(cur_coeff_qctx, get_nz_map_ctx_qcoeff(scan_8x8_pos(proc_idx)));
                     end
@@ -3629,7 +3665,7 @@ module av1_encoder_top #(
                                 coeff_br_remaining <= 5'd12;
                                 coeff_br_capped    <= 1'b1;
                             end else begin
-                                coeff_br_remaining <= coeff_abs_level_qcoeff_flat(scan_8x8_pos(proc_idx))[4:0] - 5'd3;
+                                coeff_br_remaining <= coeff_br_remaining_from_scan(proc_idx);
                                 coeff_br_capped    <= 1'b0;
                             end
                             top_state <= TS_GEN_BR;
