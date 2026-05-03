@@ -26,6 +26,7 @@ module av1_encoder_top #(
     input  wire [3:0]  frame_num_in,
     input  wire        is_keyframe_in,
     input  wire        force_intra_in,
+    input  wire        me_zero_mv_only_in,
     input  wire        dc_only_in,
     input  wire [7:0]  qindex_in,     // Quantization index (0-255)
 
@@ -2264,7 +2265,7 @@ module av1_encoder_top #(
     ) u_me (
         .clk(clk), .rst_n(rst_n),
         .start(me_start),
-        .zero_mv_only(1'b0),
+        .zero_mv_only(me_zero_mv_only_in),
         .done(me_done),
         .cur_x({1'b0, blk_x} * 8),
         .cur_y({1'b0, blk_y} * 8),

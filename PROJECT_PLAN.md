@@ -23,9 +23,9 @@ Completed:
 
 ## Next Slice
 
-1. Widen the now-passing 32x32 natural-ish all-key luma/chroma proof toward inter-frame chroma residual cases and larger/natural-content clips.
-2. Keep `nonzero-chroma-syntax-check`, `nonzero-chroma16-syntax-check`, and `natural32-chroma-syntax-check` public-decoder gates passing while widening the fixture.
-3. Continue widening the real non-zero fractional-pel translational checkpoints on the reduced LAST-only path without regressing the syntax-only subpel guards.
+1. Widen the now-passing 32x32 zero-MV natural-ish IP residual proof toward non-zero/fractional-MV inter natural clips.
+2. Keep `nonzero-chroma-syntax-check`, `nonzero-chroma16-syntax-check`, `natural32-chroma-syntax-check`, and `natural32-ip-syntax-check` public-decoder gates passing while widening the fixture.
+3. Continue debugging the unconstrained 32x32 non-zero-MV natural IP mismatch as the next motion-specific blocker without regressing the zero-MV P-frame residual gate.
 
 ## Regression Gates
 
@@ -84,6 +84,7 @@ Implemented public-decoder gates for both isolated and multi-block non-zero Cb/C
 - `nonzero-chroma-syntax-check` keeps the constrained 8x8 one-block proof for Cb/Cr TX_4X4 `txb_skip`, EOB, base, BR/sign syntax.
 - `nonzero-chroma16-syntax-check` widens that proof to a 16x16 all-key non-flat chroma frame with multiple chroma transform blocks.
 - `natural32-chroma-syntax-check` widens again to a 32x32 deterministic natural-ish gradient probe with non-flat luma and chroma.
+- `natural32-ip-syntax-check` adds a two-frame 32x32 natural-ish zero-MV IP residual proof using RTL-owned P-frame bytes.
 - The 16x16 widening added decoder-matching intra chroma DC prediction from reconstructed current-frame chroma neighbors and mirrored Cb/Cr entropy contexts in RTL.
 - The 32x32 widening fixed explicit Cb/Cr txb context selection in RTL so `chr_syntax_plane` same-cycle updates cannot swap contexts between planes.
 
@@ -94,6 +95,7 @@ cd tb
 make THREADS=16 BUILD_JOBS=16 nonzero-chroma-syntax-check
 make THREADS=16 BUILD_JOBS=16 nonzero-chroma16-syntax-check
 make THREADS=16 BUILD_JOBS=16 natural32-chroma-syntax-check
+make THREADS=16 BUILD_JOBS=16 natural32-ip-syntax-check
 ```
 
-All three gates verify RTL raw OBU equality plus FFmpeg/aomdec decode-vs-`recon.yuv` parity.
+All four gates verify RTL raw OBU equality plus FFmpeg/aomdec decode-vs-`recon.yuv` parity.
