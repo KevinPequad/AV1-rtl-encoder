@@ -4306,7 +4306,11 @@ module av1_encoder_top #(
                     ec_encode_symbol <= 1;
                     ec_symbol        <= chr_cb_has_coeff ? 5'd0 : 5'd1; // txb_skip: 0 has coeffs
                     ec_nsyms         <= 5'd2;
-                    ec_icdf_flat     <= cur_txb_chr_icdf;
+                    // Use an explicit plane here: chr_syntax_plane is updated by this
+                    // same clock edge, so the wire form would still see the previous
+                    // plane and can swap Cb/Cr contexts on multi-block frames.
+                    ec_icdf_flat     <= txb_skip_chroma_icdf_flat_qctx(
+                        cur_coeff_qctx, get_chroma_txb_skip_ctx_cur(1'b0, blk_x, blk_y));
                     top_state        <= TS_TXB_SKIP_CBW;
                 end
 
@@ -4324,7 +4328,8 @@ module av1_encoder_top #(
                     ec_encode_symbol <= 1;
                     ec_symbol        <= chr_cr_has_coeff ? 5'd0 : 5'd1; // txb_skip: 0 has coeffs
                     ec_nsyms         <= 5'd2;
-                    ec_icdf_flat     <= cur_txb_chr_icdf;
+                    ec_icdf_flat     <= txb_skip_chroma_icdf_flat_qctx(
+                        cur_coeff_qctx, get_chroma_txb_skip_ctx_cur(1'b1, blk_x, blk_y));
                     top_state        <= TS_TXB_SKIP_CRW;
                 end
 
