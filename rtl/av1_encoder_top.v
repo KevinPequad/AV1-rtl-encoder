@@ -1187,6 +1187,7 @@ module av1_encoder_top #(
 
 `include "av1_tx8x8_coeff_helpers.vh"
 `include "av1_tx8x8_qctx_tables.vh"
+`include "av1_tx4x4_chroma_tables.vh"
 
     function [3:0] clip_max3_fn;
         input [15:0] val;
