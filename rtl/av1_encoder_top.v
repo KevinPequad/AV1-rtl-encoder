@@ -1902,8 +1902,15 @@ module av1_encoder_top #(
     reg [19:0]  inter_rd_addr;
     reg         inter_rd_active;
 
-    // Mux reference read address: neighbor load vs inter prediction vs ME
+    wire        inter_pred_done;
+    reg         inter_pred_start;
+    wire [19:0] inter_pred_ref_addr;
+    wire [7:0]  inter_pred_out [0:63];
+    wire        inter_pred_active = (top_state == TS_INTER_READ);
+
+    // Mux reference read address: neighbor load vs inter predictor vs ME.
     assign ref_mem_rd_addr = neigh_rd_active ? neigh_rd_addr :
+                             inter_pred_active ? inter_pred_ref_addr :
                              inter_rd_active ? inter_rd_addr :
                              me_ref_rd_addr;
     assign ref_rd_is_neigh = neigh_rd_active;
@@ -1925,6 +1932,23 @@ module av1_encoder_top #(
         .best_mvx(me_best_mvx),
         .best_mvy(me_best_mvy),
         .best_sad(me_best_sad)
+    );
+
+    av1_inter_pred #(
+        .FRAME_WIDTH(FRAME_WIDTH),
+        .FRAME_HEIGHT(FRAME_HEIGHT)
+    ) u_inter_pred (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(inter_pred_start),
+        .cur_x({1'b0, blk_x} * 8),
+        .cur_y({1'b0, blk_y} * 8),
+        .mv_x_q3($signed(me_mvx) <<< 3),
+        .mv_y_q3($signed(me_mvy) <<< 3),
+        .ref_mem_addr(inter_pred_ref_addr),
+        .ref_mem_data(ref_mem_rd_data),
+        .done(inter_pred_done),
+        .pred(inter_pred_out)
     );
 
     // Entropy coder
@@ -2087,6 +2111,7 @@ module av1_encoder_top #(
             iq_start    <= 0;
             ixform_start <= 0;
             me_start    <= 0;
+            inter_pred_start <= 0;
             ec_init     <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
@@ -2160,6 +2185,7 @@ module av1_encoder_top #(
             iq_start     <= 0;
             ixform_start <= 0;
             me_start     <= 0;
+            inter_pred_start <= 0;
             ec_init      <= 0;
             ec_encode_bool <= 0;
             ec_encode_lit  <= 0;
@@ -2568,8 +2594,9 @@ module av1_encoder_top #(
                         inter_base_x <= ($signed({1'b0, blk_x}) <<< 3) + me_mvx;
                         inter_base_y <= ($signed({1'b0, blk_y}) <<< 3) + me_mvy;
                         inter_fetch_idx <= 6'd0;
+                        inter_pred_start <= 1'b1;
                         best_intra_mode <= AV1_DC_PRED;
-                        top_state <= TS_INTER_ADDR;
+                        top_state <= TS_INTER_READ;
                     end else begin
                         intra_eval_idx <= 4'd0;
                         intra_best_sad <= 18'h3FFFF;
@@ -2578,26 +2605,26 @@ module av1_encoder_top #(
                     end
                 end
 
-                // Integer-pel inter predictor fetch from the reference frame.
+                // Inter predictor fetches/ref-filters the 8x8 LAST block.
+                // Current ME outputs are still full-pel, so this should be
+                // byte-identical to the old direct fetch. Fractional q3 MVs can
+                // now enter through u_inter_pred without reworking the syntax path.
                 TS_INTER_ADDR: begin
-                    inter_rd_active <= 1;
-                    inter_rd_addr <= (inter_base_y + $signed({1'b0, inter_fetch_idx[5:3]})) * FRAME_WIDTH +
-                                     (inter_base_x + $signed({1'b0, inter_fetch_idx[2:0]}));
                     top_state <= TS_INTER_READ;
                 end
 
                 TS_INTER_READ: begin
-                    pred_blk[inter_fetch_idx] <= ref_mem_rd_data;
-                    residual[inter_fetch_idx] <= $signed({1'b0, cur_blk[inter_fetch_idx]}) -
-                                                $signed({1'b0, ref_mem_rd_data});
-
-                    if (inter_fetch_idx < 6'd63) begin
-                        inter_fetch_idx <= inter_fetch_idx + 1'b1;
-                        top_state <= TS_INTER_ADDR;
-                    end else begin
-                        inter_rd_active <= 0;
+                    if (inter_pred_done) begin
+                        inter_fetch_idx <= 6'd63;
+                        for (i = 0; i < 64; i = i + 1) begin
+                            pred_blk[i] <= inter_pred_out[i];
+                            residual[i] <= $signed({1'b0, cur_blk[i]}) -
+                                           $signed({1'b0, inter_pred_out[i]});
+                        end
                         xform_row <= 0;
                         top_state <= TS_XFORM_ROW;
+                    end else if (inter_fetch_idx < 6'd63) begin
+                        inter_fetch_idx <= inter_fetch_idx + 1'b1;
                     end
                 end
 
