@@ -261,18 +261,17 @@ Inventory of the current repo state:
 
 ## Latest Chud PC 2 RTL proof progress
 
-### Non-zero chroma TX_4X4 syntax checkpoint
+### Multi-block non-zero chroma TX_4X4 syntax checkpoint
 
-- Added a constrained dynamic proof for RTL-owned non-zero Cb/Cr coefficient syntax:
-  - C++ oracle now emits Cb/Cr TX_4X4 `txb_skip`, EOB, base-level, BR/sign syntax from captured chroma qcoeffs using the AOM-derived chroma tables.
-  - RTL top now emits the matching Cb/Cr TX_4X4 syntax on its raw tile path instead of forcing chroma `txb_skip=1`.
-  - The public-decoder gate is `make THREADS=16 BUILD_JOBS=16 nonzero-chroma-syntax-check`, which builds an 8x8 all-key frame with flat luma and non-zero Cb/Cr DC residuals, then verifies RTL raw OBU equals the oracle OBU and FFmpeg/aomdec decoded output matches `recon.yuv`.
+- Added the next dynamic public-decoder proof for RTL-owned multi-block non-zero Cb/Cr coefficient syntax:
+  - `make THREADS=16 BUILD_JOBS=16 nonzero-chroma16-syntax-check` builds a 16x16 all-key frame with flat luma and non-neutral chroma, forcing multiple 4x4 chroma transform blocks.
+  - The gate verifies RTL raw OBU equals the software oracle OBU, then verifies FFmpeg/libdav1d and `aomdec` decode the RTL IVF back to RTL `recon.yuv`.
 - Root-cause fixes from this checkpoint:
-  - TX_4X4 `eob_flag_cdf16` uses 5 symbols, not 6.
-  - If luma `txb_skip=1` but chroma is non-zero, no luma `tx_type` is signaled; chroma coefficient syntax follows directly.
-  - Chroma DC sign/txb contexts must track Cb and Cr neighbor entropy contexts separately in the oracle.
-  - The chroma residual inverse scaling was adjusted so RTL `recon.yuv` matches public AV1 decoder reconstruction for the TX_4X4 DC path.
-- Remaining expansion: the dynamic non-zero chroma proof is currently one 8x8 block. Wider 16x16+ non-flat chroma still needs decoder-matching chroma intra prediction from reconstructed chroma neighbors before it can be used as the multi-block chroma proof gate.
+  - Top-level intra chroma prediction now reads already-reconstructed current-frame Cb/Cr neighbors, matching the luma `ref_rd_is_neigh` pattern instead of falling back to constant 128 for every block.
+  - The testbench chroma reference read mux now selects current-frame reconstructed chroma memory for neighbor reads and previous-frame chroma memory for inter prediction reads.
+  - RTL now mirrors the oracle's Cb/Cr entropy context state for chroma `txb_skip` and DC-sign contexts across neighboring blocks.
+  - New chroma-neighbor fetch states use unique state encodings so they do not collide with the chroma-only TX-type states.
+- The earlier one-block `nonzero-chroma-syntax-check` remains as the isolated 8x8 syntax gate; the new 16x16 gate closes the first multi-block non-flat chroma blocker.
 
 
 - Added the first top-level chroma residual plumbing slice after the TX_4X4 table checkpoint:

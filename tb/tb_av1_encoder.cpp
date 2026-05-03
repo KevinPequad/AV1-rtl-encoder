@@ -310,14 +310,18 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Chroma reference reads
+        // Chroma reference reads.  Inter prediction reads the previous frame;
+        // intra chroma DC prediction reads already-reconstructed current-frame
+        // chroma neighbors, mirroring the luma ref_rd_is_neigh path.
         {
             uint32_t addr = dut->chr_cb_ref_rd_addr;
-            dut->chr_cb_ref_rd_data = (addr < ref_cb_rd.size()) ? ref_cb_rd[addr] : 128;
+            const auto& cb_src = dut->chr_ref_rd_is_neigh ? ref_cb_wr : ref_cb_rd;
+            dut->chr_cb_ref_rd_data = (addr < cb_src.size()) ? cb_src[addr] : 128;
         }
         {
             uint32_t addr = dut->chr_cr_ref_rd_addr;
-            dut->chr_cr_ref_rd_data = (addr < ref_cr_rd.size()) ? ref_cr_rd[addr] : 128;
+            const auto& cr_src = dut->chr_ref_rd_is_neigh ? ref_cr_wr : ref_cr_rd;
+            dut->chr_cr_ref_rd_data = (addr < cr_src.size()) ? cr_src[addr] : 128;
         }
 
         dut->eval();
