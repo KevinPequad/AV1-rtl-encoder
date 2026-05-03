@@ -276,6 +276,11 @@ Inventory of the current repo state:
   - `make THREADS=16 BUILD_JOBS=16 natural32-chroma-syntax-check` builds a 32x32 deterministic gradient probe with non-flat luma and chroma.
   - Root cause fixed here: `TS_TXB_SKIP_CB` / `TS_TXB_SKIP_CR` selected `cur_txb_chr_icdf` while updating `chr_syntax_plane` in the same cycle, so multi-block frames could swap Cb/Cr txb contexts. Those states now select the Cb/Cr plane explicitly.
   - The 32x32 gate verifies RTL raw OBU equality plus FFmpeg/libdav1d and `aomdec` decode-vs-`recon.yuv` parity.
+- Added a 32x32 two-frame zero-MV inter residual gate:
+  - `make THREADS=16 BUILD_JOBS=16 natural32-ip-syntax-check` builds two repeated natural-ish 32x32 frames with `+all_key=0` and RTL `me_zero_mv_only_in` enabled.
+  - This proves the reduced LAST-frame inter path can emit RTL-owned P-frame bytes with natural-ish non-zero residuals while keeping motion-vector syntax deterministic.
+  - The gate verifies concatenated RTL raw OBU equality plus FFmpeg/libdav1d and `aomdec` decode-vs-`recon.yuv` parity across both frames.
+  - Parallel scouting found unconstrained 32x32 non-zero-MV natural IP still exposes a public-decoder/recon mismatch; that remains the next motion-specific blocker rather than mixing it into this zero-MV residual checkpoint.
 
 
 - Added the first top-level chroma residual plumbing slice after the TX_4X4 table checkpoint:

@@ -93,7 +93,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check clean help
+.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check clean help
 
 all: $(SIM_BIN)
 
@@ -278,6 +278,11 @@ natural32-chroma-syntax-check:
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural32_chroma_syntax.py
 
+natural32-ip-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural32_ip_syntax.py
+
 clean:
 	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) test_chroma_coeff_tables *.vcd
 
@@ -295,6 +300,7 @@ help:
 	@echo "  chroma-residual-check Build and run the standalone av1_chroma_residual transform/quant/recon check"
 	@echo "  chroma-coeff-table-check Build and run TX_4X4 chroma coefficient table sanity check"
 	@echo "  top-chroma-integration-check Static guard for top-level chroma residual plumbing"
+	@echo "  natural32-ip-syntax-check 32x32 two-frame zero-MV natural-ish IP public-decoder proof"
 	@echo "  clean  Remove build artifacts"
 	@echo ""
 	@echo "Variables (override on command line):"

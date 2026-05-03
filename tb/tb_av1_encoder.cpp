@@ -76,6 +76,7 @@ int main(int argc, char** argv) {
     int all_key = 1;
     int dump_blocks = 0;
     int force_intra = 0;
+    int me_zero_mv_only = 0;
     int zero_inter_coeffs = 0;
     int limit_newmv_blocks = -1;
     int limit_inter_blocks = -1;
@@ -117,6 +118,7 @@ int main(int argc, char** argv) {
         else if (arg.rfind("+all_key=", 0) == 0) all_key = std::atoi(arg.c_str() + 9);
         else if (arg.rfind("+dump_blocks=", 0) == 0) dump_blocks = std::atoi(arg.c_str() + 13);
         else if (arg.rfind("+force_intra=", 0) == 0) force_intra = std::atoi(arg.c_str() + 13);
+        else if (arg.rfind("+me_zero_mv_only=", 0) == 0) me_zero_mv_only = std::atoi(arg.c_str() + 17);
         else if (arg.rfind("+zero_inter_coeffs=", 0) == 0) zero_inter_coeffs = std::atoi(arg.c_str() + 19);
         else if (arg.rfind("+limit_newmv_blocks=", 0) == 0) limit_newmv_blocks = std::atoi(arg.c_str() + 20);
         else if (arg.rfind("+limit_inter_blocks=", 0) == 0) limit_inter_blocks = std::atoi(arg.c_str() + 20);
@@ -223,6 +225,7 @@ int main(int argc, char** argv) {
     dut->clk = 0; dut->rst_n = 0; dut->start = 0;
     dut->frame_num_in = 0; dut->is_keyframe_in = 0;
     dut->force_intra_in = force_intra ? 1 : 0;
+    dut->me_zero_mv_only_in = me_zero_mv_only ? 1 : 0;
     dut->dc_only_in = dc_only ? 1 : 0;
     dut->qindex_in = effective_qindex;
     dut->ref_mem_rd_data = 128;
@@ -268,6 +271,7 @@ int main(int argc, char** argv) {
             dut->frame_num_in = all_key ? 0 : ((frame_idx % idr_interval) & 0xF);
             dut->is_keyframe_in = is_key ? 1 : 0;
             dut->force_intra_in = force_intra ? 1 : 0;
+            dut->me_zero_mv_only_in = me_zero_mv_only ? 1 : 0;
             dut->dc_only_in = dc_only ? 1 : 0;
             dut->qindex_in = effective_qindex;
             current_frame_is_key = is_key;
