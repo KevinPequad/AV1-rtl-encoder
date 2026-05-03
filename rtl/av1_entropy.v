@@ -258,11 +258,11 @@ module av1_entropy #(
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            busy          = 1'b0;
-            done          = 1'b0;
-            byte_valid    = 1'b0;
-            byte_out      = 8'd0;
-            bytes_written = 24'd0;
+            busy          <= 1'b0;
+            done          <= 1'b0;
+            byte_valid    <= 1'b0;
+            byte_out      <= 8'd0;
+            bytes_written <= 24'd0;
             state         = S_IDLE;
             rng_reg       = 16'h8000;
             low_reg       = 64'd0;
@@ -284,13 +284,13 @@ module av1_entropy #(
             dbg_accept_bool_prob = 15'd0;
             dbg_accept_icdf_flat = 256'd0;
         end else begin
-            done       = 1'b0;
-            byte_valid = 1'b0;
+            done       <= 1'b0;
+            byte_valid <= 1'b0;
             dbg_accept_valid = 1'b0;
 
             case (state)
                 S_IDLE: begin
-                    busy = 1'b0;
+                    busy <= 1'b0;
 
                     if (init) begin
                         rng_reg       = 16'h8000;
@@ -299,8 +299,8 @@ module av1_entropy #(
                         out_len       = 0;
                         out_rd_idx    = 0;
                         overflow_seen = 1'b0;
-                        bytes_written = 24'd0;
-                        done          = 1'b1;
+                        bytes_written <= 24'd0;
+                        done          <= 1'b1;
                     end else if (encode_bool) begin
                         dbg_accept_valid = 1'b1;
                         dbg_accept_kind = 2'd1;
@@ -308,7 +308,7 @@ module av1_entropy #(
                         dbg_accept_bool_prob = bool_prob;
                         dbg_accept_icdf_flat = 256'd0;
                         encode_bool_once(bool_val, bool_prob);
-                        done = 1'b1;
+                        done <= 1'b1;
                     end else if (encode_symbol) begin
                         dbg_accept_valid = 1'b1;
                         dbg_accept_kind = 2'd2;
@@ -316,36 +316,36 @@ module av1_entropy #(
                         dbg_accept_nsyms = nsyms;
                         dbg_accept_icdf_flat = icdf_flat;
                         encode_symbol_once(symbol, nsyms, icdf_flat);
-                        done = 1'b1;
+                        done <= 1'b1;
                     end else if (encode_lit) begin
                         lit_data_reg = lit_val;
                         lit_pos_reg  = lit_bits;
-                        busy         = 1'b1;
+                        busy         <= 1'b1;
                         state        = S_LIT;
                     end else if (finalize) begin
                         fin_e_reg = ((low_reg + 64'h3FFF) & ~64'h3FFF) | 64'h4000;
                         fin_c_reg = cnt_reg;
                         fin_s_reg = cnt_reg + 10;
                         fin_n_reg = mask_bits(cnt_reg + 16);
-                        busy      = 1'b1;
+                        busy      <= 1'b1;
                         state     = S_FINISH;
                     end
                 end
 
                 S_LIT: begin
-                    busy = 1'b1;
+                    busy <= 1'b1;
                     if (lit_pos_reg > 0) begin
                         encode_bool_once(lit_data_reg[lit_pos_reg - 1'b1], 15'd16384);
                         lit_pos_reg = lit_pos_reg - 1'b1;
                     end else begin
-                        busy  = 1'b0;
-                        done  = 1'b1;
+                        busy  <= 1'b0;
+                        done  <= 1'b1;
                         state = S_IDLE;
                     end
                 end
 
                 S_FINISH: begin
-                    busy = 1'b1;
+                    busy <= 1'b1;
                     if (fin_s_reg > 0) begin
                         finish_shift = fin_c_reg + 16;
                         finish_val = fin_e_reg >> finish_shift;
@@ -364,27 +364,27 @@ module av1_entropy #(
                         fin_n_reg = fin_n_reg >> 8;
                     end else begin
                         out_rd_idx    = 0;
-                        bytes_written = 24'd0;
+                        bytes_written <= 24'd0;
                         state         = S_OUT;
                     end
                 end
 
                 S_OUT: begin
-                    busy = 1'b1;
+                    busy <= 1'b1;
                     if (out_rd_idx < out_len) begin
-                        byte_valid    = 1'b1;
-                        byte_out      = out_buf[out_rd_idx];
+                        byte_valid    <= 1'b1;
+                        byte_out      <= out_buf[out_rd_idx];
                         out_rd_idx    = out_rd_idx + 1;
-                        bytes_written = bytes_written + 1'b1;
+                        bytes_written <= bytes_written + 1'b1;
                     end else begin
-                        busy  = 1'b0;
-                        done  = 1'b1;
+                        busy  <= 1'b0;
+                        done  <= 1'b1;
                         state = S_IDLE;
                     end
                 end
 
                 default: begin
-                    busy  = 1'b0;
+                    busy  <= 1'b0;
                     state = S_IDLE;
                 end
             endcase
