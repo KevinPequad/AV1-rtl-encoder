@@ -156,20 +156,27 @@
   - reduced `NEWMV` components now emit the real `mv_fr` and `mv_hp` symbols on both the writer path and the RTL-owned syntax path
   - `output/natural_motion64_x640_y360_2f_subpel2/`, `output/natural_motion64_x640_y360_7f_subpel2/`, and `output/natural_motion64_x640_y360_10f_subpel2/` are byte-exact and strict `aomdec` output matches `recon.yuv`
   - the shared strict-decoder corruption on the first inter frame was the missing `mv_hp` payload symbol plus the missing `allow_high_precision_mv` frame-header bit after `force_integer_mv=0`
+- The controlled natural32 reduced LAST inter gate family is post-merge green on Chud PC 2 at commit `91e403a030b951be45b4954e5dfe433e8418272c`:
+  - `natural32-ip-syntax-check` covers repeated-frame / zero-MV 32x32 natural-ish IP residuals
+  - `natural32-ip-newmv-syntax-check` covers a shifted 32x32 non-zero-MV `NEWMV` inter proof
+  - `natural32-ip-fractional-syntax-check` covers a half-pel 32x32 proof with exactly two small `NEWMV` blocks and at least one fractional q3 MV
+  - each gate proves RTL raw OBU equality against the software oracle plus FFmpeg/libdav1d and `aomdec` decode-to-`recon.yuv` parity
+  - this remains a controlled reduced-subset proof, not a full-AV1/final-target/ASIC-readiness claim
 - Directional intra availability for the current fixed `8x8` / `TX_8X8` raster-order subset is now partially corrected:
   - real top-right extension samples are loaded and used when the above-right block is already reconstructed
   - bottom-left extension remains intentionally disabled on this subset because it would otherwise read future not-yet-reconstructed pixels and corrupt exactness
   - on the rebuilt live tree, the old `qindex=224` residual no longer reproduces on the verified `qindex=240` probe
   - keep directional edge upsampling disabled while `enable_intra_edge_filter = 0`; re-enable it only when the bitstream path owns and signals that sequence-header feature correctly
-- The next highest-priority ownership move is the first real non-zero fractional-pel translational checkpoint on the reduced LAST-only path now that the syntax-only subpel guards are stable:
+- The next highest-priority ownership move is widening beyond the controlled `32x32`, `+me_newmv_limit=2` natural-ish fractional `NEWMV` proof toward less constrained, larger, and longer natural-motion clips on the reduced LAST-only path:
   - keep the `16x16` `data/ac_probe_16x16_1f.yuv` exact-match case as the first regression gate when that asset is available in the checkout
   - do not substitute `data/tmp_probe_16x16_1f.yuv` for byte-exact ownership checks; it is currently decode-clean but not exact
-  - keep the new `32x32` and `64x64` `qindex=128` Big Buck Bunny crops, `data/natural_repeat64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_3f.yuv`, `output/natural_motion32_x640_y360_5f_fix1/`, `output/natural_motion64_x640_y360_5f_fix1/`, `output/natural_motion64_x640_y360_6f_fix1/`, `output/natural_motion64_x640_y360_7f_fixmvref64/`, `output/natural_motion64_x640_y360_10f_progress70m/`, `output/natural_motion64_x640_y360_2f_subpel2/`, `output/natural_motion64_x640_y360_7f_subpel2/`, and `output/natural_motion64_x640_y360_10f_subpel2/` as the current exact regression guards
+  - keep `natural32-ip-fractional-syntax-check`, `natural32-ip-newmv-syntax-check`, `natural32-ip-syntax-check`, `natural32-chroma-syntax-check`, `nonzero-chroma-syntax-check`, and `nonzero-chroma16-syntax-check` as the shortest public-decoder gate family
+  - keep the `32x32` and `64x64` `qindex=128` Big Buck Bunny crops, `data/natural_repeat64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_3f.yuv`, `output/natural_motion32_x640_y360_5f_fix1/`, `output/natural_motion64_x640_y360_5f_fix1/`, `output/natural_motion64_x640_y360_6f_fix1/`, `output/natural_motion64_x640_y360_7f_fixmvref64/`, `output/natural_motion64_x640_y360_10f_progress70m/`, `output/natural_motion64_x640_y360_2f_subpel2/`, `output/natural_motion64_x640_y360_7f_subpel2/`, and `output/natural_motion64_x640_y360_10f_subpel2/` as exact regression guards
   - keep `make bitstream-check WIDTH=16 HEIGHT=16` in the normal quick regression loop whenever `rtl/av1_bitstream.v` changes
   - do not spend more time on the old `qindex=224` blocker unless it reappears after a real code change
   - use `output/highdc_q1/` as the strict large-DC regression guard and `data/ac_probe_16x16_1f.yuv` at `qindex=240` as the verified exact-match regression guard
   - then continue the reduced inter roadmap in this order:
-    - fractional-pel predictor / ME bring-up on the smallest natural-motion checkpoint
+    - less constrained / larger fractional-pel predictor and ME bring-up on natural-motion checkpoints
     - longer multi-frame decode verification on the first widened subpel subset
 - The immediate correctness target after the raw-byte mux fix is the reference-decoder-backed syntax split:
   - the strict non-lossless `output/highdc_q1/` bug is fixed:

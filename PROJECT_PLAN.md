@@ -3,50 +3,54 @@
 ## Current Slice
 
 Completed:
-- Fix the Chud PC 2 generated `16x16` smoke ownership blocker:
-  - generated non-flat all-key and 2-frame IP smoke cases are now byte-exact between software-owned and RTL-owned raw OBU/IVF artifacts
-  - both `ffmpeg`/libdav1d and `aomdec` decode the RTL IVF back to `recon.yuv`
-  - the fix keeps the bootstrap frame on the RTL-owned video keyframe header path, aligns the software writer with static-CDF mode, and uses the actual RTL append address for frame OBU size back-patching
-- Land the first fractional-pel syntax-only inter slice on the reduced LAST-only path without widening the predictor datapath yet:
-  - `tb/av1_bitstream_writer.h`, `rtl/av1_encoder_top.v`, and `rtl/av1_bitstream.v` now emit `force_integer_mv=0`, `allow_high_precision_mv=1`, plus the real `mv_fr` and `mv_hp` symbols on reduced `NEWMV` components
-  - `tb/test_rtl_bitstream.cpp` and `make bitstream-check WIDTH=16 HEIGHT=16` now lock the reduced inter header against that header order
-- Fix the shared strict-decoder corruption on the first inter frame after enabling subpel syntax:
-  - the first drift was not in the raw-byte mux; the common writer/RTL model was missing the `mv_hp` payload symbol after `mv_fr`
-  - the remaining corruption was the missing `allow_high_precision_mv` frame-header bit after `force_integer_mv=0`
-- Verify the syntax-only subpel slice on the current integer-MV motion guards:
-  - `output/natural_motion64_x640_y360_2f_subpel2/` at `64x64`, `2` frames, `qindex=128`: `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and strict `aomdec` output matches `recon.yuv`
-  - `output/natural_motion64_x640_y360_7f_subpel2/` at `64x64`, `7` frames, `qindex=128`: `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and strict `aomdec` output matches `recon.yuv`
-  - `output/natural_motion64_x640_y360_10f_subpel2/` at `64x64`, `10` frames, `qindex=128`: `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and strict `aomdec` output matches `recon.yuv`
-- Reconfirm the current longer-sequence runtime envelope after the header/subpel syntax move:
-  - the full `10`-frame `64x64` natural-motion guard still completes at cycle `65670737`
-  - keep using `+timeout=70000000` or higher for that guard on this machine
+- Landed and post-merge validated the controlled 32x32 natural-ish inter widening at commit `91e403a030b951be45b4954e5dfe433e8418272c` (`Add natural32 fractional NEWMV proof`):
+  - `natural32-ip-syntax-check` covers the repeated-frame / zero-MV 32x32 reduced LAST inter residual path.
+  - `natural32-ip-newmv-syntax-check` covers a shifted two-frame 32x32 fixture with an isolated non-zero-MV `NEWMV` inter block.
+  - `natural32-ip-fractional-syntax-check` covers a half-pel synthesized second frame, requires exactly two small `NEWMV` blocks under `+me_newmv_limit=2`, and requires at least one fractional q3 MV.
+  - All three gates compare concatenated RTL raw OBU bytes to the software oracle, then check FFmpeg/libdav1d and `aomdec` decode of RTL IVF against `recon.yuv`.
+- Preserved the current chroma public-decoder gates in the same post-merge command:
+  - `natural32-chroma-syntax-check`
+  - `nonzero-chroma-syntax-check`
+  - `nonzero-chroma16-syntax-check`
+- Validation ran on Chud PC 2 (`chudpc2-MS-7C91`, `nproc=16`, Verilator 5.020) with:
+
+```bash
+cd /home/chudpc2/code/AV1-rtl-encoder/.worktrees/t_13da93e2/tb
+make THREADS=16 BUILD_JOBS=16 natural32-ip-fractional-syntax-check natural32-ip-newmv-syntax-check natural32-ip-syntax-check natural32-chroma-syntax-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check
+```
+
+Scope of the claim:
+- This is a reduced single-reference LAST-path proof over controlled 32x32 natural-ish fixtures.
+- It proves RTL-owned raw-byte equality against the oracle and public-decoder reconstruction parity for those gates.
+- It does not claim full AV1 completion, ASIC readiness, arbitrary natural-motion coverage, final 720p target readiness, or full removal of the `tb/` software debug writer.
 
 ## Next Slice
 
-1. Widen the now-passing 32x32 zero-MV natural-ish IP residual proof toward non-zero/fractional-MV inter natural clips.
-2. Keep `nonzero-chroma-syntax-check`, `nonzero-chroma16-syntax-check`, `natural32-chroma-syntax-check`, and `natural32-ip-syntax-check` public-decoder gates passing while widening the fixture.
-3. Continue debugging the unconstrained 32x32 non-zero-MV natural IP mismatch as the next motion-specific blocker without regressing the zero-MV P-frame residual gate.
+1. Widen beyond the controlled natural32 `NEWMV` / fractional q3 proof into less constrained, larger, and longer natural-motion clips while preserving RTL byte ownership.
+2. Keep `natural32-ip-fractional-syntax-check`, `natural32-ip-newmv-syntax-check`, `natural32-ip-syntax-check`, `natural32-chroma-syntax-check`, `nonzero-chroma-syntax-check`, and `nonzero-chroma16-syntax-check` green as the short public-decoder gate family.
+3. Continue the reduced LAST-only fractional/inter roadmap before expanding to compound references, richer partitioning, in-loop filters, rate control, or final-target validation.
 
 ## Regression Gates
 
-- `output/highdc_q1/` for strict large-DC coefficient ownership
-- `data/ac_probe_16x16_1f.yuv` at `qindex=240` when that asset is available in the checkout
-- `output/natural_focus_x640_y360_q128/` for strict natural `16x16` DC-only exactness
-- `data/natural_repeat64_x640_y360_2f.yuv` at `qindex=128` for larger natural-content zero-motion inter exactness
-- `data/natural_motion64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_3f.yuv`, and `data/natural_motion32_x640_y360_3f.yuv` at `qindex=128` for reduced natural-motion inter exactness
-- `output/natural_motion64_x640_y360_2f_subpel2/` as the shortest exact syntax-only subpel guard
-- `output/natural_motion32_x640_y360_5f_fix1/`, `output/natural_motion64_x640_y360_5f_fix1/`, and `output/natural_motion64_x640_y360_6f_fix1/` as the shorter exact longer-motion guards
-- `output/natural_motion64_x640_y360_7f_fixmvref64/` and `output/natural_motion64_x640_y360_10f_progress70m/` as the repaired exact longer-motion guards
-- `output/natural_motion64_x640_y360_7f_subpel2/` and `output/natural_motion64_x640_y360_10f_subpel2/` as the exact longer-motion syntax-only subpel guards
+- `make THREADS=16 BUILD_JOBS=16 natural32-ip-fractional-syntax-check` for the shortest controlled half-pel `NEWMV` public-decoder proof.
+- `make THREADS=16 BUILD_JOBS=16 natural32-ip-newmv-syntax-check` for the controlled shifted non-zero-MV reduced LAST proof.
+- `make THREADS=16 BUILD_JOBS=16 natural32-ip-syntax-check` for the 32x32 zero-MV IP residual proof.
+- `make THREADS=16 BUILD_JOBS=16 natural32-chroma-syntax-check`, `nonzero-chroma-syntax-check`, and `nonzero-chroma16-syntax-check` for the current chroma syntax/recon proof family.
+- `output/highdc_q1/` for strict large-DC coefficient ownership.
+- `data/ac_probe_16x16_1f.yuv` at `qindex=240` when that asset is available in the checkout.
+- `output/natural_focus_x640_y360_q128/` for strict natural `16x16` DC-only exactness.
+- `data/natural_repeat64_x640_y360_2f.yuv` at `qindex=128` for larger natural-content zero-motion inter exactness.
+- `data/natural_motion64_x640_y360_2f.yuv`, `data/natural_motion64_x640_y360_3f.yuv`, and `data/natural_motion32_x640_y360_3f.yuv` at `qindex=128` for reduced natural-motion inter exactness.
+- `output/natural_motion64_x640_y360_2f_subpel2/`, `output/natural_motion64_x640_y360_7f_subpel2/`, and `output/natural_motion64_x640_y360_10f_subpel2/` as the syntax-only subpel guards.
+- `output/natural_motion32_x640_y360_5f_fix1/`, `output/natural_motion64_x640_y360_5f_fix1/`, and `output/natural_motion64_x640_y360_6f_fix1/` as the shorter exact longer-motion guards.
+- `output/natural_motion64_x640_y360_7f_fixmvref64/` and `output/natural_motion64_x640_y360_10f_progress70m/` as the repaired exact longer-motion guards.
 
 ## Local Notes
 
 - `data/ac_probe_16x16_1f.yuv` is not present in this checkout, so the original exact-match `16x16` gate cannot be rerun locally yet.
 - `data/tmp_probe_16x16_1f.yuv` is decode-clean but not byte-exact in this checkout; do not use it as the ownership gate.
-- The first strict decoder failure after enabling `force_integer_mv=0` was shared writer/RTL syntax, not ownership drift:
-  - `mv_hp` was missing after `mv_fr` on reduced `NEWMV` components
-  - `allow_high_precision_mv` was missing in the reduced inter frame header after `force_integer_mv=0`
 - The full `10`-frame `64x64` natural-motion guard remains runtime-heavy after the subpel syntax step. The bounded `+progress_every=5000000 +timeout=70000000` run is still the reference command when checking that guard.
+- The new natural32 fractional gate is intentionally controlled with `+me_newmv_limit=2`; widening beyond that limit is future feature work, not an already-closed full-motion claim.
 
 
 ## Chud PC 2 smoke blocker

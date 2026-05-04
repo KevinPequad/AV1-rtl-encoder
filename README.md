@@ -165,6 +165,9 @@ Inventory of the current repo state:
   - `rtl/av1_me.v` now preserves the already-tested zero MV when it is also the final legal raster-search candidate:
     - the old helper always skipped zero after the dedicated zero-MV probe, which pushed bottom-right blocks past the legal search window and could leave `TS_WAIT_ME` spinning on longer clips
     - the scan now skips zero only when another in-range candidate still follows it
+  - controlled 32x32 natural-ish inter public-decoder gates now cover the reduced LAST path beyond zero-MV residuals:
+    - `natural32-ip-newmv-syntax-check` exercises a shifted two-frame non-zero-MV `NEWMV` block and proves RTL-owned bytes against the software oracle plus FFmpeg/aomdec decode-to-`recon.yuv`
+    - `natural32-ip-fractional-syntax-check` synthesizes a half-pel second frame, limits the run to two small `NEWMV` blocks, requires at least one fractional q3 MV, and proves the same RTL raw OBU / public-decoder parity
   - standalone `rtl/av1_bitstream.v` regression harness in `tb/test_rtl_bitstream.cpp` and `make bitstream-check`
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
@@ -246,6 +249,10 @@ Inventory of the current repo state:
     - `output/natural_motion64_x640_y360_7f_fixmvref64/`: `64x64`, `7` frames, `qindex=128`, byte-exact between software-owned and RTL-owned OBU/IVF outputs, strict `aomdec` output matches `recon.yuv`
     - `output/natural_motion64_x640_y360_10f_progress70m/`: `64x64`, `10` frames, `qindex=128`, byte-exact between software-owned and RTL-owned OBU/IVF outputs, strict `aomdec` output matches `recon.yuv`
     - the first longer-sequence drift was not MV payload packing; the reduced ref-MV stack was reaching one row and one column farther than AOM's `MVREF_ROW_COLS == 3` scan and was overweighting a later NEWMV candidate by `+4`
+  - post-merge validation of commit `91e403a030b951be45b4954e5dfe433e8418272c` shows the widened natural32 inter gates are green on Chud PC 2 with `THREADS=16 BUILD_JOBS=16`:
+    - `natural32-ip-fractional-syntax-check`: 32x32 two-frame natural-ish half-pel fixture, exactly two small `NEWMV` blocks under `+me_newmv_limit=2`, at least one fractional q3 MV, RTL raw OBU equals oracle OBU, FFmpeg/libdav1d and `aomdec` decode RTL IVF to `recon.yuv`
+    - `natural32-ip-newmv-syntax-check`: shifted 32x32 two-frame non-zero-MV inter proof with RTL raw OBU equality and public-decoder decode-to-`recon.yuv` parity
+    - `natural32-ip-syntax-check`, `natural32-chroma-syntax-check`, `nonzero-chroma-syntax-check`, and `nonzero-chroma16-syntax-check` remained green in the same post-merge command
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
@@ -276,11 +283,13 @@ Inventory of the current repo state:
   - `make THREADS=16 BUILD_JOBS=16 natural32-chroma-syntax-check` builds a 32x32 deterministic gradient probe with non-flat luma and chroma.
   - Root cause fixed here: `TS_TXB_SKIP_CB` / `TS_TXB_SKIP_CR` selected `cur_txb_chr_icdf` while updating `chr_syntax_plane` in the same cycle, so multi-block frames could swap Cb/Cr txb contexts. Those states now select the Cb/Cr plane explicitly.
   - The 32x32 gate verifies RTL raw OBU equality plus FFmpeg/libdav1d and `aomdec` decode-vs-`recon.yuv` parity.
-- Added a 32x32 two-frame zero-MV inter residual gate:
+- Added the natural32 two-frame inter residual / NEWMV gate family:
   - `make THREADS=16 BUILD_JOBS=16 natural32-ip-syntax-check` builds two repeated natural-ish 32x32 frames with `+all_key=0` and RTL `me_zero_mv_only_in` enabled.
   - This proves the reduced LAST-frame inter path can emit RTL-owned P-frame bytes with natural-ish non-zero residuals while keeping motion-vector syntax deterministic.
-  - The gate verifies concatenated RTL raw OBU equality plus FFmpeg/libdav1d and `aomdec` decode-vs-`recon.yuv` parity across both frames.
-  - Parallel scouting found unconstrained 32x32 non-zero-MV natural IP still exposes a public-decoder/recon mismatch; that remains the next motion-specific blocker rather than mixing it into this zero-MV residual checkpoint.
+  - `make THREADS=16 BUILD_JOBS=16 natural32-ip-newmv-syntax-check` widens the proof to a shifted 32x32 two-frame fixture with an isolated non-zero-MV inter block.
+  - `make THREADS=16 BUILD_JOBS=16 natural32-ip-fractional-syntax-check` widens again to a half-pel synthetic second frame and requires exactly two small `NEWMV` blocks, including at least one fractional q3 MV.
+  - All three gates verify concatenated RTL raw OBU equality plus FFmpeg/libdav1d and `aomdec` decode-vs-`recon.yuv` parity across both frames.
+  - This is a controlled reduced LAST-only natural32 proof; it does not yet claim arbitrary natural motion, full fractional-pel search quality, full AV1 syntax ownership, or final-target readiness.
 
 
 - Added the first top-level chroma residual plumbing slice after the TX_4X4 table checkpoint:
@@ -329,9 +338,11 @@ Inventory of the current repo state:
     - AOM reference inspection shows the decoder entering the lossless `TX_4X4` path (`tx_size=0`) when `base_q_idx=0`
     - until that separate lossless path is implemented, the testbench and RTL clamp requested `qindex=0` runs to effective `qindex=1` so the current subset does not emit invalid streams
 - Full P-frame/inter-frame AV1 syntax support is still incomplete.
-- The current raw-path inter subset now covers reduced single-reference LAST `GLOBALMV`, `NEARESTMV`, and `NEWMV` with reduced neighboring ref-MV stack derivation plus the first syntax-only subpel ownership slice:
+- The current raw-path inter subset now covers reduced single-reference LAST `GLOBALMV`, `NEARESTMV`, and `NEWMV` with reduced neighboring ref-MV stack derivation, the first syntax-only subpel ownership slice, and controlled 32x32 natural-ish NEWMV/fractional public-decoder proofs:
   - the reduced inter frame header now signals `force_integer_mv=0` and `allow_high_precision_mv=1`
   - reduced `NEWMV` components now emit the real `mv_fr` and `mv_hp` symbols on both the software debug writer path and the RTL-owned syntax path
+  - `natural32-ip-newmv-syntax-check` covers the shifted non-zero-MV reduced LAST path
+  - `natural32-ip-fractional-syntax-check` covers a half-pel 32x32 reduced LAST path with at least one fractional q3 MV under a small `NEWMV` limit
 - The strict raw-path inter checkpoints are now cleared on both the zero-motion repeated-frame cases and the first natural-motion cases:
   - the `16x16` 2-frame flat repeated-frame IP repro is byte-exact between software-owned and RTL-owned OBU/IVF outputs
   - the `64x64` 2-frame `data/natural_repeat64_x640_y360_2f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
@@ -339,6 +350,7 @@ Inventory of the current repo state:
   - the `32x32` `3`-frame `data/natural_motion32_x640_y360_3f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
   - `output/natural_motion32_x640_y360_5f_fix1/` and `output/natural_motion64_x640_y360_5f_fix1/` are byte-exact at `5` frames, `output/natural_motion64_x640_y360_6f_fix1/` is byte-exact at `6` frames, `output/natural_motion64_x640_y360_7f_fixmvref64/` is byte-exact at `7` frames, and `output/natural_motion64_x640_y360_10f_progress70m/` is byte-exact at `10` frames
   - `output/natural_motion64_x640_y360_2f_subpel2/`, `output/natural_motion64_x640_y360_7f_subpel2/`, and `output/natural_motion64_x640_y360_10f_subpel2/` now keep that same exactness after the syntax-only subpel header / payload move, and strict `aomdec` output still matches `recon.yuv`
+  - `natural32-ip-syntax-check`, `natural32-ip-newmv-syntax-check`, and `natural32-ip-fractional-syntax-check` are now the short public-decoder gates for 32x32 zero-MV, shifted NEWMV, and half-pel fractional NEWMV inter proof respectively
   - the repaired longer-motion root cause was the reduced ref-MV stack reach, not the MV payload encoder itself: matching AOM's `MVREF_ROW_COLS == 3` scan removed the extra far-neighbor weight that had been flipping later NEWMV references
   - the first strict decoder corruption after enabling subpel syntax was shared writer/RTL syntax, not ownership drift:
     - `mv_hp` was missing after `mv_fr` on reduced `NEWMV` components
@@ -350,7 +362,7 @@ Inventory of the current repo state:
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
-  - implementing real non-zero fractional-pel translational motion on the current reduced single-reference LAST path
+  - widening the controlled 32x32 non-zero/fractional `NEWMV` proof to less constrained, larger, and longer natural-motion clips on the reduced single-reference LAST path
   - expanding beyond the current reduced single-reference subset once the ownership path is real
   - restoring the original `data/ac_probe_16x16_1f.yuv` local asset in this checkout, because `data/tmp_probe_16x16_1f.yuv` is decode-clean but not a byte-exact substitute ownership gate
 - A lightweight debug probe now exists in the testbench:
@@ -411,6 +423,13 @@ For exact reconstruction checks, decode the generated IVF and compare it against
 For RTL ownership debug, inspect `rtl_frames/frame_XXXX_rtl_raw.obu` and the concatenated `*_rtl_raw.obu` written beside the software-owned `encoded.obu` / `encoded.ivf` outputs.
 
 For inter bring-up, use the repeated-frame `64x64` clip first to clear the zero-motion gate, then move to `data/natural_motion64_x640_y360_2f.yuv` or `data/natural_motion64_x640_y360_3f.yuv` for the reduced motion subset.
+For quick Chud PC 2 public-decoder checks of the current natural32 inter/chroma subset, run:
+
+```bash
+cd tb
+make THREADS=16 BUILD_JOBS=16 natural32-ip-fractional-syntax-check natural32-ip-newmv-syntax-check natural32-ip-syntax-check natural32-chroma-syntax-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check
+```
+
 If a syntax blocker appears, check `av1-reference-docs/external/README.md` first and refresh that folder from official sources before guessing.
 For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
 The reduced motion guards now extend cleanly through the repaired `64x64` `7`-frame and `10`-frame natural-motion cases.
@@ -429,10 +448,10 @@ Verified directly on Chud PC 2 (`chudpc2-MS-7C91`, Verilator 5.020, `nproc=16`):
 - The top-level `16x16` Verilator build now compiles on Chud PC 2 after removing function-call result slicing that Verilator 5.020 rejects and avoiding mixed blocking/nonblocking assignments to `intra_cand_sad`.
 - A generated `16x16` flat all-key RTL IVF decodes in both FFmpeg/libdav1d and `aomdec`, and decoded output matches `recon.yuv`.
 
-Current blocker found on Chud PC 2:
+Historical Chud PC 2 blocker status:
 
-- Generated non-flat `16x16` all-key and generated flat `16x16` 2-frame IP smoke cases expose an RTL raw-stream ownership issue: `encoded_rtl_raw.obu` / `encoded_rtl.ivf` are not byte-exact against the software-owned path, and the generated non-flat all-key / 2-frame IP RTL IVF can be rejected by public decoders due to OBU length/payload drift.
-- Keep the standalone checks in the normal loop, but do not claim public-decoder compatibility beyond the verified flat all-key smoke until this RTL raw-stream drift is fixed.
+- The generated non-flat `16x16` all-key and generated flat `16x16` 2-frame IP raw-stream ownership drift is fixed in the current tree. Those smokes now pass raw OBU exactness, IVF exactness, FFmpeg/libdav1d decode-vs-`recon.yuv`, and `aomdec` decode-vs-`recon.yuv`.
+- Do not revive the old public-decoder blocker unless a fresh run on the current tree shows a new drift; the active inter status is now the controlled natural32 NEWMV/fractional proof and the remaining scale-up beyond that reduced subset.
 
 ## Verification Rules
 
