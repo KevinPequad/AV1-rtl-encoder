@@ -34,6 +34,7 @@ CHROMA_INTER_TB_CPP := test_chroma_inter_pred.cpp
 CHROMA_RES_TOP := av1_chroma_residual
 CHROMA_RES_TB_CPP := test_chroma_residual.cpp
 CHROMA_COEFF_TABLE_TB_CPP := test_chroma_coeff_tables.cpp
+CHROMA_COEFF_TABLE_BIN ?= test_chroma_coeff_tables
 RTL_DIR         := ../rtl
 OBJ_DIR         := obj_dir
 TRACE_OBJ_DIR   := obj_dir_trace
@@ -257,8 +258,8 @@ chroma-residual-check: $(CHROMA_RES_SIM_BIN)
 	./$(CHROMA_RES_SIM_BIN)
 
 chroma-coeff-table-check: $(CHROMA_COEFF_TABLE_TB_CPP) av1_tx4x4_chroma_tables.h
-	$(CXX) -O2 -std=c++17 $(CHROMA_COEFF_TABLE_TB_CPP) -o test_chroma_coeff_tables
-	./test_chroma_coeff_tables
+	$(CXX) -O2 -std=c++17 $(CHROMA_COEFF_TABLE_TB_CPP) -o $(CHROMA_COEFF_TABLE_BIN)
+	./$(CHROMA_COEFF_TABLE_BIN)
 
 top-chroma-integration-check:
 	python3 test_top_chroma_integration.py
@@ -347,7 +348,7 @@ av1-current-matrix-check av1-regression-matrix:
 	cd .. && python3 scripts/run_av1_regression_matrix.py
 
 clean:
-	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) test_chroma_coeff_tables *.vcd
+	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) $(CHROMA_COEFF_TABLE_BIN) *.vcd
 
 help:
 	@echo "Targets:"

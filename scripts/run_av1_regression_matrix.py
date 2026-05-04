@@ -39,6 +39,49 @@ def make_cmd(*args: str) -> tuple[str, ...]:
     return ("make", f"THREADS={DEFAULT_THREADS}", f"BUILD_JOBS={DEFAULT_THREADS}", *args)
 
 
+def _sanitize_tag(text: str) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in text).strip("_") or "matrix"
+
+
+def gate_namespace(run_namespace: str, gate: Gate) -> str:
+    return _sanitize_tag(f"{run_namespace}_{gate.gate_id}_{gate.name}")[:80]
+
+
+def gate_command(run_namespace: str, gate: Gate) -> list[str]:
+    argv = [str(x) for x in gate.command]
+    if not argv or argv[0] != "make":
+        return argv
+    ns = gate_namespace(run_namespace, gate)
+    overrides = [
+        f"OBJ_DIR=obj_dir_{ns}",
+        f"TRACE_OBJ_DIR=obj_dir_trace_{ns}",
+        f"SIM_BIN=Vav1_encoder_top_{ns}",
+        f"TRACE_SIM_BIN=Vav1_encoder_top_trace_{ns}",
+        f"ENTROPY_OBJ_DIR=obj_dir_entropy_{ns}",
+        f"ENTROPY_SIM_BIN=Vav1_entropy_{ns}",
+        f"BITSTREAM_OBJ_DIR=obj_dir_bitstream_{ns}",
+        f"BITSTREAM_SIM_BIN=Vav1_bitstream_{ns}",
+        f"INV_XFORM_OBJ_DIR=obj_dir_inv_xform_{ns}",
+        f"INV_XFORM_SIM_BIN=Vav1_inverse_transform_{ns}",
+        f"INTER_OBJ_DIR=obj_dir_inter_pred_{ns}",
+        f"INTER_SIM_BIN=Vav1_inter_pred_{ns}",
+        f"ME_OBJ_DIR=obj_dir_me_{ns}",
+        f"ME_SIM_BIN=Vav1_me_{ns}",
+        f"CHROMA_INTER_OBJ_DIR=obj_dir_chroma_inter_pred_{ns}",
+        f"CHROMA_INTER_SIM_BIN=Vav1_chroma_inter_pred_{ns}",
+        f"CHROMA_RES_OBJ_DIR=obj_dir_chroma_residual_{ns}",
+        f"CHROMA_RES_SIM_BIN=Vav1_chroma_residual_{ns}",
+        f"CHROMA_COEFF_TABLE_BIN=test_chroma_coeff_tables_{ns}",
+    ]
+    return [argv[0], *overrides, *argv[1:]]
+
+
+def gate_env(run_namespace: str, gate: Gate, base_env: dict[str, str]) -> dict[str, str]:
+    env = base_env.copy()
+    env["AV1_TOP_SIM"] = f"./Vav1_encoder_top_{gate_namespace(run_namespace, gate)}"
+    return env
+
+
 CURRENT_GATES: list[Gate] = [
     Gate("S0", "clean", make_cmd("clean"), TB, False, "stale artifact hygiene"),
     Gate("S1", "entropy-check", make_cmd("entropy-check"), TB, False, "AV1 entropy core standalone"),
@@ -220,13 +263,15 @@ def main() -> int:
     }
 
     failed = False
+    run_namespace = _sanitize_tag(outdir.name)
     for gate in gates:
         print(f"[MATRIX] {gate.gate_id} {gate.name}")
         gate_artifacts = artifacts_dir / f"{gate.gate_id}_{gate.name}"
-        env = base_env.copy()
+        env = gate_env(run_namespace, gate, base_env)
         env["AV1_ARTIFACT_ROOT"] = str(gate_artifacts)
+        cmd = gate_command(run_namespace, gate)
         log_path = logs_dir / f"{gate.gate_id}_{gate.name}.log"
-        rc, elapsed = run_capture(gate.command, cwd=gate.cwd, env=env, log_path=log_path, timeout_seconds=args.timeout_seconds)
+        rc, elapsed = run_capture(cmd, cwd=gate.cwd, env=env, log_path=log_path, timeout_seconds=args.timeout_seconds)
         status = "pass" if rc == 0 else "fail"
         if rc != 0:
             failed = True
@@ -237,12 +282,14 @@ def main() -> int:
             "status": status,
             "returncode": rc,
             "elapsed_seconds": round(elapsed, 3),
-            "command": " ".join(shlex.quote(x) for x in gate.command),
+            "command": " ".join(shlex.quote(x) for x in cmd),
             "cwd": str(gate.cwd),
             "log": str(log_path),
             "artifact_root": str(gate_artifacts),
             "artifact_hashes": collect_hashes(gate_artifacts),
             "public_decoder": gate.public_decoder,
+            "av1_top_sim": env["AV1_TOP_SIM"],
+            "build_namespace": gate_namespace(run_namespace, gate),
         }
         manifest["gates"].append(record)
         write_json_path = outdir / "av1_regression_manifest.json"
