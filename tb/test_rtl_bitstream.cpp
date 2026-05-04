@@ -285,18 +285,32 @@ static bool expect_eq(const char* label, const std::vector<uint8_t>& actual,
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
-    const uint8_t qindex = 128;
+    const uint8_t qindices[] = {0, 1, 2, 63, 120, 121, 128, 240, 255};
+    const std::string geom = std::to_string(FRAME_WIDTH) + "x" + std::to_string(FRAME_HEIGHT);
 
     bool ok = true;
-    ok &= expect_eq("sequence_header",
-                    run_command(true, false, true, qindex),
+    const std::string seq_label = "sequence_header " + geom;
+    ok &= expect_eq(seq_label.c_str(),
+                    run_command(true, false, true, 128),
                     build_expected_seq());
-    ok &= expect_eq("video_keyframe_header",
-                    run_command(false, true, true, qindex),
-                    build_expected_key(qindex));
-    ok &= expect_eq("video_inter_header",
-                    run_command(false, true, false, qindex),
-                    build_expected_inter(qindex));
+
+    for (uint8_t qindex : qindices) {
+        const std::string qlabel = geom + " qindex=" + std::to_string(static_cast<unsigned>(qindex));
+        const std::string key_label = "video_keyframe_header " + qlabel;
+        const std::string inter_label = "video_inter_header " + qlabel;
+        ok &= expect_eq(key_label.c_str(),
+                        run_command(false, true, true, qindex),
+                        build_expected_key(qindex));
+        ok &= expect_eq(inter_label.c_str(),
+                        run_command(false, true, false, qindex),
+                        build_expected_inter(qindex));
+    }
+
+    if (ok) {
+        std::fprintf(stderr,
+                     "[PASS] header/qindex sweep geometry=%s qindices=%zu (standalone qindex=0 remains explicit; top-level lossless clamp is tested separately)\n",
+                     geom.c_str(), sizeof(qindices) / sizeof(qindices[0]));
+    }
 
     return ok ? 0 : 1;
 }
