@@ -9,6 +9,7 @@ repaired stream.
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import argparse
 import shutil
 import struct
@@ -16,7 +17,7 @@ import struct
 from av1_public_decode import artifact_dir, fail, public_decode_proof, run
 
 TB = Path(__file__).resolve().parent
-SIM = TB / "Vav1_encoder_top"
+SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "Vav1_encoder_top"
 W = H = 8
 
 

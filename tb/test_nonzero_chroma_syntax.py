@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Dynamic non-zero chroma syntax proof."""
 from pathlib import Path
+import os
 
 from av1_public_decode import artifact_dir, fail, public_decode_proof, run
 
 TB = Path(__file__).resolve().parent
-SIM = TB / "Vav1_encoder_top"
+SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "Vav1_encoder_top"
 W = H = 8
 
 

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """32x32 two-frame natural-ish inter proof with small RTL-owned fractional NEWMV coverage."""
 from pathlib import Path
+import os
 import re
 
 from av1_public_decode import artifact_dir, fail, public_decode_proof, run
 
 TB = Path(__file__).resolve().parent
-SIM = TB / "Vav1_encoder_top"
+SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "Vav1_encoder_top"
 W = H = 32
 HALFPEL_COEFF = (0, 2, -14, 76, 76, -14, 2, 0)
 
