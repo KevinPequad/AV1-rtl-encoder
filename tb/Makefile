@@ -59,6 +59,10 @@ WIDTH           ?= 1280
 HEIGHT          ?= 720
 THREADS         ?= $(shell nproc 2>/dev/null || echo 24)
 BUILD_JOBS      ?= $(THREADS)
+# Verilator's top-level --threads=$(THREADS) model is dramatically slower on
+# these reduced AV1 syntax/public-decoder gates than a single-threaded model.
+# Keep compile parallelism high, but run the top model single-threaded.
+SIM_THREADS     ?= 1
 
 # Collect all Verilog sources from the RTL directory
 RTL_SRCS        := $(wildcard $(RTL_DIR)/*.v)
@@ -67,19 +71,19 @@ RTL_SRCS        := $(wildcard $(RTL_DIR)/*.v)
 VERILATOR_COMMON_FLAGS := --cc --exe \
     -Wall -Wno-fatal \
     --build-jobs $(BUILD_JOBS) \
-    --threads $(THREADS) \
+    --threads $(SIM_THREADS) \
     --top-module $(TOP_MODULE) \
     -I$(RTL_DIR) \
     -GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT)
 
 VERILATOR_FLAGS := $(VERILATOR_COMMON_FLAGS) \
     -Mdir $(OBJ_DIR) \
-    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)"
+    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT) -DVERILATOR_THREADS=$(SIM_THREADS)"
 
 VERILATOR_TRACE_FLAGS := $(VERILATOR_COMMON_FLAGS) \
     --trace \
     -Mdir $(TRACE_OBJ_DIR) \
-    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)"
+    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT) -DVERILATOR_THREADS=$(SIM_THREADS)"
 
 # Runtime defaults (override on command line)
 FRAMES          ?= 1
@@ -93,7 +97,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check clean help
+.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check clean help
 
 all: $(SIM_BIN)
 
@@ -278,6 +282,11 @@ natural32-chroma-syntax-check:
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural32_chroma_syntax.py
 
+natural64-chroma-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural64_chroma_syntax.py
+
 natural32-ip-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
@@ -292,6 +301,11 @@ natural32-ip-fractional-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural32_ip_fractional_syntax.py
+
+natural32-ip-chroma-delta-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural32_ip_chroma_delta_syntax.py
 
 clean:
 	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) test_chroma_coeff_tables *.vcd
@@ -311,8 +325,10 @@ help:
 	@echo "  chroma-coeff-table-check Build and run TX_4X4 chroma coefficient table sanity check"
 	@echo "  top-chroma-integration-check Static guard for top-level chroma residual plumbing"
 	@echo "  natural32-ip-syntax-check 32x32 two-frame zero-MV natural-ish IP public-decoder proof"
+	@echo "  natural64-chroma-syntax-check 64x64 sparse flat-luma / non-zero-chroma public-decoder proof"
 	@echo "  natural32-ip-newmv-syntax-check 32x32 shifted two-frame NEWMV public-decoder proof"
 	@echo "  natural32-ip-fractional-syntax-check 32x32 half-pel two-frame NEWMV public-decoder proof"
+	@echo "  natural32-ip-chroma-delta-syntax-check 32x32 two-frame zero-MV chroma-inter residual public-decoder proof (64x64 follow-on still TODO)"
 	@echo "  clean  Remove build artifacts"
 	@echo ""
 	@echo "Variables (override on command line):"
