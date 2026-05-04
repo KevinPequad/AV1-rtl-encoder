@@ -7,8 +7,8 @@
 #include "verilated.h"
 
 namespace {
-constexpr int W = 32;
-constexpr int H = 32;
+constexpr int W = FRAME_W;
+constexpr int H = FRAME_H;
 constexpr int FILTER_BITS = 7;
 constexpr int ROUND_OFFSET = 1 << (FILTER_BITS - 1);
 
