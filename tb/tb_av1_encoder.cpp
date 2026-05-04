@@ -29,6 +29,19 @@ static constexpr int BLK_COLS     = FRAME_WIDTH / 8;
 static constexpr int BLK_ROWS     = FRAME_HEIGHT / 8;
 static constexpr size_t DEFAULT_MAX_BITSTREAM = 64 * 1024 * 1024;
 
+// P9 disabled-filter / reference-ownership contract. The current low-delay
+// subset deliberately signals loop_filter_level[0..1]=0, enable_cdef=0, and
+// enable_restoration=0. Under that AV1 syntax, post-filter output equals the
+// unfiltered RTL reconstruction, so the harness may promote ref_*_wr directly
+// into LAST-reference read buffers. If any filter is enabled, this constant
+// must be changed and the direct promotion below must fail until real RTL
+// post-recon filter/restoration writeback exists.
+static constexpr bool P9_POST_RECON_FILTERS_DISABLED = true;
+static constexpr int P9_LOOP_FILTER_LEVEL_0 = 0;
+static constexpr int P9_LOOP_FILTER_LEVEL_1 = 0;
+static constexpr int P9_ENABLE_CDEF = 0;
+static constexpr int P9_ENABLE_RESTORATION = 0;
+
 static std::vector<uint8_t> raw_pixel_mem;
 static std::vector<uint8_t> bitstream_mem;
 static std::vector<uint8_t> ref_frame_rd;
@@ -946,6 +959,23 @@ int main(int argc, char** argv) {
                 fprintf(stderr,
                         "[TB] inter_summary frame=%d total_inter=%d nonzero_inter=%d first_inter_blk=%d\n",
                         frame_idx, inter_count, nonzero_inter_count, first_inter_idx);
+            }
+
+            if (!P9_POST_RECON_FILTERS_DISABLED ||
+                P9_LOOP_FILTER_LEVEL_0 != 0 || P9_LOOP_FILTER_LEVEL_1 != 0 ||
+                P9_ENABLE_CDEF != 0 || P9_ENABLE_RESTORATION != 0) {
+                std::fprintf(stderr,
+                             "[TB] ERROR: ref promotion writes unfiltered reconstruction, "
+                             "but P9 disabled-filter policy is not active. Add RTL post-filter "
+                             "writeback before promoting references.\n");
+                delete dut;
+                return 1;
+            }
+            if (frame_idx == 0) {
+                std::fprintf(stderr,
+                             "[TB] P9 disabled-filter policy active: loop_filter_level[0..1]=0, "
+                             "enable_cdef=0, enable_restoration=0; promoting unfiltered RTL "
+                             "reconstruction as the LAST reference.\n");
             }
 
             // Dump encoder reconstruction as YUV
