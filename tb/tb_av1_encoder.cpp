@@ -21,6 +21,9 @@
 #ifndef FRAME_H
 #define FRAME_H 720
 #endif
+#ifndef VERILATOR_THREADS
+#define VERILATOR_THREADS 1
+#endif
 static constexpr int FRAME_WIDTH  = FRAME_W;
 static constexpr int FRAME_HEIGHT = FRAME_H;
 static constexpr int FRAME_SIZE   = FRAME_WIDTH * FRAME_HEIGHT * 3 / 2;
@@ -69,7 +72,6 @@ static int last_captured_blk = -1;
 
 int main(int argc, char** argv) {
     std::signal(SIGINT, sigint_handler);
-    Verilated::commandArgs(argc, argv);
 
     int num_frames = 1;
     int qindex = 128;
@@ -277,7 +279,10 @@ int main(int argc, char** argv) {
                 override_first_newmvx, override_first_newmvy);
     }
 
-    Vav1_encoder_top* dut = new Vav1_encoder_top;
+    VerilatedContext context;
+    context.commandArgs(argc, argv);
+    context.threads(VERILATOR_THREADS);
+    Vav1_encoder_top* dut = new Vav1_encoder_top{&context};
     dut->clk = 0; dut->rst_n = 0; dut->start = 0;
     dut->frame_num_in = 0; dut->is_keyframe_in = 0;
     dut->force_intra_in = force_intra ? 1 : 0;
