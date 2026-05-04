@@ -102,8 +102,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check clean help
-
+.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check clean help
 
 all: $(SIM_BIN)
 
@@ -413,6 +412,11 @@ natural32-ip-chroma-delta-syntax-check:
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural32_ip_chroma_delta_syntax.py
 
+natural64-ip-fractional-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural64_ip_fractional_syntax.py
+
 clean:
 	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) $(CHROMA_COEFF_TABLE_BIN) test_chroma_coeff_tables __pycache__ *.vcd
 
@@ -449,6 +453,18 @@ help:
 	@echo "  av1-current-matrix-check Run scripted current reduced-subset matrix and write manifest"
 	@echo "  negative-*-check Run individual ownership negative probes"
 	@echo "  natural32-ip-chroma-delta-syntax-check 32x32 two-frame zero-MV chroma-inter residual public-decoder proof (64x64 follow-on still TODO)"
+	@echo "  natural64-ip-fractional-syntax-check 64x64 half-pel two-frame NEWMV public-decoder proof"
+	@echo "  clean  Remove build artifacts"
+	@echo ""
+	@echo "Variables (override on command line):"
+	@echo "  FRAMES       Number of frames to encode  (default: 1)"
+	@echo "  TIMEOUT      Max simulation cycles        (default: 500000000)"
+	@echo "  QINDEX       Quantization index 0-255     (default: 128)"
+	@echo "  YUV_INPUT    Raw YUV420 input file"
+	@echo "  OBU_OUTPUT   Encoded AV1 OBU output file"
+	@echo "  THREADS      Verilator sim threads        (default: nproc, override with THREADS=16 on Chud PC 2)"
+	@echo "  BUILD_JOBS   Parallel build jobs          (default: THREADS, override with BUILD_JOBS=16 on Chud PC 2)"
+	@echo "  WIDTH/HEIGHT Resolution                   (default: 1280x720)"
 	@echo "  clean  Remove build artifacts"
 	@echo ""
 	@echo "Variables (override on command line):"
