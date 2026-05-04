@@ -78,6 +78,7 @@ int main(int argc, char** argv) {
     int dc_only = 1;
     int all_key = 1;
     int dump_blocks = 0;
+    int dump_partition = 0;
     int force_intra = 0;
     int me_zero_mv_only = 0;
     int me_newmv_limit = 0;
@@ -122,6 +123,7 @@ int main(int argc, char** argv) {
         else if (arg.rfind("+dc_only=", 0) == 0) dc_only = std::atoi(arg.c_str() + 9);
         else if (arg.rfind("+all_key=", 0) == 0) all_key = std::atoi(arg.c_str() + 9);
         else if (arg.rfind("+dump_blocks=", 0) == 0) dump_blocks = std::atoi(arg.c_str() + 13);
+        else if (arg.rfind("+dump_partition=", 0) == 0) dump_partition = std::atoi(arg.c_str() + 16);
         else if (arg.rfind("+force_intra=", 0) == 0) force_intra = std::atoi(arg.c_str() + 13);
         else if (arg.rfind("+me_zero_mv_only=", 0) == 0) me_zero_mv_only = std::atoi(arg.c_str() + 17);
         else if (arg.rfind("+me_newmv_limit=", 0) == 0) me_newmv_limit = std::atoi(arg.c_str() + 16);
@@ -575,6 +577,16 @@ int main(int argc, char** argv) {
                         root->av1_encoder_top__DOT__manual_bs_wr ? 1 : 0);
             }
 
+            if (dump_partition && state == 133 &&
+                dut->ec_dbg_accept_valid_out && dut->ec_dbg_accept_kind_out == 2) {
+                fprintf(stderr,
+                        "[P4_PART] frame=%d blk=(%d,%d) log2=%u symbol=%u nsyms=%u\n",
+                        frame_idx, bx, by,
+                        static_cast<unsigned>(root->av1_encoder_top__DOT__part_level_log2),
+                        static_cast<unsigned>(dut->ec_dbg_accept_symbol_out),
+                        static_cast<unsigned>(dut->ec_dbg_accept_nsyms_out));
+            }
+
             if (state == TS_CHR_FETCH && blk_idx != last_captured_blk) {
                 last_captured_blk = blk_idx;
                 if (blk_idx < (int)frame_blocks.size()) {
@@ -980,7 +992,23 @@ int main(int argc, char** argv) {
                         int16_t coeff = dc_only ? (i == 0 ? bi.qcoeff[0] : 0) : bi.qcoeff[i];
                         if (coeff != 0) nonzero++;
                     }
-                    if (!nonzero && bi.pred_mode == 0 && !bi.is_inter) continue;
+                    int cb_nonzero = 0;
+                    int cr_nonzero = 0;
+                    for (int i = 0; i < 16; ++i) {
+                        if (bi.cb_qcoeff[i] != 0) ++cb_nonzero;
+                        if (bi.cr_qcoeff[i] != 0) ++cr_nonzero;
+                    }
+                    const bool luma_has = nonzero != 0;
+                    const bool cb_has = bi.cb_has_coeff || cb_nonzero != 0;
+                    const bool cr_has = bi.cr_has_coeff || cr_nonzero != 0;
+                    const bool block_skip = !(luma_has || cb_has || cr_has);
+                    fprintf(stderr,
+                            "[P4_CBP] frame=%d blk=%zu luma=%d cb=%d cr=%d skip=%d luma_nz=%d cb_nz=%d cr_nz=%d\n",
+                            frame_idx, bi_idx, luma_has ? 1 : 0, cb_has ? 1 : 0,
+                            cr_has ? 1 : 0, block_skip ? 1 : 0,
+                            nonzero, cb_nonzero, cr_nonzero);
+
+                    if (!nonzero && bi.pred_mode == 0 && !bi.is_inter && !cb_has && !cr_has) continue;
 
                     fprintf(stderr,
                             "[TB] blk=%zu mode=%u inter=%d mv=(%d,%d) dc=%d nz=%d qcoeff[0..7]=",

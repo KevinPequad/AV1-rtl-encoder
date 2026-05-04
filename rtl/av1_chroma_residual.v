@@ -302,7 +302,7 @@ module av1_chroma_residual (
                 S_INV_ROWW: begin
                     if (inv_done) begin
                         for (i = 0; i < 4; i = i + 1)
-                            inv_tmp[{row_idx[1:0], 2'b00} + i[1:0]] <= round_shift16(inv_out[i], 1);
+                            inv_tmp[{row_idx[1:0], 2'b00} + i[1:0]] <= (inv_out[i] >>> 1);
                         if (row_idx < 3'd3) begin
                             row_idx <= row_idx + 1'b1;
                             state <= S_INV_ROW;
