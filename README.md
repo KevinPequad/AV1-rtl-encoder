@@ -33,6 +33,12 @@ Official external debug references pulled from the web are tracked in `av1-refer
 
 The RTL must own the final AV1 syntax generation needed for completion. The testbench may feed raw YUV, capture RTL bytes, decode output, compute metrics, and package a playable container, but it must not author the final AV1 syntax on behalf of the RTL for project completion.
 
+## P9 Disabled Filter / Reference Ownership Policy
+
+The current low-delay target intentionally disables post-reconstruction AV1 filters: sequence headers signal `enable_cdef=0` and `enable_restoration=0`, and every supported frame header keeps `loop_filter_level[0..1]=0`. With loop filter, CDEF, restoration, superres, and film grain disabled, the post-filter reference frame is identical to the unfiltered RTL reconstruction, so the harness may promote reconstructed luma/chroma buffers directly as LAST references.
+
+This contract is tracked in `P9_DISABLED_FILTER_POLICY.md` and guarded by `make bitstream-check`, which parses sequence/key/inter headers and includes negative filter-enabled guard cases. If a future lane enables any of those filters, add real RTL post-recon filter/restoration writeback before dumping `recon.yuv` or promoting reference buffers; do not repair filtered references in the C++ testbench.
+
 ## Simulation Threads
 
 Simulation and Verilator builds must use all available host threads by default.

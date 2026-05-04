@@ -4673,7 +4673,12 @@ module av1_encoder_top #(
                     end
                 end
 
-                // Write reconstructed block to reference frame memory
+                // Write reconstructed block to reference frame memory.
+                // P9 disabled-filter policy: frame headers keep loop_filter_level[0..1]=0
+                // and the sequence header keeps enable_cdef=0 / enable_restoration=0, so
+                // this unfiltered reconstruction is the frame promoted as the LAST
+                // reference. If those syntax fields are ever enabled, insert real
+                // post-recon filter/restoration writeback before this reference update.
                 TS_REF_WR: begin
                     if (ref_wr_idx < 64) begin
                         ref_mem_wr_en   <= 1;
@@ -4835,7 +4840,9 @@ module av1_encoder_top #(
                     end
                 end
 
-                // Write reconstructed chroma block to reference memory
+                // Write reconstructed chroma block to reference memory under the same
+                // disabled-filter policy as luma: the promoted Cb/Cr buffers are
+                // unfiltered reconstruction until real post-recon filtering is enabled.
                 TS_CHR_WR: begin
                     if (chr_wr_idx < 16) begin
                         if (!chr_plane) begin

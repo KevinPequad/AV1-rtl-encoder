@@ -44,6 +44,17 @@ module av1_bitstream #(
     reg [2:0]  state;
     localparam integer FRAME_OBU_SIZE_BYTES = 4;
 
+    // P9 disabled-filter ownership policy: the current low-delay subset does
+    // not implement post-reconstruction loop filtering, CDEF, or restoration.
+    // Keep the syntax fields explicit here so header tests fail before any
+    // filtered-reference dependency can be introduced accidentally.
+    localparam integer P9_ENABLE_CDEF          = 0;
+    localparam integer P9_ENABLE_RESTORATION   = 0;
+    localparam integer P9_LOOP_FILTER_LEVEL_0  = 0;
+    localparam integer P9_LOOP_FILTER_LEVEL_1  = 0;
+    localparam integer P9_LOOP_FILTER_SHARPNESS = 0;
+    localparam integer P9_LOOP_FILTER_DELTA_EN = 0;
+
     localparam S_IDLE  = 3'd0;
     localparam S_BUILD = 3'd1;
     localparam S_OUT   = 3'd2;
@@ -210,10 +221,10 @@ module av1_bitstream #(
 
     task bw_write_loop_filter_params;
         begin
-            bw_write_bits(0, 6);
-            bw_write_bits(0, 6);
-            bw_write_bits(0, 3);
-            bw_write_bit(0);
+            bw_write_bits(P9_LOOP_FILTER_LEVEL_0, 6);
+            bw_write_bits(P9_LOOP_FILTER_LEVEL_1, 6);
+            bw_write_bits(P9_LOOP_FILTER_SHARPNESS, 3);
+            bw_write_bit(P9_LOOP_FILTER_DELTA_EN);
         end
     endtask
 
@@ -294,8 +305,8 @@ module av1_bitstream #(
                         bw_write_bit(1);   // seq_choose_screen_content_tools
                         bw_write_bit(1);   // seq_choose_integer_mv
                         bw_write_bit(0);   // enable_superres
-                        bw_write_bit(0);   // enable_cdef
-                        bw_write_bit(0);   // enable_restoration
+                        bw_write_bit(P9_ENABLE_CDEF);   // enable_cdef: disabled by P9 policy
+                        bw_write_bit(P9_ENABLE_RESTORATION);   // enable_restoration: disabled by P9 policy
                         bw_write_color_config();
                         bw_write_bit(0);   // film_grain_params_present
                         bw_write_trailing_bits();
