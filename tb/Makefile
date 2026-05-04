@@ -99,11 +99,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-<<<<<<< HEAD
-.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix clean help
-=======
-.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check clean help
->>>>>>> 5b952df (Add AV1 header/qindex and geometry syntax gates)
+.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check clean help
 
 all: $(SIM_BIN)
 
@@ -332,6 +328,24 @@ natural32-ip-fractional-syntax-check:
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural32_ip_fractional_syntax.py
 
+partition-tree-current8x8-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_p4_partition_tree.py
+
+qindex-sweep-lossy-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_p4_qindex_sweep.py
+
+skip-txb-cbp-matrix-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_p4_skip_txb_cbp_matrix.py
+
+quant-header-disabled-check:
+	python3 test_p4_quant_header_disabled.py
+
 rtl-byte-owner-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
@@ -409,6 +423,10 @@ help:
 	@echo "  natural32-ip-syntax-check 32x32 two-frame zero-MV natural-ish IP public-decoder proof"
 	@echo "  natural32-ip-newmv-syntax-check 32x32 shifted two-frame NEWMV public-decoder proof"
 	@echo "  natural32-ip-fractional-syntax-check 32x32 half-pel two-frame NEWMV public-decoder proof"
+	@echo "  partition-tree-current8x8-check 64x64 RTL-owned split-to-8x8 partition proof"
+	@echo "  qindex-sweep-lossy-check qindex 1..255 lossy public-decoder sweep"
+	@echo "  skip-txb-cbp-matrix-check all-zero/luma/Cb/Cr/mixed CBP public-decoder proof"
+	@echo "  quant-header-disabled-check static guard for qmatrix/delta-q/SB-QP disabled policy"
 	@echo "  rtl-byte-owner-check Positive RTL-byte ownership proof plus N1-N5 anti-repair probes"
 	@echo "  standalone-matrix-check Run S1-S9 standalone reduced-subset gates"
 	@echo "  top-public-matrix-check Run T1-T6 top-level public-decoder gates"

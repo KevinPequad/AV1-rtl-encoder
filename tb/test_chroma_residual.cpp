@@ -97,7 +97,7 @@ ModelOut model(const std::array<uint8_t, 16>& cur,
     }
     for (int y = 0; y < 4; ++y) {
         auto row = idct4({dq[y * 4 + 0], dq[y * 4 + 1], dq[y * 4 + 2], dq[y * 4 + 3]});
-        for (int x = 0; x < 4; ++x) inv_tmp[y * 4 + x] = round_shift(row[x], 1);
+        for (int x = 0; x < 4; ++x) inv_tmp[y * 4 + x] = row[x] >> 1;
     }
     for (int x = 0; x < 4; ++x) {
         auto col = idct4({inv_tmp[0 * 4 + x], inv_tmp[1 * 4 + x], inv_tmp[2 * 4 + x], inv_tmp[3 * 4 + x]});

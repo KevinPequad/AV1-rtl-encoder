@@ -386,10 +386,10 @@ module av1_encoder_top #(
     reg [4:0]  golomb_zero_remaining;
     reg [4:0]  golomb_bit_idx;
     reg [15:0] golomb_x;
-    reg [1:0]  part_stage;
-    reg [2:0]  part_level_log2;
-    reg [4:0]  part_symbol;
-    reg [4:0]  part_nsyms;
+    reg [1:0]  part_stage /* verilator public_flat */;
+    reg [2:0]  part_level_log2 /* verilator public_flat */;
+    reg [4:0]  part_symbol /* verilator public_flat */;
+    reg [4:0]  part_nsyms /* verilator public_flat */;
 
     localparam [2:0]
         REF_LAST    = 3'd0,
