@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import test_rtl_obu_ivf_integrity as rtl_integrity
 
 TB = Path(__file__).resolve().parent
 SIM = TB / "Vav1_encoder_top"
@@ -92,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="av1_natural32_ip_frac_") as td:
     out_obu = t / "encoded.obu"
     write_probe(yuv)
     sim = run([str(SIM), "+frames=2", "+qindex=128", "+dc_only=1", "+all_key=0",
-               "+dump_inter_summary=1", "+me_newmv_limit=2",
+               "+dump_inter_summary=1", "+me_newmv_limit=2", "+ownership_strict=1",
                f"+input={yuv}", f"+output={out_obu}"])
     log = sim.stdout or ""
     if "[TB] Frame 0 (KEY)" not in log:
@@ -128,6 +129,7 @@ with tempfile.TemporaryDirectory(prefix="av1_natural32_ip_frac_") as td:
     aom_rtl = t / "aom_rtl.yuv"
 
     cmp_file(out_obu, rtl_obu, "concatenated RTL raw OBU matches software oracle OBU")
+    rtl_integrity.check_output_dir(t, expected_frames=2)
     run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(sw_ivf),
          "-f", "rawvideo", "-pix_fmt", "yuv420p", str(ff_sw)])
     cmp_file(ff_sw, recon, "FFmpeg software IVF decode matches RTL recon")
