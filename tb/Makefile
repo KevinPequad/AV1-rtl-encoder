@@ -93,7 +93,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check bitstream-ownership-check clean help
+.PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix clean help
 
 all: $(SIM_BIN)
 
@@ -293,17 +293,58 @@ natural32-ip-fractional-syntax-check:
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural32_ip_fractional_syntax.py
 
-bitstream-ownership-check:
+rtl-byte-owner-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_rtl_byte_ownership.py all
+
+negative-missing-rtl-raw-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_rtl_byte_ownership.py negative-missing-rtl-raw
+
+negative-testbench-repair-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_rtl_byte_ownership.py negative-testbench-repair
+
+negative-decoder-source-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_rtl_byte_ownership.py negative-decoder-source
+
+negative-invalid-shared-oracle-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_rtl_byte_ownership.py negative-invalid-shared-oracle
+
+negative-obu-length-repair-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_rtl_byte_ownership.py negative-obu-length-repair
+
+standalone-matrix-check:
+	$(MAKE) clean
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) entropy-check
 	$(MAKE) WIDTH=16 HEIGHT=16 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) bitstream-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) inv-xform-check
+	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) inter-pred-check
+	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) chroma-inter-pred-check
+	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) me-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) chroma-residual-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) chroma-coeff-table-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) top-chroma-integration-check
+
+top-public-matrix-check:
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) nonzero-chroma-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) nonzero-chroma16-syntax-check
-	$(MAKE) clean
-	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
-	python3 test_natural32_chroma_syntax.py
-	python3 test_natural32_ip_syntax.py
-	python3 test_natural32_ip_newmv_syntax.py
-	python3 test_natural32_ip_fractional_syntax.py
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-chroma-syntax-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-syntax-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-newmv-syntax-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-fractional-syntax-check
+
+av1-current-matrix-check av1-regression-matrix:
+	cd .. && python3 scripts/run_av1_regression_matrix.py
 
 clean:
 	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) test_chroma_coeff_tables *.vcd
@@ -325,7 +366,11 @@ help:
 	@echo "  natural32-ip-syntax-check 32x32 two-frame zero-MV natural-ish IP public-decoder proof"
 	@echo "  natural32-ip-newmv-syntax-check 32x32 shifted two-frame NEWMV public-decoder proof"
 	@echo "  natural32-ip-fractional-syntax-check 32x32 half-pel two-frame NEWMV public-decoder proof"
-	@echo "  bitstream-ownership-check strict RTL raw/IVF ownership gate with no writer repair knobs"
+	@echo "  rtl-byte-owner-check Positive RTL-byte ownership proof plus N1-N5 anti-repair probes"
+	@echo "  standalone-matrix-check Run S1-S9 standalone reduced-subset gates"
+	@echo "  top-public-matrix-check Run T1-T6 top-level public-decoder gates"
+	@echo "  av1-current-matrix-check Run scripted current reduced-subset matrix and write manifest"
+	@echo "  negative-*-check Run individual ownership negative probes"
 	@echo "  clean  Remove build artifacts"
 	@echo ""
 	@echo "Variables (override on command line):"
@@ -334,6 +379,6 @@ help:
 	@echo "  QINDEX       Quantization index 0-255     (default: 128)"
 	@echo "  YUV_INPUT    Raw YUV420 input file"
 	@echo "  OBU_OUTPUT   Encoded AV1 OBU output file"
-	@echo "  THREADS      Verilator sim threads        (default: nproc)"
-	@echo "  BUILD_JOBS   Parallel build jobs          (default: THREADS)"
+	@echo "  THREADS      Verilator sim threads        (default: nproc, override with THREADS=16 on Chud PC 2)"
+	@echo "  BUILD_JOBS   Parallel build jobs          (default: THREADS, override with BUILD_JOBS=16 on Chud PC 2)"
 	@echo "  WIDTH/HEIGHT Resolution                   (default: 1280x720)"
