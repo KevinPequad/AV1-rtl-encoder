@@ -59,6 +59,12 @@ WIDTH           ?= 1280
 HEIGHT          ?= 720
 THREADS         ?= $(shell nproc 2>/dev/null || echo 24)
 BUILD_JOBS      ?= $(THREADS)
+# Verilator's top-level --threads=16 model currently stalls in eval on this
+# reduced encoder; keep compile parallelism high but run the top model single-threaded.
+# The generated top-level obj_dir build also intermittently hits missing .d/.gch
+# races at -j16 on Chud PC 2, so serialize just that inner make step.
+SIM_THREADS     ?= 1
+SIM_BUILD_JOBS  ?= 1
 
 # Collect all Verilog sources from the RTL directory
 RTL_SRCS        := $(wildcard $(RTL_DIR)/*.v)
@@ -67,19 +73,19 @@ RTL_SRCS        := $(wildcard $(RTL_DIR)/*.v)
 VERILATOR_COMMON_FLAGS := --cc --exe \
     -Wall -Wno-fatal \
     --build-jobs $(BUILD_JOBS) \
-    --threads $(THREADS) \
+    --threads $(SIM_THREADS) \
     --top-module $(TOP_MODULE) \
     -I$(RTL_DIR) \
     -GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT)
 
 VERILATOR_FLAGS := $(VERILATOR_COMMON_FLAGS) \
     -Mdir $(OBJ_DIR) \
-    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)"
+    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT) -DVERILATOR_THREADS=$(SIM_THREADS)"
 
 VERILATOR_TRACE_FLAGS := $(VERILATOR_COMMON_FLAGS) \
     --trace \
     -Mdir $(TRACE_OBJ_DIR) \
-    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)"
+    -CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT) -DVERILATOR_THREADS=$(SIM_THREADS)"
 
 # Runtime defaults (override on command line)
 FRAMES          ?= 1
@@ -93,7 +99,11 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
+<<<<<<< HEAD
 .PHONY: all run wave entropy-check bitstream-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix clean help
+=======
+.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check clean help
+>>>>>>> 5b952df (Add AV1 header/qindex and geometry syntax gates)
 
 all: $(SIM_BIN)
 
@@ -102,7 +112,7 @@ $(SIM_BIN): $(TB_CPP) $(RTL_SRCS)
 		$(RTL_SRCS) \
 		$(TB_CPP) \
 		-o $(SIM_BIN)
-	$(MAKE) -C $(OBJ_DIR) -f V$(TOP_MODULE).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
+	$(MAKE) -C $(OBJ_DIR) -f V$(TOP_MODULE).mk -j $(SIM_BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
 	@cp -f $(OBJ_DIR)/$(SIM_BIN) ./$(SIM_BIN) 2>/dev/null || true
 	@echo ""
 	@echo "Build complete: ./$(SIM_BIN)"
@@ -112,7 +122,7 @@ $(TRACE_SIM_BIN): $(TB_CPP) $(RTL_SRCS)
 		$(RTL_SRCS) \
 		$(TB_CPP) \
 		-o $(TRACE_SIM_BIN)
-	$(MAKE) -C $(TRACE_OBJ_DIR) -f V$(TOP_MODULE).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
+	$(MAKE) -C $(TRACE_OBJ_DIR) -f V$(TOP_MODULE).mk -j $(SIM_BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
 	@cp -f $(TRACE_OBJ_DIR)/$(TRACE_SIM_BIN) ./$(TRACE_SIM_BIN) 2>/dev/null || true
 	@echo ""
 	@echo "Build complete: ./$(TRACE_SIM_BIN)"
@@ -143,7 +153,7 @@ $(BITSTREAM_SIM_BIN): $(BITSTREAM_TB_CPP) $(RTL_DIR)/av1_bitstream.v
 		-I$(RTL_DIR) \
 		-GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT) \
 		-Mdir $(BITSTREAM_OBJ_DIR) \
-		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)" \
+		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT) -DVERILATOR_THREADS=$(SIM_THREADS)" \
 		$(RTL_DIR)/av1_bitstream.v \
 		$(BITSTREAM_TB_CPP) \
 		-o $(BITSTREAM_SIM_BIN)
@@ -155,14 +165,14 @@ $(BITSTREAM_SIM_BIN): $(BITSTREAM_TB_CPP) $(RTL_DIR)/av1_bitstream.v
 
 
 $(ME_SIM_BIN): $(ME_TB_CPP) $(RTL_DIR)/av1_me.v $(RTL_DIR)/av1_inter_pred.v
-	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(ME_TOP) 		-I$(RTL_DIR) 		-GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT) -GSEARCH_RANGE=2 		-Mdir $(ME_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)" 		$(RTL_DIR)/av1_inter_pred.v 		$(RTL_DIR)/av1_me.v 		$(ME_TB_CPP) 		-o $(ME_SIM_BIN)
+	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(ME_TOP) 		-I$(RTL_DIR) 		-GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT) -GSEARCH_RANGE=2 		-Mdir $(ME_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT) -DVERILATOR_THREADS=$(SIM_THREADS)" 		$(RTL_DIR)/av1_inter_pred.v 		$(RTL_DIR)/av1_me.v 		$(ME_TB_CPP) 		-o $(ME_SIM_BIN)
 	$(MAKE) -C $(ME_OBJ_DIR) -f V$(ME_TOP).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
 	@cp -f $(ME_OBJ_DIR)/$(ME_SIM_BIN) ./$(ME_SIM_BIN) 2>/dev/null || true
 	@echo ""
 	@echo "Build complete: ./$(ME_SIM_BIN)"
 
 $(INTER_SIM_BIN): $(INTER_TB_CPP) $(RTL_DIR)/av1_inter_pred.v
-	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(INTER_TOP) 		-I$(RTL_DIR) 		-GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT) 		-Mdir $(INTER_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)" 		$(RTL_DIR)/av1_inter_pred.v 		$(INTER_TB_CPP) 		-o $(INTER_SIM_BIN)
+	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(INTER_TOP) 		-I$(RTL_DIR) 		-GFRAME_WIDTH=$(WIDTH) -GFRAME_HEIGHT=$(HEIGHT) 		-Mdir $(INTER_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT) -DVERILATOR_THREADS=$(SIM_THREADS)" 		$(RTL_DIR)/av1_inter_pred.v 		$(INTER_TB_CPP) 		-o $(INTER_SIM_BIN)
 	$(MAKE) -C $(INTER_OBJ_DIR) -f V$(INTER_TOP).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
 	@cp -f $(INTER_OBJ_DIR)/$(INTER_SIM_BIN) ./$(INTER_SIM_BIN) 2>/dev/null || true
 	@echo ""
@@ -212,6 +222,35 @@ entropy-check: $(ENTROPY_SIM_BIN)
 bitstream-check: $(BITSTREAM_SIM_BIN)
 	./$(BITSTREAM_SIM_BIN)
 
+header-qindex-sweep-check:
+	@set -e; \
+	for geom in 8x8 16x16 32x32 64x64 128x64 64x128 128x128; do \
+		w=$${geom%x*}; h=$${geom#*x}; \
+		echo "[SWEEP] header/qindex $$geom"; \
+		rm -rf $(BITSTREAM_OBJ_DIR) $(BITSTREAM_SIM_BIN); \
+		$(MAKE) WIDTH=$$w HEIGHT=$$h THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) bitstream-check; \
+	done
+
+deterministic-packaging-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=16 HEIGHT=16 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	WIDTH=16 HEIGHT=16 python3 test_deterministic_packaging.py
+
+superblock-geometry-syntax-check:
+	@set -e; \
+	for geom in 16x16 32x32 64x64 128x64 64x128 128x128; do \
+		w=$${geom%x*}; h=$${geom#*x}; \
+		echo "[SWEEP] superblock/geometry $$geom"; \
+		$(MAKE) clean; \
+		$(MAKE) WIDTH=$$w HEIGHT=$$h THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all; \
+		WIDTH=$$w HEIGHT=$$h python3 test_superblock_geometry_syntax.py; \
+	done
+
+qindex-edge-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=16 HEIGHT=16 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	WIDTH=16 HEIGHT=16 python3 test_qindex_edge_syntax.py
+
 inv-xform-check: $(INV_XFORM_SIM_BIN)
 	./$(INV_XFORM_SIM_BIN)
 
@@ -220,7 +259,7 @@ inter-pred-check: $(INTER_SIM_BIN)
 
 
 $(CHROMA_INTER_SIM_BIN): $(CHROMA_INTER_TB_CPP) $(RTL_DIR)/av1_chroma_inter_pred.v
-	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(CHROMA_INTER_TOP) 		-I$(RTL_DIR) 		-GCHROMA_WIDTH=$(shell expr $(WIDTH) / 2) -GCHROMA_HEIGHT=$(shell expr $(HEIGHT) / 2) 		-Mdir $(CHROMA_INTER_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT)" 		$(RTL_DIR)/av1_chroma_inter_pred.v 		$(CHROMA_INTER_TB_CPP) 		-o $(CHROMA_INTER_SIM_BIN)
+	$(VERILATOR) --cc --exe 		-Wall -Wno-fatal 		--build-jobs $(BUILD_JOBS) 		--threads $(THREADS) 		--top-module $(CHROMA_INTER_TOP) 		-I$(RTL_DIR) 		-GCHROMA_WIDTH=$(shell expr $(WIDTH) / 2) -GCHROMA_HEIGHT=$(shell expr $(HEIGHT) / 2) 		-Mdir $(CHROMA_INTER_OBJ_DIR) 		-CFLAGS "-O2 -std=c++17 -DFRAME_W=$(WIDTH) -DFRAME_H=$(HEIGHT) -DVERILATOR_THREADS=$(SIM_THREADS)" 		$(RTL_DIR)/av1_chroma_inter_pred.v 		$(CHROMA_INTER_TB_CPP) 		-o $(CHROMA_INTER_SIM_BIN)
 	$(MAKE) -C $(CHROMA_INTER_OBJ_DIR) -f V$(CHROMA_INTER_TOP).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
 	@cp -f $(CHROMA_INTER_OBJ_DIR)/$(CHROMA_INTER_SIM_BIN) ./$(CHROMA_INTER_SIM_BIN) 2>/dev/null || true
 	@echo ""
@@ -347,7 +386,7 @@ av1-current-matrix-check av1-regression-matrix:
 	cd .. && python3 scripts/run_av1_regression_matrix.py
 
 clean:
-	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) test_chroma_coeff_tables *.vcd
+	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) test_chroma_coeff_tables __pycache__ *.vcd
 
 help:
 	@echo "Targets:"
@@ -356,6 +395,10 @@ help:
 	@echo "  wave   Build and run with VCD tracing"
 	@echo "  entropy-check  Build and run the standalone av1_entropy reference check"
 	@echo "  bitstream-check Build and run the standalone av1_bitstream header check"
+	@echo "  header-qindex-sweep-check Sweep standalone sequence/frame headers over edge geometries and qindices"
+	@echo "  deterministic-packaging-check Verify repeated top-level RTL raw/IVF/recon determinism"
+	@echo "  superblock-geometry-syntax-check Sweep generated superblock geometry public-decoder proofs"
+	@echo "  qindex-edge-syntax-check Sweep fixed-qindex public-decoder edge cases and qindex=0 clamp"
 	@echo "  inv-xform-check Build and run the standalone av1_inverse_transform reference check"
 	@echo "  inter-pred-check Build and run the standalone av1_inter_pred reference check"
 	@echo "  me-check Build and run the standalone av1_me subpel reference check"
