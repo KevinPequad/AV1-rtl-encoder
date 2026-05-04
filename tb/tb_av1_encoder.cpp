@@ -2,6 +2,7 @@
 #include "Vav1_encoder_top.h"
 #include "Vav1_encoder_top___024root.h"  // Access to internal signals
 #include "av1_bitstream_writer.h"
+#include <algorithm>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -103,6 +104,7 @@ int main(int argc, char** argv) {
     int trace_bs = 0;
     int trace_entropy_shadow = 0;
     int trace_writer_entropy = 0;
+    int ownership_strict = 0;
     uint64_t progress_every = 0;
     std::string input_file = "data/raw_frames.yuv";
     std::string output_file = "output/encoded.obu";
@@ -168,12 +170,64 @@ int main(int argc, char** argv) {
             trace_entropy_shadow = std::atoi(arg.c_str() + 22);
         } else if (arg.rfind("+trace_writer_entropy=", 0) == 0) {
             trace_writer_entropy = std::atoi(arg.c_str() + 22);
+        } else if (arg.rfind("+ownership_strict=", 0) == 0) {
+            ownership_strict = std::atoi(arg.c_str() + 18);
         } else if (arg.rfind("+progress_every=", 0) == 0) {
             progress_every = std::strtoull(arg.c_str() + 16, nullptr, 10);
         }
     }
 
     const int effective_qindex = qindex <= 0 ? 1 : qindex;
+
+    if (ownership_strict) {
+        bool strict_ok = true;
+        auto reject_strict_arg = [&](bool bad, const char* name, const char* reason) {
+            if (bad) {
+                fprintf(stderr,
+                        "[TB][OWNERSHIP_STRICT][FATAL] %s is not allowed in RTL-owned proof mode: %s\n",
+                        name, reason);
+                strict_ok = false;
+            }
+        };
+
+        reject_strict_arg(zero_inter_coeffs != 0, "+zero_inter_coeffs",
+                          "writer-only coefficient repair would hide RTL residual syntax");
+        reject_strict_arg(limit_newmv_blocks >= 0, "+limit_newmv_blocks",
+                          "writer-only MV reduction; use RTL +me_newmv_limit for constrained proofs");
+        reject_strict_arg(limit_inter_blocks >= 0, "+limit_inter_blocks",
+                          "writer-only inter/intra rewrite of captured block decisions");
+        reject_strict_arg(override_first_newmv != 0, "+override_first_newmvx/y",
+                          "writer-only MV override of captured RTL decisions");
+        reject_strict_arg(only_full_coeff_block >= 0, "+only_full_coeff_block",
+                          "writer-only coefficient zeroing outside one debug block");
+        reject_strict_arg(max_coeff_block >= 0, "+max_coeff_block",
+                          "writer-only coefficient truncation after a block index");
+        reject_strict_arg(force_first_ac_positive != 0, "+force_first_ac_positive",
+                          "writer-only coefficient sign repair");
+        reject_strict_arg(force_first_ac_to_scan1 != 0, "+force_first_ac_to_scan1",
+                          "writer-only coefficient scan-position repair");
+        reject_strict_arg(coeff_debug != 0, "+coeff_debug",
+                          "debug coefficient writer mode is not an ownership proof");
+        reject_strict_arg(max_scan_coeffs >= 0, "+max_scan_coeffs",
+                          "writer-only coefficient scan truncation");
+        reject_strict_arg(debug_zero_coeff_block >= 0 || debug_zero_coeff_idx >= 0,
+                          "+debug_zero_coeff_block/idx",
+                          "writer-only coefficient deletion");
+        reject_strict_arg(debug_transpose_coeff_block >= 0, "+debug_transpose_coeff_block",
+                          "writer-only coefficient transposition");
+        reject_strict_arg(debug_add_coeff_block >= 0 || debug_add_coeff_idx >= 0 || debug_add_coeff_delta != 0,
+                          "+debug_add_coeff_block/idx/delta",
+                          "writer-only coefficient injection");
+        reject_strict_arg(static_cdf_mode == 0, "+static_cdf_mode=0",
+                          "adaptive CDF update is not RTL-owned in this reduced subset");
+
+        if (!strict_ok) {
+            return 1;
+        }
+        fprintf(stderr,
+                "[TB][OWNERSHIP_STRICT] enabled: decoder proof must use encoded_rtl_raw.obu/encoded_rtl.ivf; "
+                "the C++ writer is oracle/debug only, repair knobs are disabled, and static CDF mode is enforced.\n");
+    }
 
     namespace fs = std::filesystem;
     const fs::path output_path(output_file);
@@ -660,11 +714,20 @@ int main(int argc, char** argv) {
                     fprintf(stderr,
                             "[TB] RTL byte capture size mismatch: direct=%zu bs_bytes_written=%u\n",
                             rtl_bytes, total_bs_bytes);
+                    if (ownership_strict) {
+                        fprintf(stderr,
+                                "[TB][OWNERSHIP_STRICT][FATAL] capture mismatch would require truncation/padding; refusing to write proof artifacts\n");
+                        delete dut;
+                        return 1;
+                    }
                 }
+                const size_t rtl_copy_bytes = ownership_strict
+                                                  ? static_cast<size_t>(total_bs_bytes)
+                                                  : std::min(rtl_byte_stream.size(),
+                                                             static_cast<size_t>(total_bs_bytes));
                 std::vector<uint8_t> rtl_frame_payload(
                     rtl_byte_stream.begin(),
-                    rtl_byte_stream.begin() +
-                        std::min(rtl_byte_stream.size(), static_cast<size_t>(total_bs_bytes)));
+                    rtl_byte_stream.begin() + rtl_copy_bytes);
                 rtl_temporal_units.push_back({static_cast<uint64_t>(frame_idx), current_frame_is_key,
                                               std::move(rtl_frame_payload)});
 
@@ -1026,6 +1089,16 @@ int main(int argc, char** argv) {
         if (obu_out.is_open()) {
             obu_out.write(reinterpret_cast<const char*>(obu_stream.data()), obu_stream.size());
             obu_out.close();
+            if (ownership_strict) {
+                fs::path sw_oracle_obu_path = output_dir / (output_path.stem().string() + "_sw_oracle.obu");
+                std::ofstream sw_obu_out(sw_oracle_obu_path, std::ios::binary | std::ios::trunc);
+                if (sw_obu_out.is_open()) {
+                    sw_obu_out.write(reinterpret_cast<const char*>(obu_stream.data()), obu_stream.size());
+                    sw_obu_out.close();
+                    fprintf(stderr, "[TB][OWNERSHIP_STRICT] Wrote software oracle OBU copy: %zu bytes to %s\n",
+                            obu_stream.size(), sw_oracle_obu_path.string().c_str());
+                }
+            }
         }
 
         fs::path seq_ivf_path = output_path;
@@ -1040,6 +1113,21 @@ int main(int argc, char** argv) {
             seq_ivf_out.close();
             fprintf(stderr, "[TB] Wrote AV1 sequence IVF: %zu bytes to %s\n",
                     ivf_sequence.size(), seq_ivf_path.string().c_str());
+            if (ownership_strict) {
+                fs::path sw_oracle_ivf_path = output_dir / (output_path.stem().string() + "_sw_oracle.ivf");
+                std::ofstream sw_ivf_out(sw_oracle_ivf_path, std::ios::binary | std::ios::trunc);
+                if (sw_ivf_out.is_open()) {
+                    sw_ivf_out.write(reinterpret_cast<const char*>(ivf_sequence.data()),
+                                     ivf_sequence.size());
+                    sw_ivf_out.close();
+                    fprintf(stderr, "[TB][OWNERSHIP_STRICT] Wrote software oracle IVF copy: %zu bytes to %s\n",
+                            ivf_sequence.size(), sw_oracle_ivf_path.string().c_str());
+                }
+                fprintf(stderr,
+                        "[TB][OWNERSHIP_STRICT] %s remains the software oracle; decode ownership proofs must use %s_rtl.ivf after raw/IVF integrity checks.\n",
+                        seq_ivf_path.string().c_str(),
+                        (output_dir / output_path.stem()).string().c_str());
+            }
         }
     }
 

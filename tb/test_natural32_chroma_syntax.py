@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import test_rtl_obu_ivf_integrity as rtl_integrity
 
 TB = Path(__file__).resolve().parent
 SIM = TB / "Vav1_encoder_top"
@@ -56,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix="av1_natural32_chroma_") as td:
     yuv = t / "natural32.yuv"
     out_obu = t / "encoded.obu"
     write_probe(yuv)
-    run([str(SIM), "+frames=1", "+qindex=128", "+dc_only=1", "+all_key=1",
+    run([str(SIM), "+frames=1", "+qindex=128", "+dc_only=1", "+all_key=1", "+ownership_strict=1",
          f"+input={yuv}", f"+output={out_obu}"])
 
     rtl_obu = t / "rtl_frames" / "frame_0000_rtl_raw.obu"
@@ -68,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix="av1_natural32_chroma_") as td:
     aom_rtl = t / "aom_rtl.yuv"
 
     cmp_file(out_obu, rtl_obu, "RTL raw OBU matches software oracle OBU")
+    rtl_integrity.check_output_dir(t, expected_frames=1)
     run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(sw_ivf),
          "-f", "rawvideo", "-pix_fmt", "yuv420p", str(ff_sw)])
     cmp_file(ff_sw, recon, "FFmpeg software IVF decode matches RTL recon")
