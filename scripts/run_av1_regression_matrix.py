@@ -61,20 +61,36 @@ CURRENT_GATES: list[Gate] = [
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
+    {"audit_row": "P0", "name": "baseline-hygiene-check", "reason": "manifest-only placeholder until a dedicated hygiene gate is implemented; not a pass"},
+    {"audit_row": "P0", "name": "artifact-manifest-check", "reason": "runner emits manifests, but a dedicated artifact-audit gate is still pending; not a pass"},
     {"audit_row": "P1", "name": "headers-syntax-check", "reason": "feature-lane implementation pending; not a pass"},
     {"audit_row": "P1", "name": "obu-size-backpatch-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P1", "name": "tile-info-check", "reason": "tile/header coverage beyond current subset is pending; not a pass"},
     {"audit_row": "P2", "name": "cdf-static-coverage-check", "reason": "feature-lane implementation pending; not a pass"},
-    {"audit_row": "P3", "name": "natural64-keyframe-check", "reason": "feature-lane implementation pending; not a pass"},
-    {"audit_row": "P4", "name": "partition-shape-public-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P2", "name": "adaptive-cdf-negative-check", "reason": "adaptive-CDF ownership is not implemented yet; not a pass"},
+    {"audit_row": "P3", "name": "natural64-keyframe-check", "reason": "64x64 keyframe/intra coverage pending; not a pass"},
+    {"audit_row": "P3", "name": "directional-intra-probe-check", "reason": "broader intra predictor coverage pending; not a pass"},
+    {"audit_row": "P4", "name": "partition-shape-public-check", "reason": "partition/transform public proof pending; not a pass"},
+    {"audit_row": "P4", "name": "qindex-sweep-public-check", "reason": "qindex/tx-size sweep public proof pending; not a pass"},
     {"audit_row": "P5", "name": "luma-coeff-eob-sweep-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P5", "name": "highdc-q1-public-check", "reason": "luma coefficient stress probes pending; not a pass"},
     {"audit_row": "P6", "name": "natural64-chroma-syntax-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P6", "name": "chroma-ip-residual-check", "reason": "multi-frame chroma inter residual public proof pending; not a pass"},
     {"audit_row": "P7", "name": "natural64-ip-fractional-syntax-check", "reason": "blocked on 64x64 natural fractional proof asset/path; not a pass"},
+    {"audit_row": "P7", "name": "refmv-stack-check", "reason": "multi-reference/inter-syntax expansion pending; not a pass"},
     {"audit_row": "P8", "name": "ip-10f-last-public-check", "reason": "longer-GOP feature-lane implementation pending; not a pass"},
+    {"audit_row": "P8", "name": "keyframe-interval-check", "reason": "session-control/reference-refresh coverage pending; not a pass"},
     {"audit_row": "P9", "name": "filters-disabled-public-check", "reason": "filter-scope public proof pending; not a pass"},
+    {"audit_row": "P9", "name": "recon-ref-ownership-check", "reason": "reconstructed-reference ownership audit pending; not a pass"},
     {"audit_row": "P10", "name": "qindex-functional-sweep-check", "reason": "quality/rate-control feature-lane implementation pending; not a pass"},
+    {"audit_row": "P10", "name": "mode-decision-stability-check", "reason": "mode-decision/search-quality harness coverage pending; not a pass"},
+    {"audit_row": "P11", "name": "scale64-public-check", "reason": "scale-up public proof pending; not a pass"},
     {"audit_row": "P11", "name": "scale320-public-check", "reason": "scale-up public proof pending; not a pass"},
     {"audit_row": "P11", "name": "bbb720p24-10s-public-check", "reason": "final long run deferred until feature matrix is green; not a pass"},
+    {"audit_row": "P11", "name": "mp4-packaging-check", "reason": "packaging ownership audit pending; not a pass"},
+    {"audit_row": "P12", "name": "advanced-tool-scope-check", "reason": "deferred-tool scope/signaling audit pending; not a pass"},
     {"audit_row": "P13", "name": "lint-check", "reason": "ASIC-readiness lane pending after functional matrix; not a pass"},
+    {"audit_row": "P13", "name": "synthesis-top-smoke", "reason": "ASIC-readiness synthesis flow pending after functional matrix; not a pass"},
 ]
 
 
