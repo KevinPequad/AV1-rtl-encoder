@@ -2,40 +2,13 @@
 """32x32 two-frame natural-ish inter proof with small RTL-owned fractional NEWMV coverage."""
 from pathlib import Path
 import re
-import shutil
-import subprocess
-import tempfile
+
+from av1_public_decode import artifact_dir, fail, public_decode_proof, run
 
 TB = Path(__file__).resolve().parent
 SIM = TB / "Vav1_encoder_top"
 W = H = 32
 HALFPEL_COEFF = (0, 2, -14, 76, 76, -14, 2, 0)
-
-
-def run(cmd, *, cwd=TB, check=True):
-    print("[RUN]", " ".join(map(str, cmd)))
-    res = subprocess.run(cmd, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if res.stdout:
-        print(res.stdout, end="")
-    if check and res.returncode != 0:
-        raise SystemExit(res.returncode)
-    return res
-
-
-def require(name):
-    if shutil.which(name) is None:
-        raise SystemExit(f"missing required tool: {name}")
-
-
-def fail(msg: str):
-    print(f"[FAIL] {msg}")
-    raise SystemExit(1)
-
-
-def cmp_file(a: Path, b: Path, label: str):
-    if a.read_bytes() != b.read_bytes():
-        fail(f"{label}: {a} != {b} (sizes {a.stat().st_size} vs {b.stat().st_size})")
-    print(f"[PASS] {label}")
 
 
 def clip8(v: int) -> int:
@@ -81,19 +54,14 @@ def write_probe(path: Path):
     path.write_bytes(y0 + cb0 + cr0 + y1 + cb0 + cr0)
 
 
-require("ffmpeg")
-require("aomdec")
 if not SIM.exists():
-    raise SystemExit(f"missing simulator {SIM}; run make WIDTH=32 HEIGHT=32 all first")
+    fail(f"missing simulator {SIM}; run make WIDTH=32 HEIGHT=32 all first")
 
-with tempfile.TemporaryDirectory(prefix="av1_natural32_ip_frac_") as td:
-    t = Path(td)
+with artifact_dir("natural32_ip_fractional_syntax") as t:
     yuv = t / "natural32_2f_halfpel.yuv"
     out_obu = t / "encoded.obu"
     write_probe(yuv)
-    sim = run([str(SIM), "+frames=2", "+qindex=128", "+dc_only=1", "+all_key=0",
-               "+dump_inter_summary=1", "+me_newmv_limit=2",
-               f"+input={yuv}", f"+output={out_obu}"])
+    sim = run([SIM, "+frames=2", "+qindex=128", "+dc_only=1", "+all_key=0", "+dump_inter_summary=1", "+me_newmv_limit=2", f"+input={yuv}", f"+output={out_obu}"])
     log = sim.stdout or ""
     if "[TB] Frame 0 (KEY)" not in log:
         fail("frame 0 was not encoded as KEY")
@@ -118,23 +86,14 @@ with tempfile.TemporaryDirectory(prefix="av1_natural32_ip_frac_") as td:
     if not frac_lines:
         fail(f"expected at least one fractional q3 MV, saw only integer-q3 MVs {newmv_lines}")
     print(f"[PASS] exercised small fractional NEWMV set {newmv_lines}")
-
-    rtl_obu = t / "encoded_rtl_raw.obu"
-    rtl_ivf = t / "encoded_rtl.ivf"
-    sw_ivf = t / "encoded.ivf"
-    recon = t / "recon.yuv"
-    ff_sw = t / "ff_sw.yuv"
-    ff_rtl = t / "ff_rtl.yuv"
-    aom_rtl = t / "aom_rtl.yuv"
-
-    cmp_file(out_obu, rtl_obu, "concatenated RTL raw OBU matches software oracle OBU")
-    run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(sw_ivf),
-         "-f", "rawvideo", "-pix_fmt", "yuv420p", str(ff_sw)])
-    cmp_file(ff_sw, recon, "FFmpeg software IVF decode matches RTL recon")
-    run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(rtl_ivf),
-         "-f", "rawvideo", "-pix_fmt", "yuv420p", str(ff_rtl)])
-    cmp_file(ff_rtl, recon, "FFmpeg RTL IVF decode matches RTL recon")
-    run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", str(aom_rtl), str(rtl_ivf)])
-    cmp_file(aom_rtl, recon, "aomdec RTL IVF decode matches RTL recon")
+    public_decode_proof(
+        output_dir=t,
+        oracle_obu=out_obu,
+        rtl_raw_obu=t / "encoded_rtl_raw.obu",
+        sw_ivf=t / "encoded.ivf",
+        rtl_ivf=t / "encoded_rtl.ivf",
+        recon_yuv=t / "recon.yuv",
+        label="32x32 two-frame natural-ish fractional NEWMV inter RTL-owned proof",
+    )
 
 print("[PASS] 32x32 two-frame natural-ish fractional NEWMV inter RTL-owned proof")

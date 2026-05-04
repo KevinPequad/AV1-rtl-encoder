@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""Run AV1 regression matrix gates and write JSON/Markdown evidence manifests.
+
+This runner is validation infrastructure only. It records current reduced-subset
+passes/failures and lists future P0-P13 feature-complete gates as skipped until
+feature-lane tasks implement them; skipped is never reported as pass.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+import argparse
+import datetime as _dt
+import hashlib
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+from typing import Iterable
+
+REPO = Path(__file__).resolve().parents[1]
+TB = REPO / "tb"
+DEFAULT_THREADS = "16"
+
+
+@dataclass(frozen=True)
+class Gate:
+    gate_id: str
+    name: str
+    command: tuple[str, ...]
+    cwd: Path
+    public_decoder: bool = False
+    description: str = ""
+
+
+def make_cmd(*args: str) -> tuple[str, ...]:
+    return ("make", f"THREADS={DEFAULT_THREADS}", f"BUILD_JOBS={DEFAULT_THREADS}", *args)
+
+
+CURRENT_GATES: list[Gate] = [
+    Gate("S0", "clean", make_cmd("clean"), TB, False, "stale artifact hygiene"),
+    Gate("S1", "entropy-check", make_cmd("entropy-check"), TB, False, "AV1 entropy core standalone"),
+    Gate("S2", "bitstream-check", make_cmd("WIDTH=16", "HEIGHT=16", "bitstream-check"), TB, False, "reduced header/OBU bitstream standalone"),
+    Gate("S3", "inv-xform-check", make_cmd("inv-xform-check"), TB, False, "inverse transform standalone"),
+    Gate("S4", "inter-pred-check", make_cmd("WIDTH=32", "HEIGHT=32", "inter-pred-check"), TB, False, "luma q3 inter predictor standalone"),
+    Gate("S5", "chroma-inter-pred-check", make_cmd("WIDTH=32", "HEIGHT=32", "chroma-inter-pred-check"), TB, False, "chroma q4/q3 inter predictor standalone"),
+    Gate("S6", "me-check", make_cmd("WIDTH=32", "HEIGHT=32", "me-check"), TB, False, "q3 motion-estimation standalone"),
+    Gate("S7", "chroma-residual-check", make_cmd("chroma-residual-check"), TB, False, "chroma residual standalone"),
+    Gate("S8", "chroma-coeff-table-check", make_cmd("chroma-coeff-table-check"), TB, False, "AOM-derived chroma coefficient tables"),
+    Gate("S9", "top-chroma-integration-check", make_cmd("top-chroma-integration-check"), TB, False, "static top-level chroma integration guard"),
+    Gate("S16", "rtl-byte-owner-check", make_cmd("rtl-byte-owner-check"), TB, True, "positive RTL ownership plus N1-N5 anti-repair probes"),
+    Gate("T0", "chudpc2-smoke", ("bash", "scripts/run_av1_top_smoke.sh"), REPO, True, "16x16 all-key and IP Chud PC 2 public decoder smoke"),
+    Gate("T1", "nonzero-chroma-syntax-check", make_cmd("nonzero-chroma-syntax-check"), TB, True, "8x8 non-zero Cb/Cr public decoder proof"),
+    Gate("T2", "nonzero-chroma16-syntax-check", make_cmd("nonzero-chroma16-syntax-check"), TB, True, "16x16 non-zero chroma public decoder proof"),
+    Gate("T3", "natural32-chroma-syntax-check", make_cmd("natural32-chroma-syntax-check"), TB, True, "32x32 natural-ish all-key public decoder proof"),
+    Gate("T4", "natural32-ip-syntax-check", make_cmd("natural32-ip-syntax-check"), TB, True, "32x32 zero-MV IP public decoder proof"),
+    Gate("T5", "natural32-ip-newmv-syntax-check", make_cmd("natural32-ip-newmv-syntax-check"), TB, True, "32x32 isolated NEWMV public decoder proof"),
+    Gate("T6", "natural32-ip-fractional-syntax-check", make_cmd("natural32-ip-fractional-syntax-check"), TB, True, "32x32 fractional q3 NEWMV public decoder proof"),
+]
+
+FUTURE_GATES: list[dict[str, str]] = [
+    {"audit_row": "P1", "name": "headers-syntax-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P1", "name": "obu-size-backpatch-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P2", "name": "cdf-static-coverage-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P3", "name": "natural64-keyframe-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P4", "name": "partition-shape-public-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P5", "name": "luma-coeff-eob-sweep-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P6", "name": "natural64-chroma-syntax-check", "reason": "feature-lane implementation pending; not a pass"},
+    {"audit_row": "P7", "name": "natural64-ip-fractional-syntax-check", "reason": "blocked on 64x64 natural fractional proof asset/path; not a pass"},
+    {"audit_row": "P8", "name": "ip-10f-last-public-check", "reason": "longer-GOP feature-lane implementation pending; not a pass"},
+    {"audit_row": "P9", "name": "filters-disabled-public-check", "reason": "filter-scope public proof pending; not a pass"},
+    {"audit_row": "P10", "name": "qindex-functional-sweep-check", "reason": "quality/rate-control feature-lane implementation pending; not a pass"},
+    {"audit_row": "P11", "name": "scale320-public-check", "reason": "scale-up public proof pending; not a pass"},
+    {"audit_row": "P11", "name": "bbb720p24-10s-public-check", "reason": "final long run deferred until feature matrix is green; not a pass"},
+    {"audit_row": "P13", "name": "lint-check", "reason": "ASIC-readiness lane pending after functional matrix; not a pass"},
+]
+
+
+def now_stamp() -> str:
+    return _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def run_capture(cmd: Iterable[str], *, cwd: Path, env: dict[str, str], log_path: Path, timeout_seconds: int) -> tuple[int, float]:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    argv = [str(x) for x in cmd]
+    start = time.time()
+    with log_path.open("w") as log:
+        log.write(f"$ cd {cwd}\n")
+        log.write("$ " + " ".join(shlex.quote(x) for x in argv) + "\n")
+        log.write(f"$ timeout_seconds={timeout_seconds}\n")
+        log.flush()
+        try:
+            proc = subprocess.run(argv, cwd=str(cwd), env=env, text=True, stdout=log, stderr=subprocess.STDOUT, timeout=timeout_seconds)
+            return proc.returncode, time.time() - start
+        except subprocess.TimeoutExpired:
+            log.write(f"\n[TIMEOUT] gate exceeded {timeout_seconds} seconds\n")
+            log.flush()
+            return 124, time.time() - start
+
+
+def capture_text(cmd: Iterable[str], *, cwd: Path = REPO) -> str:
+    try:
+        res = subprocess.run([str(x) for x in cmd], cwd=str(cwd), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+        return (res.stdout or "").strip()
+    except Exception as exc:
+        return f"ERROR: {exc}"
+
+
+def collect_hashes(root: Path) -> list[dict[str, object]]:
+    if not root.exists():
+        return []
+    records = []
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        rel = path.relative_to(root)
+        records.append({"path": str(rel), "size": path.stat().st_size, "sha256": sha256_file(path)})
+    return records
+
+
+def selected_gates(names: list[str] | None) -> list[Gate]:
+    if not names:
+        return CURRENT_GATES
+    by_name = {g.name: g for g in CURRENT_GATES}
+    by_id = {g.gate_id: g for g in CURRENT_GATES}
+    out = []
+    for name in names:
+        gate = by_name.get(name) or by_id.get(name)
+        if gate is None:
+            raise SystemExit(f"unknown gate {name}; known: {', '.join(g.name for g in CURRENT_GATES)}")
+        out.append(gate)
+    return out
+
+
+def write_markdown(path: Path, manifest: dict[str, object]) -> None:
+    lines = []
+    lines.append("# AV1 regression matrix manifest")
+    lines.append("")
+    lines.append(f"Repo: `{manifest['repo']}`")
+    lines.append(f"Commit: `{manifest['commit']}`")
+    lines.append(f"Generated: `{manifest['generated_at']}`")
+    lines.append("")
+    lines.append("## Toolchain")
+    for key, value in manifest["toolchain"].items():
+        lines.append(f"- {key}: `{value}`")
+    lines.append("")
+    lines.append("## Executed gates")
+    lines.append("| Gate | Name | Status | Seconds | Log |")
+    lines.append("|---|---|---:|---:|---|")
+    for gate in manifest["gates"]:
+        lines.append(f"| {gate['gate_id']} | {gate['name']} | {gate['status']} | {gate['elapsed_seconds']:.2f} | `{gate['log']}` |")
+    lines.append("")
+    lines.append("## Skipped future gates (not passes)")
+    lines.append("| Audit row | Name | Reason |")
+    lines.append("|---|---|---|")
+    for gate in manifest["future_gates"]:
+        lines.append(f"| {gate['audit_row']} | {gate['name']} | {gate['reason']} |")
+    lines.append("")
+    path.write_text("\n".join(lines) + "\n")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--outdir", type=Path, default=None, help="Manifest/artifact output dir")
+    ap.add_argument("--gates", nargs="*", help="Optional gate ids/names to run instead of full current matrix")
+    ap.add_argument("--keep-going", action="store_true", help="Continue after failures and return nonzero at end")
+    ap.add_argument("--timeout-seconds", type=int, default=900, help="Per-gate timeout; timed-out gates return 124")
+    args = ap.parse_args()
+
+    gates = selected_gates(args.gates)
+    outdir = args.outdir or (REPO / "regression_artifacts" / f"av1_matrix_{now_stamp()}")
+    outdir = outdir.resolve()
+    logs_dir = outdir / "logs"
+    artifacts_dir = outdir / "artifacts"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    base_env = os.environ.copy()
+    base_env["THREADS"] = DEFAULT_THREADS
+    base_env["BUILD_JOBS"] = DEFAULT_THREADS
+
+    manifest: dict[str, object] = {
+        "repo": str(REPO),
+        "generated_at": _dt.datetime.now().isoformat(timespec="seconds"),
+        "commit": capture_text(["git", "rev-parse", "HEAD"]),
+        "branch": capture_text(["git", "branch", "--show-current"]),
+        "git_status": capture_text(["git", "status", "--short", "--branch"]),
+        "toolchain": {
+            "host": capture_text(["hostname"]),
+            "nproc": capture_text(["nproc"]),
+            "verilator": capture_text(["verilator", "--version"]),
+            "ffmpeg": capture_text(["ffmpeg", "-version"]).splitlines()[0] if capture_text(["ffmpeg", "-version"]) else "missing",
+            "aomdec": capture_text(["aomdec", "--help"]).splitlines()[0] if capture_text(["aomdec", "--help"]) else "missing",
+        },
+        "gates": [],
+        "future_gates": FUTURE_GATES,
+    }
+
+    failed = False
+    for gate in gates:
+        print(f"[MATRIX] {gate.gate_id} {gate.name}")
+        gate_artifacts = artifacts_dir / f"{gate.gate_id}_{gate.name}"
+        env = base_env.copy()
+        env["AV1_ARTIFACT_ROOT"] = str(gate_artifacts)
+        log_path = logs_dir / f"{gate.gate_id}_{gate.name}.log"
+        rc, elapsed = run_capture(gate.command, cwd=gate.cwd, env=env, log_path=log_path, timeout_seconds=args.timeout_seconds)
+        status = "pass" if rc == 0 else "fail"
+        if rc != 0:
+            failed = True
+        record = {
+            "gate_id": gate.gate_id,
+            "name": gate.name,
+            "description": gate.description,
+            "status": status,
+            "returncode": rc,
+            "elapsed_seconds": round(elapsed, 3),
+            "command": " ".join(shlex.quote(x) for x in gate.command),
+            "cwd": str(gate.cwd),
+            "log": str(log_path),
+            "artifact_root": str(gate_artifacts),
+            "artifact_hashes": collect_hashes(gate_artifacts),
+            "public_decoder": gate.public_decoder,
+        }
+        manifest["gates"].append(record)
+        write_json_path = outdir / "av1_regression_manifest.json"
+        write_json_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        write_markdown(outdir / "av1_regression_manifest.md", manifest)
+        print(f"[MATRIX] {gate.name}: {status} ({elapsed:.2f}s) log={log_path}")
+        if rc != 0 and not args.keep_going:
+            break
+
+    manifest["completed_at"] = _dt.datetime.now().isoformat(timespec="seconds")
+    manifest["overall_status"] = "fail" if failed else "pass"
+    (outdir / "av1_regression_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    write_markdown(outdir / "av1_regression_manifest.md", manifest)
+    print(f"[MATRIX] manifest_json={outdir / 'av1_regression_manifest.json'}")
+    print(f"[MATRIX] manifest_md={outdir / 'av1_regression_manifest.md'}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
