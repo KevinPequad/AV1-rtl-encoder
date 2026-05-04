@@ -27,6 +27,7 @@ module av1_encoder_top #(
     input  wire        is_keyframe_in,
     input  wire        force_intra_in,
     input  wire        me_zero_mv_only_in,
+    input  wire [7:0]  me_newmv_limit_in,
     input  wire        dc_only_in,
     input  wire [7:0]  qindex_in,     // Quantization index (0-255)
 
@@ -320,6 +321,7 @@ module av1_encoder_top #(
     reg signed [8:0] me_mvx, me_mvy;
     reg signed [15:0] me_mvx_q3, me_mvy_q3;
     reg [17:0] me_sad;
+    reg [7:0]  me_newmv_count;
     reg        use_inter;  // 1 if P-frame and ME result is good
     reg signed [11:0] inter_base_x, inter_base_y;
     reg [5:0]  inter_fetch_idx;
@@ -2226,6 +2228,8 @@ module av1_encoder_top #(
     wire signed [8:0] me_best_mvx, me_best_mvy;
     wire signed [15:0] me_best_mvx_q3, me_best_mvy_q3;
     wire [17:0] me_best_sad;
+    wire        me_limit_zero_mv = (me_newmv_limit_in != 8'd0) &&
+                                  (me_newmv_count >= me_newmv_limit_in);
     wire [19:0] me_ref_rd_addr;
 
     // Neighbor loading address
@@ -2265,7 +2269,7 @@ module av1_encoder_top #(
     ) u_me (
         .clk(clk), .rst_n(rst_n),
         .start(me_start),
-        .zero_mv_only(me_zero_mv_only_in),
+        .zero_mv_only(me_zero_mv_only_in || me_limit_zero_mv),
         .done(me_done),
         .cur_x({1'b0, blk_x} * 8),
         .cur_y({1'b0, blk_y} * 8),
@@ -2498,6 +2502,7 @@ module av1_encoder_top #(
             me_mvx_q3   <= 16'sd0;
             me_mvy_q3   <= 16'sd0;
             me_sad      <= 18'd0;
+            me_newmv_count <= 8'd0;
             use_inter   <= 1'b0;
             inter_pred_start <= 0;
             chroma_pred_start <= 0;
@@ -2631,6 +2636,7 @@ module av1_encoder_top #(
                         is_keyframe <= is_keyframe_in;
                         qindex      <= (qindex_in == 8'd0) ? 8'd1 : qindex_in;
                         frame_num   <= frame_num_in;
+                        me_newmv_count <= 8'd0;
                         blk_x       <= 0;
                         blk_y       <= 0;
                         cur_block_has_coeff <= 1'b0;
@@ -3016,6 +3022,10 @@ module av1_encoder_top #(
                         me_sad <= me_best_sad;
                         use_inter <= force_intra_in ? 1'b0 :
                                      (me_best_sad < INTRA_SAD_THRESHOLD);
+                        if (!force_intra_in && (me_best_sad < INTRA_SAD_THRESHOLD) &&
+                            ((me_best_mvx_q3 != 16'sd0) || (me_best_mvy_q3 != 16'sd0)) &&
+                            (me_newmv_count != 8'hff))
+                            me_newmv_count <= me_newmv_count + 1'b1;
                         top_state <= TS_PREDICT_INIT;
                     end
                 end
