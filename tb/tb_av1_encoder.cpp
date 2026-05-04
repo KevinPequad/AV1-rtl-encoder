@@ -103,6 +103,7 @@ int main(int argc, char** argv) {
     int trace_bs = 0;
     int trace_entropy_shadow = 0;
     int trace_writer_entropy = 0;
+    int dump_chroma_summary = 0;
     uint64_t progress_every = 0;
     std::string input_file = "data/raw_frames.yuv";
     std::string output_file = "output/encoded.obu";
@@ -168,6 +169,8 @@ int main(int argc, char** argv) {
             trace_entropy_shadow = std::atoi(arg.c_str() + 22);
         } else if (arg.rfind("+trace_writer_entropy=", 0) == 0) {
             trace_writer_entropy = std::atoi(arg.c_str() + 22);
+        } else if (arg.rfind("+dump_chroma_summary=", 0) == 0) {
+            dump_chroma_summary = std::atoi(arg.c_str() + 21);
         } else if (arg.rfind("+progress_every=", 0) == 0) {
             progress_every = std::strtoull(arg.c_str() + 16, nullptr, 10);
         }
@@ -249,6 +252,10 @@ int main(int argc, char** argv) {
     AV1RangeCoder entropy_live_shadow;
     bool entropy_live_shadow_valid = false;
     bool entropy_state_mismatch = false;
+    uint64_t chroma_inter_prev_cb_reads = 0;
+    uint64_t chroma_inter_prev_cr_reads = 0;
+    uint64_t chroma_neigh_cb_reads = 0;
+    uint64_t chroma_neigh_cr_reads = 0;
     uint64_t next_progress_cycle = 0;
 
     // FSM state constants (must match av1_encoder_top.v)
@@ -257,6 +264,7 @@ int main(int argc, char** argv) {
     constexpr int TS_NEXT_BLK = 19;
     constexpr int TS_REF_WR = 20;
     constexpr int TS_CHR_FETCH = 21;
+    constexpr int TS_CHR_WAIT = 30;
     constexpr int TS_IXFORM_COL = 28;
 
     // Reset
@@ -290,6 +298,10 @@ int main(int argc, char** argv) {
             entropy_live_shadow.init();
             entropy_live_shadow_valid = true;
             entropy_state_mismatch = false;
+            chroma_inter_prev_cb_reads = 0;
+            chroma_inter_prev_cr_reads = 0;
+            chroma_neigh_cb_reads = 0;
+            chroma_neigh_cr_reads = 0;
             next_progress_cycle = progress_every ? (cycle + progress_every) : 0;
             fprintf(stderr, "[TB] Frame %d (%s) start @ cycle %llu\n",
                     frame_idx, is_key ? "KEY" : "INTER", (unsigned long long)cycle);
@@ -334,10 +346,29 @@ int main(int argc, char** argv) {
 
         dut->eval();
         if (dut->start) dut->start = 0;
+        {
+            auto* root = dut->rootp;
+            const int state = root->av1_encoder_top__DOT__top_state;
+            if (state == TS_CHR_WAIT) {
+                if (dut->chr_ref_rd_is_neigh) {
+                    if (root->av1_encoder_top__DOT__chr_plane)
+                        ++chroma_neigh_cr_reads;
+                    else
+                        ++chroma_neigh_cb_reads;
+                } else if (root->av1_encoder_top__DOT__use_inter && !current_frame_is_key) {
+                    if (root->av1_encoder_top__DOT__chr_plane)
+                        ++chroma_inter_prev_cr_reads;
+                    else
+                        ++chroma_inter_prev_cb_reads;
+                }
+            }
+        }
         if (progress_every && frame_active && cycle >= next_progress_cycle) {
             auto* root = dut->rootp;
             fprintf(stderr,
-                    "[TB] progress frame=%d/%d cycle=%llu state=%d blk=(%d,%d) key=%d force_intra=%d use_inter=%d me_mv_q3=(%d,%d) done=%d\n",
+                    "[TB] progress frame=%d/%d cycle=%llu state=%d blk=(%d,%d) key=%d force_intra=%d use_inter=%d me_mv_q3=(%d,%d) done=%d "
+                    "chr_res_state=%d row=%d col=%d proc=%d fetch_done=%d chr_res_done=%d xform_done=%d quant_done=%d iq_done=%d inv_done=%d "
+                    "qstart=%d qstage=%d qisdc=%d qcoeff_in=%d qdeq=%d\n",
                     frame_idx, num_frames,
                     (unsigned long long)cycle,
                     root->av1_encoder_top__DOT__top_state,
@@ -348,7 +379,22 @@ int main(int argc, char** argv) {
                     root->av1_encoder_top__DOT__use_inter ? 1 : 0,
                     sign_extend_16(root->av1_encoder_top__DOT__me_mvx_q3),
                     sign_extend_16(root->av1_encoder_top__DOT__me_mvy_q3),
-                    dut->done ? 1 : 0);
+                    dut->done ? 1 : 0,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__state,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__row_idx,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__col_idx,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__proc_idx,
+                    root->av1_encoder_top__DOT__fetch_done ? 1 : 0,
+                    root->av1_encoder_top__DOT__chroma_res_done ? 1 : 0,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__xform_done ? 1 : 0,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__quant_done ? 1 : 0,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__iq_done ? 1 : 0,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__inv_done ? 1 : 0,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__quant_start ? 1 : 0,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__u_quantize__DOT__stage,
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__quant_is_dc ? 1 : 0,
+                    sign_extend_16(root->av1_encoder_top__DOT__u_chroma_residual__DOT__quant_coeff_in),
+                    root->av1_encoder_top__DOT__u_chroma_residual__DOT__u_quantize__DOT__dequant);
             std::fflush(stderr);
             do {
                 next_progress_cycle += progress_every;
@@ -923,6 +969,55 @@ int main(int argc, char** argv) {
                     }
                     fprintf(stderr, "\n");
                 }
+            }
+
+            if (dump_chroma_summary) {
+                int cb_nonzero_blocks = 0;
+                int cr_nonzero_blocks = 0;
+                int cb_nonzero_coeffs = 0;
+                int cr_nonzero_coeffs = 0;
+                int cb_inter_nonzero_blocks = 0;
+                int cr_inter_nonzero_blocks = 0;
+                int chroma_only_blocks = 0;
+                for (size_t bi_idx = 0; bi_idx < frame_blocks.size(); ++bi_idx) {
+                    const auto& bi = frame_blocks[bi_idx];
+                    int luma_nz = 0;
+                    int cb_nz = 0;
+                    int cr_nz = 0;
+                    for (int i = 0; i < 64; ++i) {
+                        if (bi.qcoeff[i] != 0) ++luma_nz;
+                    }
+                    for (int i = 0; i < 16; ++i) {
+                        if (bi.cb_qcoeff[i] != 0) ++cb_nz;
+                        if (bi.cr_qcoeff[i] != 0) ++cr_nz;
+                    }
+                    if (cb_nz) {
+                        ++cb_nonzero_blocks;
+                        cb_nonzero_coeffs += cb_nz;
+                        if (bi.is_inter) ++cb_inter_nonzero_blocks;
+                    }
+                    if (cr_nz) {
+                        ++cr_nonzero_blocks;
+                        cr_nonzero_coeffs += cr_nz;
+                        if (bi.is_inter) ++cr_inter_nonzero_blocks;
+                    }
+                    if (luma_nz == 0 && (cb_nz || cr_nz))
+                        ++chroma_only_blocks;
+                }
+                fprintf(stderr,
+                        "[TB] chroma_summary frame=%d cb_nonzero_blocks=%d cr_nonzero_blocks=%d "
+                        "cb_nonzero_coeffs=%d cr_nonzero_coeffs=%d "
+                        "cb_inter_nonzero_blocks=%d cr_inter_nonzero_blocks=%d chroma_only_blocks=%d "
+                        "inter_prev_cb_reads=%llu inter_prev_cr_reads=%llu neigh_cb_reads=%llu neigh_cr_reads=%llu\n",
+                        frame_idx,
+                        cb_nonzero_blocks, cr_nonzero_blocks,
+                        cb_nonzero_coeffs, cr_nonzero_coeffs,
+                        cb_inter_nonzero_blocks, cr_inter_nonzero_blocks,
+                        chroma_only_blocks,
+                        (unsigned long long)chroma_inter_prev_cb_reads,
+                        (unsigned long long)chroma_inter_prev_cr_reads,
+                        (unsigned long long)chroma_neigh_cb_reads,
+                        (unsigned long long)chroma_neigh_cr_reads);
             }
 
             if (dump_inter_summary) {
