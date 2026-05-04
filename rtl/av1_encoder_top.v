@@ -940,13 +940,13 @@ module av1_encoder_top #(
                 5'd10: partition_icdf_flat = {96'd0,16'd0,16'd721,16'd5242,16'd5697,16'd6223,16'd7359,16'd8224,16'd22706,16'd23759,16'd26753};
                 5'd11: partition_icdf_flat = {96'd0,16'd0,16'd869,16'd2583,16'd2928,16'd3302,16'd3707,16'd4154,16'd29972,16'd30560,16'd31374};
                 5'd12: partition_icdf_flat = {96'd0,16'd0,16'd1044,16'd1876,16'd2244,16'd2507,16'd2931,16'd3202,16'd9690,16'd11221,16'd12631};
-                5'd13: partition_icdf_flat = {96'd0,16'd0,16'd1664,16'd2138,16'd2799,16'd3253,16'd3518,16'd3824,16'd14824,16'd25278,16'd26036};
+                5'd13: partition_icdf_flat = {96'd0,16'd0,16'd2664,16'd3138,16'd3799,16'd4253,16'd4518,16'd4824,16'd23271,16'd25278,16'd26036};
                 5'd14: partition_icdf_flat = {96'd0,16'd0,16'd530,16'd2470,16'd2704,16'd3019,16'd3651,16'd4085,16'd24420,16'd25105,16'd26823};
                 5'd15: partition_icdf_flat = {96'd0,16'd0,16'd436,16'd887,16'd1025,16'd1194,16'd1374,16'd1570,16'd31281,16'd31556,16'd31898};
                 5'd16: partition_icdf_flat = {128'd0,16'd0,16'd129,16'd149,16'd229,16'd284,16'd4239,16'd4549,16'd4869};
-                5'd17: partition_icdf_flat = {128'd0,16'd0,16'd397,16'd430,16'd549,16'd708,16'd2708,16'd25778,16'd26161};
-                5'd18: partition_icdf_flat = {128'd0,16'd0,16'd186,16'd237,16'd541,16'd741,16'd711,16'd26092,16'd27339};
-                default: partition_icdf_flat = {128'd0,16'd0,16'd104,16'd151,16'd230,16'd320,16'd31296,16'd31802,16'd32057};
+                5'd17: partition_icdf_flat = {128'd0,16'd0,16'd397,16'd430,16'd549,16'd708,16'd24500,16'd25778,16'd26161};
+                5'd18: partition_icdf_flat = {128'd0,16'd0,16'd186,16'd237,16'd541,16'd741,16'd25646,16'd26092,16'd27339};
+                default: partition_icdf_flat = {128'd0,16'd0,16'd104,16'd151,16'd230,16'd320,16'd31596,16'd31802,16'd32057};
             endcase
         end
     endfunction
@@ -2593,11 +2593,11 @@ module av1_encoder_top #(
                 cr_ctx_left[i] <= 5'd0;
             end
             for (i = 0; i < (BLK_COLS * BLK_ROWS); i = i + 1) begin
-                blk_inter_coded[i] <= 1'b0;
-                blk_ref0[i] <= REF_NONE;
-                blk_inter_mode[i] <= REDUCED_INTER_NONE;
-                blk_mv_x[i] <= 16'sd0;
-                blk_mv_y[i] <= 16'sd0;
+                blk_inter_coded[i] = 1'b0;
+                blk_ref0[i] = REF_NONE;
+                blk_inter_mode[i] = REDUCED_INTER_NONE;
+                blk_mv_x[i] = 16'sd0;
+                blk_mv_y[i] = 16'sd0;
             end
         end else begin
             done <= 0;
@@ -2680,11 +2680,11 @@ module av1_encoder_top #(
                             cr_ctx_left[i] <= 5'd0;
                         end
                         for (i = 0; i < (BLK_COLS * BLK_ROWS); i = i + 1) begin
-                            blk_inter_coded[i] <= 1'b0;
-                            blk_ref0[i] <= REF_NONE;
-                            blk_inter_mode[i] <= REDUCED_INTER_NONE;
-                            blk_mv_x[i] <= 16'sd0;
-                            blk_mv_y[i] <= 16'sd0;
+                            blk_inter_coded[i] = 1'b0;
+                            blk_ref0[i] = REF_NONE;
+                            blk_inter_mode[i] = REDUCED_INTER_NONE;
+                            blk_mv_x[i] = 16'sd0;
+                            blk_mv_y[i] = 16'sd0;
                         end
                         top_state   <= TS_WRITE_TD;
                     end
