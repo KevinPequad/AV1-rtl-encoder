@@ -41,19 +41,13 @@ This contract is tracked in `P9_DISABLED_FILTER_POLICY.md` and guarded by `make 
 
 ## Simulation Threads
 
-Simulation and Verilator builds must use all available host threads by default.
+Simulation and Verilator builds should use the right thread count for the task at hand.
 
-- On Chud PC 2, `nproc` currently reports `16`, so use `THREADS=16 BUILD_JOBS=16` there.
-- Leave `THREADS` unset only when the runtime environment correctly exposes all host CPUs via `nproc`.
+- For the pre-ASIC AV1 Kanban validation matrix and any doc/handoff reruns, default to `THREADS=1 BUILD_JOBS=1`.
+- For routine smoke/debug work on this host, use the host's detected thread count unless a task says otherwise.
 - Do not force `THREADS` above the host's real thread count; Verilator 5.020 aborts at runtime if the model is built for more threads than the `VerilatedContext` can create.
 
-Current build scripts already default to maximum detected threads:
-
-- `tb/Makefile` uses `THREADS ?= $(shell nproc 2>/dev/null || echo 24)`
-- `run.sh` uses `THREADS=${THREADS:-$(nproc)}`
-- `build_run.sh` uses `THREADS=${THREADS:-$(nproc)}`
-
-Recommended commands on this machine:
+Routine smoke/debug commands on this machine:
 
 ```bash
 THREADS=16 BUILD_JOBS=16 bash docker_run.sh
@@ -67,6 +61,8 @@ THREADS=16 BUILD_JOBS=16 bash run.sh
 cd tb
 make THREADS=16 BUILD_JOBS=16
 ```
+
+Frozen pre-ASIC validation matrix: see `PRE_ASIC_HANDOFF.md` for the canonical single-thread command and gate list.
 
 ## Continuous Codex Supervisor
 
@@ -172,7 +168,7 @@ Inventory of the current repo state:
     - the old helper always skipped zero after the dedicated zero-MV probe, which pushed bottom-right blocks past the legal search window and could leave `TS_WAIT_ME` spinning on longer clips
     - the scan now skips zero only when another in-range candidate still follows it
   - standalone `rtl/av1_bitstream.v` regression harness in `tb/test_rtl_bitstream.cpp` and `make bitstream-check`
-  - the P7 reference boundary checkpoint is now documented in `P7_REFERENCE_BOUNDARY.md` and locked by `make bitstream-check WIDTH=16 HEIGHT=16`, `make gop-lifecycle-syntax-check`, `make natural64-ip-mode-context-syntax-check` (syntax gate), and `make natural64-ip-fractional-syntax-check`; compound / multi-ref tools stay disabled for this checkpoint while the full RTL AV1 roadmap remains open
+  - the P7 reference boundary checkpoint is now documented in `P7_REFERENCE_BOUNDARY.md` and frozen on canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1` (already pushed to `origin/main`); see `PRE_ASIC_HANDOFF.md` for the supported baseline, exclusions, regression commands, and ASIC-readiness blockers; compound / multi-ref tools stay disabled for this checkpoint while the full RTL AV1 roadmap remains open
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
@@ -182,6 +178,7 @@ Inventory of the current repo state:
     - `ffmpeg`/libdav1d and `aomdec` decoded output both match `recon.yuv`
   - `16x16` 2-frame IP output decodes in both `ffmpeg`/`libdav1d` and `aomdec`
   - decoded output matches `recon.yuv` exactly on that `16x16` inter case
+  - the pre-ASIC freeze on canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1` passed the single-threaded current matrix on Chud PC 2 with `THREADS=1 BUILD_JOBS=1`: 21/21 gates, raw RTL OBU/IVF equality, FFmpeg/libdav1d parity, and `aomdec` parity all held, and no testbench or packaging repair masked RTL bugs
   - the strict `16x16` 2-frame zero-motion IP ownership repro is now exact on the raw RTL path, not just decoder-clean:
     - `encoded.obu` and `encoded_rtl_raw.obu` now match byte-for-byte
     - `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte
