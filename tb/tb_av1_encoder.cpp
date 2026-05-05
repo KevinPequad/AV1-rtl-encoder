@@ -61,6 +61,21 @@ static int16_t sign_extend_9(uint16_t v) {
 static int16_t sign_extend_16(uint16_t v) {
     return static_cast<int16_t>(v);
 }
+static constexpr uint8_t REDUCED_INTER_NONE = 0;
+static constexpr uint8_t REDUCED_INTER_GLOBALMV = 1;
+static constexpr uint8_t REDUCED_INTER_NEARESTMV = 2;
+static constexpr uint8_t REDUCED_INTER_NEARMV = 3;
+static constexpr uint8_t REDUCED_INTER_NEWMV = 4;
+static const char* reduced_inter_mode_name(uint8_t mode) {
+    switch (mode) {
+    case REDUCED_INTER_NONE: return "NONE";
+    case REDUCED_INTER_GLOBALMV: return "GLOBALMV";
+    case REDUCED_INTER_NEARESTMV: return "NEARESTMV";
+    case REDUCED_INTER_NEARMV: return "NEARMV";
+    case REDUCED_INTER_NEWMV: return "NEWMV";
+    default: return "UNKNOWN";
+    }
+}
 
 struct EncodedTemporalUnit {
     uint64_t pts;
@@ -656,6 +671,38 @@ int main(int argc, char** argv) {
                     }
                     bi.pred_mode = root->av1_encoder_top__DOT__best_intra_mode;
                     bi.is_inter = root->av1_encoder_top__DOT__use_inter;
+                    bi.inter_mode = bi.is_inter ? root->av1_encoder_top__DOT__cur_reduced_inter_mode
+                                                : REDUCED_INTER_NONE;
+                    bi.mode_ctx = bi.is_inter ? root->av1_encoder_top__DOT__cur_mode_ctx : 0;
+                    bi.ref_mvx = 0;
+                    bi.ref_mvy = 0;
+                    bi.near_mvx = 0;
+                    bi.near_mvy = 0;
+                    if (bi.is_inter) {
+                        const int cand_count = root->av1_encoder_top__DOT__cur_ref_mv_count;
+                        int best_idx = -1;
+                        int second_idx = -1;
+                        for (int ci = 0; ci < cand_count && ci < 10; ++ci) {
+                            if (best_idx < 0 ||
+                                root->av1_encoder_top__DOT__cur_mv_cand_weight[ci] > root->av1_encoder_top__DOT__cur_mv_cand_weight[best_idx]) {
+                                second_idx = best_idx;
+                                best_idx = ci;
+                            } else if (second_idx < 0 ||
+                                       root->av1_encoder_top__DOT__cur_mv_cand_weight[ci] > root->av1_encoder_top__DOT__cur_mv_cand_weight[second_idx]) {
+                                second_idx = ci;
+                            }
+                        }
+                        if (best_idx >= 0) {
+                            bi.ref_mvx = sign_extend_16(root->av1_encoder_top__DOT__cur_mv_cand_col[best_idx]);
+                            bi.ref_mvy = sign_extend_16(root->av1_encoder_top__DOT__cur_mv_cand_row[best_idx]);
+                            bi.near_mvx = bi.ref_mvx;
+                            bi.near_mvy = bi.ref_mvy;
+                        }
+                        if (second_idx >= 0) {
+                            bi.near_mvx = sign_extend_16(root->av1_encoder_top__DOT__cur_mv_cand_col[second_idx]);
+                            bi.near_mvy = sign_extend_16(root->av1_encoder_top__DOT__cur_mv_cand_row[second_idx]);
+                        }
+                    }
                     bi.mvx = sign_extend_16(root->av1_encoder_top__DOT__me_mvx_q3);
                     bi.mvy = sign_extend_16(root->av1_encoder_top__DOT__me_mvy_q3);
                 }
@@ -1134,6 +1181,10 @@ int main(int argc, char** argv) {
                 int inter_count = 0;
                 int nonzero_inter_count = 0;
                 int first_inter_idx = -1;
+                int globalmv_count = 0;
+                int nearestmv_count = 0;
+                int nearmv_count = 0;
+                int newmv_count = 0;
                 for (size_t bi_idx = 0; bi_idx < frame_blocks.size(); ++bi_idx) {
                     const auto& bi = frame_blocks[bi_idx];
                     if (!bi.is_inter) continue;
@@ -1144,15 +1195,31 @@ int main(int argc, char** argv) {
                     if (first_inter_idx < 0) first_inter_idx = static_cast<int>(bi_idx);
                     ++inter_count;
                     if (nonzero) ++nonzero_inter_count;
+                    switch (bi.inter_mode) {
+                    case REDUCED_INTER_GLOBALMV: ++globalmv_count; break;
+                    case REDUCED_INTER_NEARESTMV: ++nearestmv_count; break;
+                    case REDUCED_INTER_NEARMV: ++nearmv_count; break;
+                    case REDUCED_INTER_NEWMV: ++newmv_count; break;
+                    default: break;
+                    }
+                    const unsigned mode_ctx = bi.mode_ctx;
+                    const unsigned newmv_ctx = mode_ctx & AV1_NEWMV_CTX_MASK;
+                    const unsigned zeromv_ctx =
+                        (mode_ctx >> AV1_GLOBALMV_OFFSET) & AV1_GLOBALMV_CTX_MASK;
+                    const unsigned refmv_ctx =
+                        (mode_ctx >> AV1_REFMV_OFFSET) & AV1_REFMV_CTX_MASK;
                     fprintf(stderr,
-                            "[TB] inter_summary frame=%d blk=%zu mv=(%d,%d) mode=%u dc=%d nz=%d\n",
-                            frame_idx, bi_idx, bi.mvx, bi.mvy, bi.pred_mode, bi.qcoeff[0], nonzero);
+                            "[TB] inter_summary frame=%d blk=%zu mv=(%d,%d) ref=(%d,%d) near=(%d,%d) mode=%s mode_ctx=%u ctx(new=%u zero=%u ref=%u) dc=%d nz=%d\n",
+                            frame_idx, bi_idx, bi.mvx, bi.mvy,
+                            bi.ref_mvx, bi.ref_mvy, bi.near_mvx, bi.near_mvy,
+                            reduced_inter_mode_name(bi.inter_mode), mode_ctx,
+                            newmv_ctx, zeromv_ctx, refmv_ctx, bi.qcoeff[0], nonzero);
                 }
                 fprintf(stderr,
-                        "[TB] inter_summary frame=%d total_inter=%d nonzero_inter=%d first_inter_blk=%d\n",
-                        frame_idx, inter_count, nonzero_inter_count, first_inter_idx);
+                        "[TB] inter_summary frame=%d total_inter=%d nonzero_inter=%d first_inter_blk=%d mode_counts={GLOBALMV:%d NEARESTMV:%d NEARMV:%d NEWMV:%d}\n",
+                        frame_idx, inter_count, nonzero_inter_count, first_inter_idx,
+                        globalmv_count, nearestmv_count, nearmv_count, newmv_count);
             }
-
             if (!P9_POST_RECON_FILTERS_DISABLED ||
                 P9_LOOP_FILTER_LEVEL_0 != 0 || P9_LOOP_FILTER_LEVEL_1 != 0 ||
                 P9_ENABLE_CDEF != 0 || P9_ENABLE_RESTORATION != 0) {
