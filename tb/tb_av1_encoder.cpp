@@ -90,6 +90,12 @@ int main(int argc, char** argv) {
     int qindex = 128;
     int dc_only = 1;
     int all_key = 1;
+    std::string gop_mode;
+    int key_interval = 12;
+    int refresh_frame_flags = 0x01;
+    int dump_ref_summary = 0;
+    int enable_order_hint = 0;
+    int order_hint_bits = 0;
     int dump_blocks = 0;
     int dump_partition = 0;
     int force_intra = 0;
@@ -136,6 +142,21 @@ int main(int argc, char** argv) {
         else if (arg.rfind("+qindex=", 0) == 0) qindex = std::atoi(arg.c_str() + 8);
         else if (arg.rfind("+dc_only=", 0) == 0) dc_only = std::atoi(arg.c_str() + 9);
         else if (arg.rfind("+all_key=", 0) == 0) all_key = std::atoi(arg.c_str() + 9);
+        else if (arg.rfind("+gop_mode=", 0) == 0) gop_mode = arg.substr(std::strlen("+gop_mode="));
+        else if (arg.rfind("+key_interval=", 0) == 0) key_interval = std::atoi(arg.c_str() + std::strlen("+key_interval="));
+        else if (arg.rfind("+refresh_policy=", 0) == 0) {
+            std::string refresh_policy = arg.substr(std::strlen("+refresh_policy="));
+            if (refresh_policy != "last_only") {
+                fprintf(stderr,
+                        "[TB] ERROR: refresh_policy=%s is not supported in this P8-A subset; use last_only\n",
+                        refresh_policy.c_str());
+                return 1;
+            }
+        }
+        else if (arg.rfind("+refresh_frame_flags=", 0) == 0) refresh_frame_flags = std::strtoul(arg.c_str() + std::strlen("+refresh_frame_flags="), nullptr, 0);
+        else if (arg.rfind("+dump_ref_summary=", 0) == 0) dump_ref_summary = std::atoi(arg.c_str() + std::strlen("+dump_ref_summary="));
+        else if (arg.rfind("+enable_order_hint=", 0) == 0) enable_order_hint = std::atoi(arg.c_str() + std::strlen("+enable_order_hint="));
+        else if (arg.rfind("+order_hint_bits=", 0) == 0) order_hint_bits = std::atoi(arg.c_str() + std::strlen("+order_hint_bits="));
         else if (arg.rfind("+dump_blocks=", 0) == 0) dump_blocks = std::atoi(arg.c_str() + 13);
         else if (arg.rfind("+dump_partition=", 0) == 0) dump_partition = std::atoi(arg.c_str() + 16);
         else if (arg.rfind("+force_intra=", 0) == 0) force_intra = std::atoi(arg.c_str() + 13);
@@ -195,6 +216,28 @@ int main(int argc, char** argv) {
         } else if (arg.rfind("+progress_every=", 0) == 0) {
             progress_every = std::strtoull(arg.c_str() + 16, nullptr, 10);
         }
+    }
+
+    if (gop_mode.empty()) gop_mode = all_key ? "all_key" : "lowdelay_last";
+    if (gop_mode != "all_key" && gop_mode != "lowdelay_last") {
+        fprintf(stderr, "[TB] ERROR: unsupported gop_mode=%s\n", gop_mode.c_str());
+        return 1;
+    }
+    const bool gop_all_key = (gop_mode == "all_key");
+    if (gop_all_key) key_interval = 1;
+    if (key_interval < 1) {
+        fprintf(stderr, "[TB] ERROR: key_interval must be >= 1\n");
+        return 1;
+    }
+    if (refresh_frame_flags != 0x01) {
+        fprintf(stderr, "[TB] ERROR: refresh_frame_flags=0x%x is not supported in this P8-A subset; use 0x01\n",
+                refresh_frame_flags);
+        return 1;
+    }
+    if (enable_order_hint != 0 || order_hint_bits != 0) {
+        fprintf(stderr,
+                "[TB] ERROR: order hints remain disabled in this P8-A subset; keep enable_order_hint/order_hint_bits at 0\n");
+        return 1;
     }
 
     const int effective_qindex = qindex <= 0 ? 1 : qindex;
@@ -284,9 +327,12 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "==========================================================\n");
     fprintf(stderr, "  AV1 RTL Encoder Testbench\n");
-    fprintf(stderr, "  Frames: %d  Resolution: %dx%d  QIndex: %d  CoeffMode: %s  GOP: %s\n",
+    fprintf(stderr, "  Frames: %d  Resolution: %dx%d  QIndex: %d  CoeffMode: %s  GOP: %s  key_interval=%d\n",
             num_frames, FRAME_WIDTH, FRAME_HEIGHT, effective_qindex,
-            dc_only ? "DC-only" : "Full", all_key ? "all-key" : "IP");
+            dc_only ? "DC-only" : "Full", gop_mode.c_str(), key_interval);
+    fprintf(stderr,
+            "[TB] GOP control: gop_mode=%s key_interval=%d inter_refresh_frame_flags=0x%02x ref_map=LASTx7 order_hint=disabled\n",
+            gop_mode.c_str(), key_interval, refresh_frame_flags);
     fprintf(stderr, "==========================================================\n");
     if (effective_qindex != qindex) {
         fprintf(stderr,
@@ -318,6 +364,9 @@ int main(int argc, char** argv) {
     uint32_t total_bs_bytes = 0;
     bool frame_active = false;
     bool current_frame_is_key = true;
+    int current_frame_gop_pos = 0;
+    uint8_t current_frame_refresh_frame_flags = 0x01;
+    const char* current_frame_source_ref = "NONE";
     std::vector<EncodedTemporalUnit> temporal_units;
     std::vector<EncodedTemporalUnit> rtl_temporal_units;
     std::vector<uint8_t> rtl_byte_stream;
@@ -352,16 +401,20 @@ int main(int argc, char** argv) {
     while (!got_sigint && cycle < timeout_cycles && frame_idx < num_frames) {
         if (!frame_active) {
             dut->start = 1;
-            int idr_interval = 12;
-            bool is_key = all_key ? true : (frame_idx % idr_interval == 0);
-            dut->frame_num_in = all_key ? 0 : ((frame_idx % idr_interval) & 0xF);
+            current_frame_gop_pos = gop_all_key ? 0 : (frame_idx % key_interval);
+            bool is_key = gop_all_key ? true : (current_frame_gop_pos == 0);
+            dut->frame_num_in = gop_all_key ? 0 : (current_frame_gop_pos & 0xF);
             dut->is_keyframe_in = is_key ? 1 : 0;
+            dut->refresh_frame_flags_in = is_key ? 0xFF : static_cast<uint8_t>(refresh_frame_flags);
+            dut->ref_frame_idx_map_in = 0;
             dut->force_intra_in = force_intra ? 1 : 0;
             dut->me_zero_mv_only_in = me_zero_mv_only ? 1 : 0;
             dut->me_newmv_limit_in = (me_newmv_limit < 0) ? 0 : (me_newmv_limit > 255 ? 255 : me_newmv_limit);
             dut->dc_only_in = dc_only ? 1 : 0;
             dut->qindex_in = effective_qindex;
             current_frame_is_key = is_key;
+            current_frame_refresh_frame_flags = is_key ? 0xFF : static_cast<uint8_t>(refresh_frame_flags);
+            current_frame_source_ref = is_key ? "NONE" : "LAST";
             frame_active = true;
             frame_blocks.clear();
             frame_blocks.resize(BLK_COLS * BLK_ROWS);
@@ -785,6 +838,13 @@ int main(int argc, char** argv) {
             total_bs_bytes = dut->bs_bytes_written;
             fprintf(stderr, "[TB] Frame %d done @ cycle %llu -- rtl_bs_bytes=%u\n",
                     frame_idx, (unsigned long long)cycle, total_bs_bytes);
+            if (dump_ref_summary) {
+                fprintf(stderr,
+                        "[TB] ref_summary frame=%d mode=%s gop_mode=%s key_interval=%d gop_pos=%d frame_num=%d source_ref=%s refresh=0x%02x last_ref_rd=LAST last_ref_wr=LAST ref_map=0,0,0,0,0,0,0\n",
+                        frame_idx, current_frame_is_key ? "KEY" : "INTER", gop_mode.c_str(), key_interval,
+                        current_frame_gop_pos, dut->frame_num_in, current_frame_source_ref,
+                        current_frame_refresh_frame_flags);
+            }
             {
                 const size_t rtl_bytes = rtl_byte_stream.size();
                 if (rtl_bytes != static_cast<size_t>(total_bs_bytes)) {
@@ -828,7 +888,9 @@ int main(int argc, char** argv) {
                 writer.set_coeff_debug_mode(coeff_debug != 0);
                 writer.set_disable_cdf_update_mode(static_cdf_mode != 0);
                 writer.set_trace_symbol_ops(trace_writer_entropy != 0);
-                if (!all_key) {
+                writer.set_refresh_frame_flags(current_frame_refresh_frame_flags);
+                writer.set_ref_frame_idx_map_last_only();
+                if (!gop_all_key) {
                     writer.set_still_picture_mode(false);
                     writer.set_include_sequence_header(true);
                     writer.set_force_video_intra_only(false);
@@ -945,6 +1007,8 @@ int main(int argc, char** argv) {
                 writer.set_coeff_debug_mode(coeff_debug != 0);
                 writer.set_disable_cdf_update_mode(static_cdf_mode != 0);
                 writer.set_trace_symbol_ops(trace_writer_entropy != 0);
+                writer.set_refresh_frame_flags(current_frame_refresh_frame_flags);
+                writer.set_ref_frame_idx_map_last_only();
                 writer.set_still_picture_mode(false);
                 writer.set_include_sequence_header(frame_idx == 0);
                 writer.set_force_video_intra_only(false);

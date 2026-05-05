@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <cassert>
@@ -691,6 +692,7 @@ public:
           force_skip0_(false), dc_only_mode_(false), coeff_debug_mode_(false),
           still_picture_mode_(true), include_sequence_header_(true),
           force_video_intra_only_(false), is_keyframe_(true),
+          refresh_frame_flags_(0x01), ref_frame_idx_map_{},
           disable_cdf_update_mode_(false), trace_symbol_ops_(false),
           trace_block_idx_(-1), trace_op_idx_(0) {}
 
@@ -701,6 +703,9 @@ public:
     void set_include_sequence_header(bool v) { include_sequence_header_ = v; }
     void set_force_video_intra_only(bool v) { force_video_intra_only_ = v; }
     void set_keyframe(bool v) { is_keyframe_ = v; }
+    void set_refresh_frame_flags(uint8_t v) { refresh_frame_flags_ = v; }
+    void set_ref_frame_idx_map(const std::array<uint8_t, 7>& map) { ref_frame_idx_map_ = map; }
+    void set_ref_frame_idx_map_last_only() { ref_frame_idx_map_.fill(REF_LAST); }
     void set_disable_cdf_update_mode(bool v) { disable_cdf_update_mode_ = v; }
     void set_trace_symbol_ops(bool v) { trace_symbol_ops_ = v; trace_op_idx_ = 0; }
 
@@ -817,6 +822,8 @@ private:
     bool include_sequence_header_;
     bool force_video_intra_only_;
     bool is_keyframe_;
+    uint8_t refresh_frame_flags_;
+    std::array<uint8_t, 7> ref_frame_idx_map_;
     bool disable_cdf_update_mode_;
     bool trace_symbol_ops_;
     int trace_block_idx_;
@@ -1756,7 +1763,6 @@ private:
 
     std::vector<uint8_t> build_frame_obu_video_intra_only() {
         BitWriter hdr_bw;
-        const uint8_t refresh_mask = 0x01;
         hdr_bw.write_bit(0);      // show_existing_frame = 0
         hdr_bw.write_bits(2, 2);  // frame_type = INTRA_ONLY_FRAME
         hdr_bw.write_bit(1);      // show_frame = 1
@@ -1764,10 +1770,9 @@ private:
         hdr_bw.write_bit(disable_cdf_update_mode_ ? 1 : 0);
         hdr_bw.write_bit(0);      // allow_screen_content_tools = 0
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
-        // Keep the mixed-sequence bootstrap conformant by refreshing only the
-        // LAST slot. The inter-frame header maps all single-ref indices back
-        // to this slot until a fuller reference manager exists.
-        hdr_bw.write_bits(refresh_mask, 8);
+        // Keep the mixed-sequence bootstrap conformant by refreshing the
+        // explicitly controlled LAST-only slot map.
+        hdr_bw.write_bits(refresh_frame_flags_, 8);
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
         // With disable_cdf_update=1, disable_frame_end_update_cdf is inferred
         // and refresh_frame_context is not signaled.
@@ -1796,9 +1801,9 @@ private:
         hdr_bw.write_bit(1);      // allow_screen_content_tools = 1
         hdr_bw.write_bit(0);      // force_integer_mv = 0
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
-        hdr_bw.write_bits(0x01, 8); // refresh LAST slot only
+        hdr_bw.write_bits(refresh_frame_flags_, 8); // refresh LAST slot only
         for (int ref = 0; ref < 7; ++ref)
-            hdr_bw.write_bits(0, 3); // Map every ref type to the valid LAST slot
+            hdr_bw.write_bits(ref_frame_idx_map_[ref], 3); // Map every ref type to the valid LAST slot
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
         hdr_bw.write_bit(1);      // allow_high_precision_mv = 1
         hdr_bw.write_bit(0);      // interpolation_filter == SWITCHABLE = 0
