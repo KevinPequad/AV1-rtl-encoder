@@ -6,6 +6,13 @@
 //
 // Reference: AV1 Specification Section 5 (OBU syntax)
 //            SVT-AV1/Source/Lib/Codec/bitstream_unit.c
+//
+// Ownership note: this module intentionally implements the current reduced
+// static-CDF subset only. It owns the bytes for the supported temporal
+// delimiter / sequence header / frame header fields, but broader AV1 header
+// features (adaptive CDF update signaling, order hints, multi-ref refresh,
+// non-trivial tile/filter/restoration tools, lossless/qindex=0 variants, etc.)
+// must be added here with matching RTL-owned gates before they are claimed.
 
 module av1_bitstream #(
     parameter FRAME_WIDTH  = 1280,
