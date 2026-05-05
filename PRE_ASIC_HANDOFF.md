@@ -1,11 +1,14 @@
 # AV1 Pre-ASIC Handoff
 
-Canonical freeze baseline:
+Historical reduced freeze baseline:
+
 - commit `8994490d209a745fb157e999af616b49de2c6ce1` on `main`
 - `origin/main` is pushed
 - validated on Chud PC 2 with `THREADS=1 BUILD_JOBS=1`
 - current matrix: 21/21 gates passed
 - proof set: raw OBU equality, raw IVF equality, FFmpeg/libdav1d parity, aomdec parity, and no testbench or packaging repair masking RTL bugs
+
+This document is historical and does not define the active program goal. The active full-feature scope lives in `FULL_RTL_SCOPE.md`.
 
 Supported frozen baseline:
 
@@ -19,7 +22,7 @@ Supported frozen baseline:
 - P7 LAST-path motion modes on the reduced LAST-only path: GLOBALMV, NEARESTMV, NEARMV, NEWMV, ZEROMV
 - current public-decoder proof surface: `S0`-`S16` and `T0`-`T9` from `scripts/run_av1_regression_matrix.py`
 
-Excluded / deferred lanes:
+Excluded / deferred lanes in the historical freeze:
 
 - LAST2, LAST3, GOLDEN, BWDREF, ALTREF, ALTREF2
 - compound prediction of any family, including weighted, wedge, and masked variants
@@ -60,4 +63,4 @@ ASIC-readiness blockers:
 
 Handoff note:
 
-- This is a freeze marker, not a new feature lane. Future regressions should be fixed against the frozen baseline, and no new codec feature work should start without an explicit scope reset.
+- This is a historical freeze marker. Use `FULL_RTL_SCOPE.md` for the active backlog; no new scope should be inferred from the reduced freeze docs.
