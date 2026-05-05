@@ -1,5 +1,10 @@
 # P7 Reference Boundary Checkpoint
 
+Canonical checkpoint:
+- commit `8994490d209a745fb157e999af616b49de2c6ce1` on `main`
+- `origin/main` is pushed
+- validated on Chud PC 2 with `THREADS=1 BUILD_JOBS=1`; the single-threaded current matrix passed 21/21 gates
+
 This checkpoint records the current AV1 inter boundary after MV coverage. It keeps the implemented path on single-reference LAST-only inter while the full RTL AV1 roadmap remains open; it is a staging milestone, not a terminal reduction of the product scope.
 
 Owned now:
@@ -7,7 +12,7 @@ Owned now:
 - single-reference LAST-only inter prediction
 - LAST-path motion modes already proven by the current inter fixtures: GLOBALMV, NEARESTMV, NEARMV, NEWMV, ZEROMV
 - 64x64 low-delay LAST-only lifecycle proof
-- 64x64 LAST-path mode/context syntax gate
+- 64x64 LAST-path mode/context syntax gate (syntax/byte-ownership only)
 - 64x64 fractional-q3 NEWMV proof
 - sequence/frame headers that legally disable compound, masked, inter-intra, warped, and order-hint tools for this checkpoint
 
@@ -31,4 +36,4 @@ Boundary gates:
 
 Public-decoder proof gates must come from the RTL raw OBU / IVF bytes with FFmpeg/libdav1d and aomdec decode-to-recon parity. Header-only gates such as `make bitstream-check WIDTH=16 HEIGHT=16` and `make natural64-ip-mode-context-syntax-check` remain separate syntax regressions and do not claim decoder parity. The testbench may compare against the software oracle, but it must not repair the public-decoder stream.
 
-This checkpoint does not freeze the long-term goal; it only records the currently owned LAST-only boundary so the next AV1 inter lane can widen from a verified baseline.
+This checkpoint does not freeze the long-term goal; it only records the currently owned LAST-only boundary so the next AV1 inter lane can widen from a verified baseline. See `PRE_ASIC_HANDOFF.md` for the frozen baseline and ASIC-readiness blockers.

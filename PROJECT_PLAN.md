@@ -3,6 +3,7 @@
 ## Current Slice
 
 Completed:
+- Freeze the pre-ASIC AV1 baseline on canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1`; the single-threaded current matrix passed 21/21 gates under `THREADS=1 BUILD_JOBS=1`, with raw OBU/IVF equality, FFmpeg/libdav1d parity, and `aomdec` parity. `PRE_ASIC_HANDOFF.md` records the supported feature set, exclusions, regression commands, and ASIC-readiness blockers.
 - Fix the Chud PC 2 generated `16x16` smoke ownership blocker:
   - generated non-flat all-key and 2-frame IP smoke cases are now byte-exact between software-owned and RTL-owned raw OBU/IVF artifacts
   - both `ffmpeg`/libdav1d and `aomdec` decode the RTL IVF back to `recon.yuv`
@@ -19,19 +20,20 @@ Completed:
   - `output/natural_motion64_x640_y360_10f_subpel2/` at `64x64`, `10` frames, `qindex=128`: `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and strict `aomdec` output matches `recon.yuv`
 - Reconfirm the current longer-sequence runtime envelope after the header/subpel syntax move:
   - the full `10`-frame `64x64` natural-motion guard still completes at cycle `65670737`
-  - keep using `+timeout=70000000` or higher for that guard on this machine
+  - keep using `+progress_every=5000000 +timeout=70000000` or higher for that guard on this machine
 
 ## P7 Boundary Checkpoint
 
-- `P7_REFERENCE_BOUNDARY.md` records the current LAST-only inter contract and the currently deferred compound/reference families.
+- `P7_REFERENCE_BOUNDARY.md` records the current LAST-only inter contract and the currently deferred compound/reference families, plus the exact frozen baseline evidence.
+- Canonical freeze baseline: `8994490d209a745fb157e999af616b49de2c6ce1` on `main`, already pushed to `origin/main`, with the single-threaded current matrix passing 21/21 gates.
 - `make bitstream-check WIDTH=16 HEIGHT=16`, `make gop-lifecycle-syntax-check`, `make natural64-ip-mode-context-syntax-check`, and `make natural64-ip-fractional-syntax-check` are the boundary gates.
-- This is a staging checkpoint toward full RTL AV1 completion, not final scope closure.
+- This is a staging checkpoint toward full RTL AV1 completion, not final scope closure; compound / multi-ref tools remain deferred for the reduced low-delay target.
 
 ## Next Slice
 
-1. Widen the now-passing 32x32 zero-MV natural-ish IP residual proof toward non-zero/fractional-MV inter natural clips.
-2. Keep `nonzero-chroma-syntax-check`, `nonzero-chroma16-syntax-check`, `natural32-chroma-syntax-check`, and `natural32-ip-syntax-check` public-decoder gates passing while widening the fixture.
-3. Continue debugging the unconstrained 32x32 non-zero-MV natural IP mismatch as the next motion-specific blocker without regressing the zero-MV P-frame residual gate.
+1. No new AV1 feature lanes unless a regression or explicit scope reset appears.
+2. ASIC-readiness work only: lint, synthesis-top-smoke, memory macro / black-box planning, timing closure, and signoff prep.
+3. If a future bug appears, fix it against the frozen baseline and rerun the current matrix.
 
 ## Regression Gates
 
