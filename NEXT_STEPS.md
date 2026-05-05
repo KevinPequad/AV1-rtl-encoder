@@ -2,6 +2,7 @@
 
 ## Completed
 
+- P7 reference boundary checkpoint is now validated on canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1` (already pushed to `origin/main`); T8 stays a syntax/byte-ownership gate, T9 is the q3 fractional public-decoder proof, and compound / multi-ref tools remain deferred for the reduced low-delay target.
 - Fixed the Chud PC 2 generated `16x16` smoke ownership blocker:
   - frame OBU size back-patching now uses `bs_wr_addr`, the append address used by the RTL byte mux, rather than the drift-prone debug total counter
   - the testbench default now uses static CDF mode (`disable_cdf_update=1`) to match the current RTL entropy subset until adaptive CDF ownership exists
