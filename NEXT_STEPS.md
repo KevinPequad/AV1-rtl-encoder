@@ -1,30 +1,19 @@
 # Next Steps
 
-## Completed
+## Active Direction
 
-- The pre-ASIC AV1 baseline is frozen on canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1`; the single-threaded current matrix passed 21/21 gates under `THREADS=1 BUILD_JOBS=1`, and `PRE_ASIC_HANDOFF.md` captures the supported scope, exclusions, regression commands, and ASIC-readiness blockers.
-- P7 reference boundary remains locked by `make bitstream-check WIDTH=16 HEIGHT=16`, `make gop-lifecycle-syntax-check`, `make natural64-ip-mode-context-syntax-check`, and `make natural64-ip-fractional-syntax-check`.
-- The Chud PC 2 smoke / natural-motion proof commands remain the regression surface for future fixes:
-  - `make THREADS=1 BUILD_JOBS=1 entropy-check`
-  - `make THREADS=1 BUILD_JOBS=1 bitstream-check WIDTH=16 HEIGHT=16`
-  - `make THREADS=1 BUILD_JOBS=1 natural32-ip-syntax-check`
-  - `make THREADS=1 BUILD_JOBS=1 natural32-ip-newmv-syntax-check`
-  - `make THREADS=1 BUILD_JOBS=1 natural32-ip-fractional-syntax-check`
-  - `make THREADS=1 BUILD_JOBS=1 gop-lifecycle-syntax-check`
-  - `make THREADS=1 BUILD_JOBS=1 natural64-ip-mode-context-syntax-check`
-  - `make THREADS=1 BUILD_JOBS=1 natural64-ip-fractional-syntax-check`
+- Use `FULL_RTL_SCOPE.md` as the working backlog.
+- Treat `PRE_ASIC_HANDOFF.md` and `P7_REFERENCE_BOUNDARY.md` as historical references only.
+- Keep the reduced freeze out of any wording that could be read as project completion.
 
-## What Remains
+## Immediate Priorities
 
-- ASIC-readiness only: lint, synthesis-top-smoke, memory macro / black-box strategy, timing closure, physical signoff, and packaging/tapeout planning.
-- No new AV1 feature work should be started without an explicit scope reset.
+1. Keep the P1/P2 ownership and entropy/bitstream truth explicit.
+2. Use P7/P8 to widen inter, ME, MV, and reference/GOP coverage.
+3. Finish P9-P12 only after the inter and reference lanes are stable.
+4. Leave P13 ASIC readiness until the RTL feature matrix is actually complete.
 
-## Blockers
+## Validation Entry Points
 
-- No ASIC synthesis or signoff evidence yet.
-- The final `1280x720 @ 24 fps` Big Buck Bunny target remains a system-integration milestone, not a current feature gap.
-
-## Exact Next Command Or File To Edit
-
-- `PRE_ASIC_HANDOFF.md` if the frozen baseline changes.
-- Otherwise start the first ASIC-flow task.
+- Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
+- For historical freeze reruns, keep the single-threaded matrix invocation used by `PRE_ASIC_HANDOFF.md`.

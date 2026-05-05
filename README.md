@@ -29,13 +29,22 @@ Official external debug references pulled from the web are tracked in `av1-refer
 - It must reflect the current supported feature subset, current verification status, known gaps, active blockers, and the currently recommended run flow.
 - Important findings must not live only in terminal output, replies, or commit messages. If they affect what is true about the encoder, record them here.
 
+## Current Program Scope
+
+The active program goal is full feature-complete RTL AV1.
+
+- The reduced pre-ASIC freeze on canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1` is a historical checkpoint, not project completion.
+- The exact active source of truth is `FULL_RTL_SCOPE.md`.
+- The exact matrix is derived from `av1-reference-docs/svt-av1-feature-inventory.md` plus the prior gap audit.
+- Historical checkpoint details live in `PRE_ASIC_HANDOFF.md` and `P7_REFERENCE_BOUNDARY.md`.
+
 ## Bitstream Ownership Rule
 
 The RTL must own the final AV1 syntax generation needed for completion. The testbench may feed raw YUV, capture RTL bytes, decode output, compute metrics, and package a playable container, but it must not author the final AV1 syntax on behalf of the RTL for project completion.
 
 ## P9 Disabled Filter / Reference Ownership Policy
 
-The current low-delay target intentionally disables post-reconstruction AV1 filters: sequence headers signal `enable_cdef=0` and `enable_restoration=0`, and every supported frame header keeps `loop_filter_level[0..1]=0`. With loop filter, CDEF, restoration, superres, and film grain disabled, the post-filter reference frame is identical to the unfiltered RTL reconstruction, so the harness may promote reconstructed luma/chroma buffers directly as LAST references.
+Historical reduced-freeze note: the checkpoint below intentionally disabled post-reconstruction AV1 filters; that is not the active program goal. Sequence headers signal `enable_cdef=0` and `enable_restoration=0`, and every supported frame header keeps `loop_filter_level[0..1]=0`. With loop filter, CDEF, restoration, superres, and film grain disabled, the post-filter reference frame is identical to the unfiltered RTL reconstruction, so the harness may promote reconstructed luma/chroma buffers directly as LAST references.
 
 This contract is tracked in `P9_DISABLED_FILTER_POLICY.md` and guarded by `make bitstream-check`, which parses sequence/key/inter headers and includes negative filter-enabled guard cases. If a future lane enables any of those filters, add real RTL post-recon filter/restoration writeback before dumping `recon.yuv` or promoting reference buffers; do not repair filtered references in the C++ testbench.
 
@@ -43,7 +52,7 @@ This contract is tracked in `P9_DISABLED_FILTER_POLICY.md` and guarded by `make 
 
 Simulation and Verilator builds should use the right thread count for the task at hand.
 
-- For the pre-ASIC AV1 Kanban validation matrix and any doc/handoff reruns, default to `THREADS=1 BUILD_JOBS=1`.
+- For historical pre-ASIC AV1 Kanban validation matrix reruns and any doc/handoff checks, default to `THREADS=1 BUILD_JOBS=1`.
 - For routine smoke/debug work on this host, use the host's detected thread count unless a task says otherwise.
 - Do not force `THREADS` above the host's real thread count; Verilator 5.020 aborts at runtime if the model is built for more threads than the `VerilatedContext` can create.
 
@@ -62,7 +71,7 @@ cd tb
 make THREADS=16 BUILD_JOBS=16
 ```
 
-Frozen pre-ASIC validation matrix: see `PRE_ASIC_HANDOFF.md` for the canonical single-thread command and gate list.
+Historical pre-ASIC validation matrix: see `PRE_ASIC_HANDOFF.md` for the canonical single-thread command and gate list; see `FULL_RTL_SCOPE.md` for the active scope.
 
 ## Continuous Codex Supervisor
 
@@ -108,6 +117,7 @@ Supervisor contract:
 Always use primary references before making codec decisions.
 
 - `av1-reference-docs/av1-spec.pdf`
+- `FULL_RTL_SCOPE.md`
 - `../SVT-AV1/`
 - local or mirrored `libaom` sources under `av1-reference-docs/external/`
 - official blocker notes in `av1-reference-docs/external/README.md`
@@ -168,7 +178,7 @@ Inventory of the current repo state:
     - the old helper always skipped zero after the dedicated zero-MV probe, which pushed bottom-right blocks past the legal search window and could leave `TS_WAIT_ME` spinning on longer clips
     - the scan now skips zero only when another in-range candidate still follows it
   - standalone `rtl/av1_bitstream.v` regression harness in `tb/test_rtl_bitstream.cpp` and `make bitstream-check`
-  - the P7 reference boundary checkpoint is now documented in `P7_REFERENCE_BOUNDARY.md` and frozen on canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1` (already pushed to `origin/main`); see `PRE_ASIC_HANDOFF.md` for the supported baseline, exclusions, regression commands, and ASIC-readiness blockers; compound / multi-ref tools stay disabled for this checkpoint while the full RTL AV1 roadmap remains open
+  - the P7 reference boundary checkpoint is a historical reduced LAST-only boundary documented in `P7_REFERENCE_BOUNDARY.md` and frozen on canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1` (already pushed to `origin/main`); compound / multi-ref tools were disabled for that checkpoint, and `FULL_RTL_SCOPE.md` defines the active program scope
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
