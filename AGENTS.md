@@ -118,6 +118,7 @@
   - `rtl/av1_encoder_top.v` now emits the real `intra_inter` symbol on non-key blocks before mode syntax
   - `rtl/av1_bitstream.v` now emits a reduced video `INTER_FRAME` header instead of the old placeholder non-key bytes
   - `tb/test_rtl_bitstream.cpp` plus `make bitstream-check` now lock the standalone sequence header, video keyframe header, and video inter-frame header bytes against a reduced reference model
+  - the P7 reference boundary checkpoint is now locked by `P7_REFERENCE_BOUNDARY.md`, `make bitstream-check WIDTH=16 HEIGHT=16`, `make gop-lifecycle-syntax-check`, `make natural64-ip-mode-context-syntax-check`, and `make natural64-ip-fractional-syntax-check`; compound / multi-ref tools stay disabled for this checkpoint while the full RTL AV1 roadmap remains open
 - The current raw-path inter subset now owns the first real reduced LAST-ref motion path:
   - `rtl/av1_encoder_top.v` now derives a reduced neighboring ref-MV stack, stores per-block integer MVs, and emits the real `newmv`, `zeromv`, `refmv`, `drl`, `mv_joint`, sign, class, class0, and class-bit syntax on the RTL byte path
   - `use_inter` is no longer clamped to zero-motion matches on the RTL-owned path

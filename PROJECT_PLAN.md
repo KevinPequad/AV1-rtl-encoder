@@ -21,6 +21,12 @@ Completed:
   - the full `10`-frame `64x64` natural-motion guard still completes at cycle `65670737`
   - keep using `+timeout=70000000` or higher for that guard on this machine
 
+## P7 Boundary Checkpoint
+
+- `P7_REFERENCE_BOUNDARY.md` records the current LAST-only inter contract and the currently deferred compound/reference families.
+- `make bitstream-check WIDTH=16 HEIGHT=16`, `make gop-lifecycle-syntax-check`, `make natural64-ip-mode-context-syntax-check`, and `make natural64-ip-fractional-syntax-check` are the boundary gates.
+- This is a staging checkpoint toward full RTL AV1 completion, not final scope closure.
+
 ## Next Slice
 
 1. Widen the now-passing 32x32 zero-MV natural-ish IP residual proof toward non-zero/fractional-MV inter natural clips.

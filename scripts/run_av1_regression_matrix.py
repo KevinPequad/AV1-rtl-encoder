@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run AV1 regression matrix gates and write JSON/Markdown evidence manifests.
 
-This runner is validation infrastructure only. It records current reduced-subset
+This runner is validation infrastructure only. It records current boundary
 passes/failures and lists future P0-P13 feature-complete gates as skipped until
 feature-lane tasks implement them; skipped is never reported as pass.
 """
@@ -102,6 +102,9 @@ CURRENT_GATES: list[Gate] = [
     Gate("T4", "natural32-ip-syntax-check", make_cmd("natural32-ip-syntax-check"), TB, True, "32x32 zero-MV IP public decoder proof"),
     Gate("T5", "natural32-ip-newmv-syntax-check", make_cmd("natural32-ip-newmv-syntax-check"), TB, True, "32x32 isolated NEWMV public decoder proof"),
     Gate("T6", "natural32-ip-fractional-syntax-check", make_cmd("natural32-ip-fractional-syntax-check"), TB, True, "32x32 fractional q3 NEWMV public decoder proof"),
+    Gate("T7", "gop-lifecycle-syntax-check", make_cmd("gop-lifecycle-syntax-check"), TB, True, "64x64 low-delay LAST-only GOP lifecycle proof"),
+    Gate("T8", "natural64-ip-mode-context-syntax-check", make_cmd("natural64-ip-mode-context-syntax-check"), TB, True, "64x64 LAST-path GLOBALMV/NEARESTMV/NEARMV/NEWMV syntax gate"),
+    Gate("T9", "natural64-ip-fractional-syntax-check", make_cmd("natural64-ip-fractional-syntax-check"), TB, True, "64x64 fractional q3 NEWMV public decoder proof"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
@@ -120,7 +123,6 @@ FUTURE_GATES: list[dict[str, str]] = [
     {"audit_row": "P5", "name": "highdc-q1-public-check", "reason": "luma coefficient stress probes pending; not a pass"},
     {"audit_row": "P6", "name": "natural64-chroma-syntax-check", "reason": "feature-lane implementation pending; not a pass"},
     {"audit_row": "P6", "name": "chroma-ip-residual-check", "reason": "multi-frame chroma inter residual public proof pending; not a pass"},
-    {"audit_row": "P7", "name": "natural64-ip-fractional-syntax-check", "reason": "blocked on 64x64 natural fractional proof asset/path; not a pass"},
     {"audit_row": "P7", "name": "refmv-stack-check", "reason": "multi-reference/inter-syntax expansion pending; not a pass"},
     {"audit_row": "P8", "name": "ip-10f-last-public-check", "reason": "longer-GOP feature-lane implementation pending; not a pass"},
     {"audit_row": "P8", "name": "keyframe-interval-check", "reason": "session-control/reference-refresh coverage pending; not a pass"},
