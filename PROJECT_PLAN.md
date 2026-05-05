@@ -20,12 +20,17 @@ Completed:
 - Reconfirm the current longer-sequence runtime envelope after the header/subpel syntax move:
   - the full `10`-frame `64x64` natural-motion guard still completes at cycle `65670737`
   - keep using `+timeout=70000000` or higher for that guard on this machine
+- Validate the first real non-zero fractional-pel translational checkpoint on the reduced single-reference LAST path:
+  - `make THREADS=1 BUILD_JOBS=1 me-check` passes and confirms the motion-search refinement is active
+  - `make THREADS=1 BUILD_JOBS=1 WIDTH=32 HEIGHT=32 natural32-ip-fractional-syntax-check natural32-ip-newmv-syntax-check natural32-ip-syntax-check` passes with raw OBU/IVF exactness and FFmpeg/libdav1d + `aomdec` recon parity on the named 32x32 fixtures
+  - `make THREADS=1 BUILD_JOBS=1 natural32-chroma-syntax-check nonzero-chroma16-syntax-check nonzero-chroma-syntax-check` passes on the named chroma fixtures
+  - `make THREADS=1 BUILD_JOBS=1 natural64-ip-fractional-syntax-check` passes with raw OBU/IVF exactness and recon parity on the 64x64 natural-motion guard
 
 ## Next Slice
 
-1. Widen the now-passing 32x32 zero-MV natural-ish IP residual proof toward non-zero/fractional-MV inter natural clips.
-2. Keep `nonzero-chroma-syntax-check`, `nonzero-chroma16-syntax-check`, `natural32-chroma-syntax-check`, and `natural32-ip-syntax-check` public-decoder gates passing while widening the fixture.
-3. Continue debugging the unconstrained 32x32 non-zero-MV natural IP mismatch as the next motion-specific blocker without regressing the zero-MV P-frame residual gate.
+1. Widen beyond the reduced single-reference LAST motion subset into multi-reference/reference-MV-context debugging on broader natural-motion clips.
+2. Keep `nonzero-chroma-syntax-check`, `nonzero-chroma16-syntax-check`, `natural32-chroma-syntax-check`, `natural32-ip-syntax-check`, `natural32-ip-fractional-syntax-check`, `natural32-ip-newmv-syntax-check`, `natural64-ip-fractional-syntax-check`, and the current exact syntax-only subpel guards passing while widening.
+3. Treat the first failure on the broader clips as the next blocker; do not assume the reduced LAST subset scales automatically or call the project complete from this checkpoint.
 
 ## Regression Gates
 
@@ -56,7 +61,7 @@ On Chud PC 2, Verilator 5.020 required two top-level compile fixes in `rtl/av1_e
 - avoid slicing a function-call result directly; route those coefficient symbols through helper functions instead
 - avoid mixed blocking/nonblocking assignments on `intra_cand_sad`; compute the SAD into `intra_cand_sad_next` and register it separately
 
-Post-fix quick checks pass for `entropy-check`, `bitstream-check WIDTH=16 HEIGHT=16`, and `inv-xform-check` with `THREADS=16 BUILD_JOBS=16`. The generated Chud PC 2 `16x16` all-key and 2-frame IP smoke cases now also pass the strict ownership/decode gate: `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and both FFmpeg/libdav1d and `aomdec` decoded output match `recon.yuv`. Resume the first real non-zero fractional-pel datapath checkpoint next.
+Post-fix quick checks pass for `entropy-check`, `bitstream-check WIDTH=16 HEIGHT=16`, and `inv-xform-check` with `THREADS=16 BUILD_JOBS=16`. The generated Chud PC 2 `16x16` all-key and 2-frame IP smoke cases now also pass the strict ownership/decode gate: `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and both FFmpeg/libdav1d and `aomdec` decoded output match `recon.yuv`. The first real non-zero fractional-pel datapath checkpoint is now exact on the reduced single-reference LAST path; it still does not prove full AV1, multi-reference inter, arbitrary natural-motion coverage, or final 1280x720@24fps Big Buck Bunny validation, and the software writer/testbench remains the oracle for the named natural32/natural64 fixture comparisons.
 
 
 ## Chud PC 2 chroma residual top-level slice
