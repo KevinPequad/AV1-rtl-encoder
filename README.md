@@ -172,6 +172,7 @@ Inventory of the current repo state:
     - the old helper always skipped zero after the dedicated zero-MV probe, which pushed bottom-right blocks past the legal search window and could leave `TS_WAIT_ME` spinning on longer clips
     - the scan now skips zero only when another in-range candidate still follows it
   - standalone `rtl/av1_bitstream.v` regression harness in `tb/test_rtl_bitstream.cpp` and `make bitstream-check`
+  - the P7 reference boundary checkpoint is now documented in `P7_REFERENCE_BOUNDARY.md` and locked by `make bitstream-check WIDTH=16 HEIGHT=16`, `make gop-lifecycle-syntax-check`, `make natural64-ip-mode-context-syntax-check` (syntax gate), and `make natural64-ip-fractional-syntax-check`; compound / multi-ref tools stay disabled for this checkpoint while the full RTL AV1 roadmap remains open
 - Validated:
   - small still-picture and selected small video-path debug cases decode successfully
   - official external debug references have been pulled into `av1-reference-docs/external/`
