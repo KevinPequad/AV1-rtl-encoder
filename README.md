@@ -180,8 +180,8 @@ Inventory of the current repo state:
     - `encoded.ivf` and `encoded_rtl.ivf` now match byte-for-byte
     - the decoded raw RTL IVF now matches both `recon.yuv` and the flat repeated-frame source exactly
     - the last frame-1 tile-data drift was the reduced single-ref `cmp_ctx=2` / branch-0 CDF entry on the RTL path; it now matches the software reference at `3024`
-  - `make entropy-check THREADS=24 BUILD_JOBS=24` passes in WSL and matches the C++ `AV1RangeCoder` byte-for-byte for bool, literal, and symbol cases
-  - `make bitstream-check THREADS=24 BUILD_JOBS=24 WIDTH=16 HEIGHT=16` now passes in WSL:
+  - `make entropy-check THREADS=$(nproc) BUILD_JOBS=$(nproc)` passes in WSL and matches the C++ `AV1RangeCoder` byte-for-byte for bool, literal, and symbol cases
+  - `make bitstream-check THREADS=$(nproc) BUILD_JOBS=$(nproc) WIDTH=16 HEIGHT=16` now passes in WSL:
     - sequence header bytes match the reduced reference model exactly
     - video keyframe header bytes match the reduced reference model exactly
     - the new video inter-frame header bytes match the reduced reference model exactly
@@ -379,40 +379,48 @@ Do not treat this project as complete until all of the following are true:
 
 Use the repo scripts for broad runs, and use a small `64x64` focused check when validating bitstream, syntax, and reconstruction changes quickly.
 
-Broad run:
+Broad run (use the live CPU count; on Chud PC 2 this is currently 16):
 
 ```bash
-THREADS=24 BUILD_JOBS=24 bash run.sh
+THREADS=$(nproc) BUILD_JOBS=$(nproc) bash run.sh
 ```
 
-Focused verification flow:
+Focused verification flow on Chud PC 2:
 
 ```bash
 cd tb
-make THREADS=24 BUILD_JOBS=24 WIDTH=64 HEIGHT=64
-./Vav1_encoder_top +frames=1 +qindex=128 +dc_only=0 +input=../data/raw_frames.yuv +output=../output/encoded.obu
+make THREADS=16 BUILD_JOBS=16 WIDTH=64 HEIGHT=64
+./Vav1_encoder_top +frames=1 +qindex=128 +dc_only=0 +ownership_strict=1 +input=../data/raw_frames.yuv +output=../output/encoded.obu
+python3 test_rtl_obu_ivf_integrity.py --output-dir ../output --frames 1
 ```
 
 Fast header regression:
 
 ```bash
 cd tb
-make THREADS=24 BUILD_JOBS=24 WIDTH=16 HEIGHT=16 bitstream-check
+make THREADS=16 BUILD_JOBS=16 WIDTH=16 HEIGHT=16 bitstream-check
 ```
 
 Standalone entropy verification:
 
 ```bash
 cd tb
-make entropy-check THREADS=24 BUILD_JOBS=24
+make entropy-check THREADS=16 BUILD_JOBS=16
 ```
 
-For exact reconstruction checks, decode the generated IVF and compare it against `output/recon.yuv`.
-For RTL ownership debug, inspect `rtl_frames/frame_XXXX_rtl_raw.obu` and the concatenated `*_rtl_raw.obu` written beside the software-owned `encoded.obu` / `encoded.ivf` outputs.
+Strict bitstream ownership gate:
+
+```bash
+cd tb
+make THREADS=16 BUILD_JOBS=16 bitstream-ownership-check
+```
+
+For exact reconstruction checks, decode the generated RTL IVF (`encoded_rtl.ivf`) and compare it against `output/recon.yuv`.
+For RTL ownership debug, inspect `rtl_frames/frame_XXXX_rtl_raw.obu` and the concatenated `*_rtl_raw.obu` written beside the software-oracle `encoded.obu` / `encoded.ivf` outputs. In `+ownership_strict=1`, the testbench also writes `*_sw_oracle.obu` / `*_sw_oracle.ivf` aliases and refuses byte-count mismatches or writer-only repair knobs.
 
 For inter bring-up, use the repeated-frame `64x64` clip first to clear the zero-motion gate, then move to `data/natural_motion64_x640_y360_2f.yuv` or `data/natural_motion64_x640_y360_3f.yuv` for the reduced motion subset.
 If a syntax blocker appears, check `av1-reference-docs/external/README.md` first and refresh that folder from official sources before guessing.
-For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with `+limit_newmv_blocks=` so the first decoder-failing MV threshold can be isolated quickly.
+For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with RTL-owned controls such as `+me_newmv_limit=` so the first decoder-failing MV threshold can be isolated quickly. Do not use writer-only reducers such as `+limit_newmv_blocks=` in ownership gates.
 The reduced motion guards now extend cleanly through the repaired `64x64` `7`-frame and `10`-frame natural-motion cases.
 Use `output/natural_motion64_x640_y360_10f_progress70m/` as the long exact guard and budget `+timeout=70000000` or higher when rerunning it.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
@@ -429,10 +437,11 @@ Verified directly on Chud PC 2 (`chudpc2-MS-7C91`, Verilator 5.020, `nproc=16`):
 - The top-level `16x16` Verilator build now compiles on Chud PC 2 after removing function-call result slicing that Verilator 5.020 rejects and avoiding mixed blocking/nonblocking assignments to `intra_cand_sad`.
 - A generated `16x16` flat all-key RTL IVF decodes in both FFmpeg/libdav1d and `aomdec`, and decoded output matches `recon.yuv`.
 
-Current blocker found on Chud PC 2:
+Current Chud PC 2 ownership status:
 
-- Generated non-flat `16x16` all-key and generated flat `16x16` 2-frame IP smoke cases expose an RTL raw-stream ownership issue: `encoded_rtl_raw.obu` / `encoded_rtl.ivf` are not byte-exact against the software-owned path, and the generated non-flat all-key / 2-frame IP RTL IVF can be rejected by public decoders due to OBU length/payload drift.
-- Keep the standalone checks in the normal loop, but do not claim public-decoder compatibility beyond the verified flat all-key smoke until this RTL raw-stream drift is fixed.
+- The earlier generated non-flat `16x16` all-key and flat `16x16` 2-frame IP raw-stream drift has been fixed in the RTL byte path.
+- Keep `THREADS=16 BUILD_JOBS=16` on Chud PC 2 and run `make bitstream-ownership-check` for the strict no-repair gate. The gate requires raw RTL OBU equality against the software oracle, RTL IVF payload equality against raw RTL OBU bytes, FFmpeg/libdav1d decode-vs-`recon.yuv`, and `aomdec` decode-vs-`recon.yuv`.
+- The current operating point remains static CDF / `disable_cdf_update=1`; do not claim adaptive CDF ownership until RTL owns CDF update state and a dedicated gate covers it.
 
 ## Verification Rules
 
