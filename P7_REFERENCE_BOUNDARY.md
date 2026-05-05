@@ -7,7 +7,7 @@ Owned now:
 - single-reference LAST-only inter prediction
 - LAST-path motion modes already proven by the current inter fixtures: GLOBALMV, NEARESTMV, NEARMV, NEWMV, ZEROMV
 - 64x64 low-delay LAST-only lifecycle proof
-- 64x64 LAST-path mode/context proof
+- 64x64 LAST-path mode/context syntax gate
 - 64x64 fractional-q3 NEWMV proof
 - sequence/frame headers that legally disable compound, masked, inter-intra, warped, and order-hint tools for this checkpoint
 
@@ -29,6 +29,6 @@ Boundary gates:
 - `make natural64-ip-fractional-syntax-check`
 - existing `natural32-ip-syntax-check`, `natural32-ip-newmv-syntax-check`, and `natural32-ip-fractional-syntax-check`
 
-For any syntax-visible gate, the proof must come from the RTL raw OBU / IVF bytes with FFmpeg/libdav1d and aomdec decode-to-recon parity. The testbench may compare against the software oracle, but it must not repair the public-decoder stream.
+Public-decoder proof gates must come from the RTL raw OBU / IVF bytes with FFmpeg/libdav1d and aomdec decode-to-recon parity. Header-only gates such as `make bitstream-check WIDTH=16 HEIGHT=16` and `make natural64-ip-mode-context-syntax-check` remain separate syntax regressions and do not claim decoder parity. The testbench may compare against the software oracle, but it must not repair the public-decoder stream.
 
 This checkpoint does not freeze the long-term goal; it only records the currently owned LAST-only boundary so the next AV1 inter lane can widen from a verified baseline.

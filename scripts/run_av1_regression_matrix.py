@@ -103,7 +103,7 @@ CURRENT_GATES: list[Gate] = [
     Gate("T5", "natural32-ip-newmv-syntax-check", make_cmd("natural32-ip-newmv-syntax-check"), TB, True, "32x32 isolated NEWMV public decoder proof"),
     Gate("T6", "natural32-ip-fractional-syntax-check", make_cmd("natural32-ip-fractional-syntax-check"), TB, True, "32x32 fractional q3 NEWMV public decoder proof"),
     Gate("T7", "gop-lifecycle-syntax-check", make_cmd("gop-lifecycle-syntax-check"), TB, True, "64x64 low-delay LAST-only GOP lifecycle proof"),
-    Gate("T8", "natural64-ip-mode-context-syntax-check", make_cmd("natural64-ip-mode-context-syntax-check"), TB, True, "64x64 LAST-path mode/context proof"),
+    Gate("T8", "natural64-ip-mode-context-syntax-check", make_cmd("natural64-ip-mode-context-syntax-check"), TB, True, "64x64 LAST-path GLOBALMV/NEARESTMV/NEARMV/NEWMV syntax gate"),
     Gate("T9", "natural64-ip-fractional-syntax-check", make_cmd("natural64-ip-fractional-syntax-check"), TB, True, "64x64 fractional q3 NEWMV public decoder proof"),
 ]
 
