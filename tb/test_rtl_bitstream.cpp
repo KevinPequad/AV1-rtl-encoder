@@ -431,6 +431,8 @@ static std::vector<uint8_t> run_command(bool seq_hdr, bool frame_hdr, bool is_ke
     dut.write_frame_hdr = 0;
     dut.is_keyframe = is_keyframe ? 1 : 0;
     dut.qindex = qindex;
+    dut.refresh_frame_flags_in = is_keyframe ? 0xFF : 0x01;
+    dut.ref_frame_idx_map_in = 0;
     dut.frame_num = 0;
     dut.eval();
 
@@ -442,6 +444,8 @@ static std::vector<uint8_t> run_command(bool seq_hdr, bool frame_hdr, bool is_ke
     dut.write_frame_hdr = frame_hdr ? 1 : 0;
     dut.is_keyframe = is_keyframe ? 1 : 0;
     dut.qindex = qindex;
+    dut.refresh_frame_flags_in = is_keyframe ? 0xFF : 0x01;
+    dut.ref_frame_idx_map_in = 0;
     tick(&dut, out);
     dut.write_seq_hdr = 0;
     dut.write_frame_hdr = 0;

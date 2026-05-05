@@ -28,6 +28,8 @@ module av1_bitstream #(
     input  wire        is_keyframe,
     input  wire [7:0]  qindex,
     input  wire [3:0]  frame_num,
+    input  wire [7:0]  refresh_frame_flags_in,
+    input  wire [20:0] ref_frame_idx_map_in,
 
     output reg         busy,
     output reg         done,
@@ -67,6 +69,9 @@ module av1_bitstream #(
     // Latch frame header inputs
     reg        lat_is_keyframe;
     reg [7:0]  lat_qindex;
+    reg [7:0]  lat_refresh_frame_flags;
+    reg [20:0] lat_ref_frame_idx_map;
+    reg        seq_hdr_emitted;
     integer    bw_byte_idx;
     integer    bw_bit_pos;
     integer    w_bits;
@@ -110,6 +115,23 @@ module av1_bitstream #(
             while ((blk_size << k) < target)
                 k = k + 1;
             tile_log2 = k;
+        end
+    endfunction
+
+    function [2:0] ref_map_slot;
+        input [20:0] map;
+        input integer idx;
+        begin
+            case (idx)
+                0: ref_map_slot = map[2:0];
+                1: ref_map_slot = map[5:3];
+                2: ref_map_slot = map[8:6];
+                3: ref_map_slot = map[11:9];
+                4: ref_map_slot = map[14:12];
+                5: ref_map_slot = map[17:15];
+                6: ref_map_slot = map[20:18];
+                default: ref_map_slot = 3'd0;
+            endcase
         end
     endfunction
 
@@ -238,6 +260,11 @@ module av1_bitstream #(
             obuf_len      <= 0;
             obuf_idx      <= 0;
             build_cmd     <= 0;
+            lat_is_keyframe <= 0;
+            lat_qindex <= 0;
+            lat_refresh_frame_flags <= 8'h01;
+            lat_ref_frame_idx_map <= 21'd0;
+            seq_hdr_emitted <= 1'b0;
         end else begin
             done       <= 0;
             byte_valid <= 0;
@@ -254,13 +281,20 @@ module av1_bitstream #(
                         busy     <= 1;
                         state    <= S_OUT;
                     end else if (write_seq_hdr) begin
-                        build_cmd <= CMD_SEQ;
-                        busy      <= 1;
-                        state     <= S_BUILD;
+                        if (seq_hdr_emitted) begin
+                            done <= 1;
+                            busy <= 0;
+                        end else begin
+                            build_cmd <= CMD_SEQ;
+                            busy      <= 1;
+                            state     <= S_BUILD;
+                        end
                     end else if (write_frame_hdr) begin
                         build_cmd       <= CMD_FRM;
                         lat_is_keyframe <= is_keyframe;
                         lat_qindex      <= qindex;
+                        lat_refresh_frame_flags <= refresh_frame_flags_in;
+                        lat_ref_frame_idx_map <= ref_frame_idx_map_in;
                         busy            <= 1;
                         state           <= S_BUILD;
                     end
@@ -313,6 +347,7 @@ module av1_bitstream #(
                         payload_len = bw_byte_idx - 2;
                         obuf[1] = payload_len[7:0];
                         obuf_len <= bw_byte_idx[5:0];
+                        seq_hdr_emitted <= 1'b1;
                     end else begin
                         // Keep the non-key path as a reduced placeholder for
                         // now. For keyframes, emit the software writer's
@@ -368,9 +403,9 @@ module av1_bitstream #(
                             bw_write_bit(1);   // allow_screen_content_tools
                             bw_write_bit(0);   // force_integer_mv
                             bw_write_bit(0);   // frame_size_override_flag
-                            bw_write_bits(8'h01, 8);   // refresh LAST slot only
+                            bw_write_bits(lat_refresh_frame_flags, 8);   // refresh LAST slot only
                             for (j = 0; j < 7; j = j + 1)
-                                bw_write_bits(0, 3);   // all refs map to LAST
+                                bw_write_bits(ref_map_slot(lat_ref_frame_idx_map, j), 3);   // all refs map to LAST
                             bw_write_bit(0);   // render_and_frame_size_different
                             bw_write_bit(1);   // allow_high_precision_mv
                             bw_write_bit(0);   // interpolation_filter == SWITCHABLE

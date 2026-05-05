@@ -10,8 +10,8 @@ if [[ -n "${AV1_ARTIFACT_ROOT:-}" ]]; then
 else
   WORK=${AV1_TOP_SMOKE_WORK:-/tmp/av1_chudpc2_top_smoke_worktree}
 fi
-THREADS=${THREADS:-16}
-BUILD_JOBS=${BUILD_JOBS:-16}
+THREADS=${THREADS:-1}
+BUILD_JOBS=${BUILD_JOBS:-1}
 export WORK
 
 rm -rf "$WORK"
@@ -36,6 +36,9 @@ uv = bytes([128]) * (W * H // 2)
 frame = bytes(y) + uv
 (out / 'grad16_1f.yuv').write_bytes(frame)
 (out / 'grad16_2f_repeat.yuv').write_bytes(frame + frame)
+(out / 'grad16_13f_repeat.yuv').write_bytes(frame * 13)
+flat = bytes([128]) * len(frame)
+(out / 'flat16_13f_repeat.yuv').write_bytes(flat * 13)
 PY
 
 cd "$WORK/tb"
@@ -51,12 +54,12 @@ tail -20 "$WORK/top_build.log"
 tail -20 "$WORK/top_build.err"
 
 run_case() {
-  name="$1"; frames="$2"; input="$3"; all_key="$4"; timeout="$5"
+  name="$1"; frames="$2"; input="$3"; all_key="$4"; timeout="$5"; shift 5
   outdir="$WORK/output/$name"; mkdir -p "$outdir"
   echo "=== RUN $name frames=$frames all_key=$all_key ==="
   /usr/bin/time -f "ELAPSED $name %e" \
     ./Vav1_encoder_top \
-      +frames="$frames" +timeout="$timeout" +qindex=128 +dc_only=1 +all_key="$all_key" \
+      +frames="$frames" +timeout="$timeout" +qindex=128 +dc_only=1 +all_key="$all_key" "$@" \
       +input="$input" +output="$outdir/encoded.obu" \
       >"$outdir/sim.out" 2>"$outdir/sim.err" || {
         tail -120 "$outdir/sim.out"
@@ -93,5 +96,7 @@ run_case() {
 }
 
 export WORK
-run_case smoke16_1f_allkey 1 "$WORK/data/grad16_1f.yuv" 1 5000000
-run_case smoke16_2f_ip_repeat 2 "$WORK/data/grad16_2f_repeat.yuv" 0 20000000
+run_case smoke16_1f_allkey 1 "$WORK/data/grad16_1f.yuv" 1 5000000 +gop_mode=all_key +refresh_policy=last_only +dump_ref_summary=1
+run_case smoke16_2f_ip_repeat 2 "$WORK/data/grad16_2f_repeat.yuv" 0 20000000 +gop_mode=lowdelay_last +key_interval=12 +refresh_policy=last_only +dump_ref_summary=1
+
+run_case smoke16_13f_gop_boundary 13 "$WORK/data/flat16_13f_repeat.yuv" 0 40000000 +gop_mode=lowdelay_last +key_interval=12 +refresh_policy=last_only +dump_ref_summary=1

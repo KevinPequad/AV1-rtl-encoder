@@ -96,10 +96,11 @@ def write_yuv420(path: Path, width: int, height: int, frames: int, *, pattern: s
 
 
 def run_encoder_case(out_dir: Path, width: int, height: int, *, frames: int, qindex: int,
-                     all_key: bool, pattern: str = "gradient", repeat: bool = True,
+                     all_key: bool, gop_mode: Optional[str] = None, key_interval: Optional[int] = None,
+                     refresh_policy: Optional[str] = None, dump_ref_summary: bool = False,
+                     pattern: str = "gradient", repeat: bool = True,
                      dc_only: int = 1, extra_plusargs: Optional[List[str]] = None,
                      timeout: int = 500000000) -> Dict[str, object]:
-    require_sim()
     out_dir.mkdir(parents=True, exist_ok=True)
     yuv = out_dir / "input.yuv"
     out_obu = out_dir / "encoded.obu"
@@ -113,6 +114,10 @@ def run_encoder_case(out_dir: Path, width: int, height: int, *, frames: int, qin
         f"+all_key={1 if all_key else 0}",
         f"+input={yuv}",
         f"+output={out_obu}",
+        *([f"+gop_mode={gop_mode}"] if gop_mode is not None else []),
+        *([f"+key_interval={key_interval}"] if key_interval is not None else []),
+        *([f"+refresh_policy={refresh_policy}"] if refresh_policy is not None else []),
+        *(["+dump_ref_summary=1"] if dump_ref_summary else []),
     ]
     if extra_plusargs:
         cmd.extend(extra_plusargs)
@@ -172,6 +177,49 @@ def assert_ip_summary(log: str, width: int, height: int, label: str) -> None:
     if bad_mvs:
         fail(f"{label}: expected zero-MV inter path, saw {bad_mvs[:4]}")
     print(f"[PASS] {label}: IP summary total_inter={total_inter} zero-MV")
+
+
+def assert_lowdelay_last_summary(log: str, frame_count: int, key_interval: int, label: str) -> None:
+    summary_re = re.compile(r"\[TB\] ref_summary frame=(\d+) mode=(KEY|INTER) gop_mode=([a-z_]+) key_interval=(\d+) gop_pos=(\d+) frame_num=(\d+) source_ref=(NONE|LAST) refresh=0x([0-9a-fA-F]{2}) last_ref_rd=LAST last_ref_wr=LAST ref_map=0,0,0,0,0,0,0")
+    summaries = {}
+    for match in summary_re.finditer(log):
+        frame = int(match.group(1))
+        summaries[frame] = {
+            "mode": match.group(2),
+            "gop_mode": match.group(3),
+            "key_interval": int(match.group(4)),
+            "gop_pos": int(match.group(5)),
+            "frame_num": int(match.group(6)),
+            "source_ref": match.group(7),
+            "refresh": match.group(8).lower(),
+        }
+    if len(summaries) != frame_count:
+        fail(f"{label}: expected {frame_count} frame summaries, saw {len(summaries)}")
+    for frame in range(frame_count):
+        summary = summaries.get(frame)
+        if summary is None:
+            fail(f"{label}: missing summary for frame {frame}")
+        expect_key = (frame % key_interval) == 0
+        expect_mode = "KEY" if expect_key else "INTER"
+        if summary["mode"] != expect_mode:
+            fail(f"{label}: frame {frame} expected mode {expect_mode}, saw {summary['mode']}")
+        if summary["gop_mode"] != "lowdelay_last":
+            fail(f"{label}: frame {frame} expected gop_mode=lowdelay_last, saw {summary['gop_mode']}")
+        if summary["key_interval"] != key_interval:
+            fail(f"{label}: frame {frame} expected key_interval={key_interval}, saw {summary['key_interval']}")
+        expected_gop_pos = 0 if expect_key else frame % key_interval
+        if summary["gop_pos"] != expected_gop_pos:
+            fail(f"{label}: frame {frame} expected gop_pos={expected_gop_pos}, saw {summary['gop_pos']}")
+        expected_frame_num = 0 if expect_key else (frame % key_interval) & 0xF
+        if summary["frame_num"] != expected_frame_num:
+            fail(f"{label}: frame {frame} expected frame_num={expected_frame_num}, saw {summary['frame_num']}")
+        expected_source_ref = "NONE" if expect_key else "LAST"
+        if summary["source_ref"] != expected_source_ref:
+            fail(f"{label}: frame {frame} expected source_ref={expected_source_ref}, saw {summary['source_ref']}")
+        expected_refresh = "ff" if expect_key else "01"
+        if summary["refresh"] != expected_refresh:
+            fail(f"{label}: frame {frame} expected refresh={expected_refresh}, saw {summary['refresh']}")
+    print(f"[PASS] {label}: lowdelay_last summary verified for {frame_count} frames")
 
 
 class BitReader:
