@@ -104,6 +104,7 @@ $(SIM_BIN): $(TB_CPP) $(RTL_SRCS)
 		-o $(SIM_BIN)
 	$(MAKE) -C $(OBJ_DIR) -f V$(TOP_MODULE).mk -j $(BUILD_JOBS) AR="$(AR)" CXX="$(CXX)" LINK="$(LINK)"
 	@cp -f $(OBJ_DIR)/$(SIM_BIN) ./$(SIM_BIN) 2>/dev/null || true
+	@cp -f $(OBJ_DIR)/$(SIM_BIN) ./Vav1_encoder_top 2>/dev/null || true
 	@echo ""
 	@echo "Build complete: ./$(SIM_BIN)"
 
