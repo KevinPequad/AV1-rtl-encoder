@@ -102,7 +102,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check gop-lifecycle-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check clean help
+.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check gop-lifecycle-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check p5-highdc-q1-public-check p5-luma-coeff-eob-sweep-check clean help
 
 all: $(SIM_BIN)
 
@@ -359,6 +359,23 @@ skip-txb-cbp-matrix-check:
 quant-header-disabled-check:
 	python3 test_p4_quant_header_disabled.py
 
+p5-highdc-q1-public-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=16 HEIGHT=16 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	AV1_TOP_SIM=./$(OBJ_DIR)/$(SIM_BIN) python3 test_p5_highdc_q1_public.py
+
+p5-luma-coeff-eob-sweep-check:
+	$(MAKE) clean
+	@set -e; \
+	if ! $(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all; then \
+		if [ ! -x $(OBJ_DIR)/$(SIM_BIN) ]; then \
+			$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all; \
+		fi; \
+	fi; \
+	test -x $(OBJ_DIR)/$(SIM_BIN); \
+	cp -f $(OBJ_DIR)/$(SIM_BIN) ./$(SIM_BIN)
+	python3 test_p5_luma_coeff_eob_sweep.py
+
 rtl-byte-owner-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=8 HEIGHT=8 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
@@ -411,6 +428,8 @@ top-public-matrix-check:
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) gop-lifecycle-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-mode-context-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-fractional-syntax-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) p5-highdc-q1-public-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) p5-luma-coeff-eob-sweep-check
 
 av1-current-matrix-check av1-regression-matrix:
 	cd .. && python3 scripts/run_av1_regression_matrix.py
@@ -463,9 +482,11 @@ help:
 	@echo "  qindex-sweep-lossy-check qindex 1..255 lossy public-decoder sweep"
 	@echo "  skip-txb-cbp-matrix-check all-zero/luma/Cb/Cr/mixed CBP public-decoder proof"
 	@echo "  quant-header-disabled-check static guard for qmatrix/delta-q/SB-QP disabled policy"
+	@echo "  p5-highdc-q1-public-check 16x16 qindex=1 high-DC / non-zero AC public-decoder proof"
+	@echo "  p5-luma-coeff-eob-sweep-check 8x8 reduced short/mid/long luma coefficient EOB public-decoder proof"
 	@echo "  rtl-byte-owner-check Positive RTL-byte ownership proof plus N1-N5 anti-repair probes"
 	@echo "  standalone-matrix-check Run S1-S9 standalone reduced-subset gates"
-	@echo "  top-public-matrix-check Run T1-T9 top-level public-decoder gates"
+	@echo "  top-public-matrix-check Run T1-T11 top-level public-decoder gates"
 	@echo "  av1-current-matrix-check Run scripted current boundary matrix and write manifest"
 	@echo "  negative-*-check Run individual ownership negative probes"
 	@echo "  natural32-ip-chroma-delta-syntax-check 32x32 two-frame zero-MV chroma-inter residual public-decoder proof (64x64 follow-on still TODO)"

@@ -112,6 +112,7 @@ int main(int argc, char** argv) {
     int enable_order_hint = 0;
     int order_hint_bits = 0;
     int dump_blocks = 0;
+    int dump_coeff_summary = 0;
     int dump_partition = 0;
     int force_intra = 0;
     int me_zero_mv_only = 0;
@@ -173,6 +174,7 @@ int main(int argc, char** argv) {
         else if (arg.rfind("+enable_order_hint=", 0) == 0) enable_order_hint = std::atoi(arg.c_str() + std::strlen("+enable_order_hint="));
         else if (arg.rfind("+order_hint_bits=", 0) == 0) order_hint_bits = std::atoi(arg.c_str() + std::strlen("+order_hint_bits="));
         else if (arg.rfind("+dump_blocks=", 0) == 0) dump_blocks = std::atoi(arg.c_str() + 13);
+        else if (arg.rfind("+dump_coeff_summary=", 0) == 0) dump_coeff_summary = std::atoi(arg.c_str() + 20);
         else if (arg.rfind("+dump_partition=", 0) == 0) dump_partition = std::atoi(arg.c_str() + 16);
         else if (arg.rfind("+force_intra=", 0) == 0) force_intra = std::atoi(arg.c_str() + 13);
         else if (arg.rfind("+me_zero_mv_only=", 0) == 0) me_zero_mv_only = std::atoi(arg.c_str() + 17);
@@ -1189,6 +1191,35 @@ int main(int argc, char** argv) {
                         fprintf(stderr, "%s%d", (i == 0) ? "" : ",", bi.qcoeff[i]);
                     }
                     fprintf(stderr, "\n");
+                }
+            }
+
+            if (dump_coeff_summary) {
+                for (size_t bi_idx = 0; bi_idx < frame_blocks.size(); ++bi_idx) {
+                    const auto& bi = frame_blocks[bi_idx];
+                    int eob = 0;
+                    int nz = 0;
+                    int ac_nz = 0;
+                    int first_ac_scan = -1;
+                    int max_abs = 0;
+                    for (int scan_idx = 0; scan_idx < 64; ++scan_idx) {
+                        const int pos = default_scan_8x8[scan_idx];
+                        int coeff = (dc_only != 0 && scan_idx > 0) ? 0 : bi.qcoeff[pos];
+                        int abs_coeff = coeff < 0 ? -coeff : coeff;
+                        if (abs_coeff > max_abs) max_abs = abs_coeff;
+                        if (coeff == 0) continue;
+                        ++nz;
+                        eob = scan_idx + 1;
+                        if (scan_idx > 0) {
+                            ++ac_nz;
+                            if (first_ac_scan < 0) first_ac_scan = scan_idx;
+                        }
+                    }
+                    const int dc = bi.qcoeff[0];
+                    const int abs_dc = dc < 0 ? -dc : dc;
+                    fprintf(stderr,
+                            "[P5_COEFF] frame=%d blk=%zu eob=%d first_ac_scan=%d nz=%d ac_nz=%d dc=%d abs_dc=%d max_abs=%d\n",
+                            frame_idx, bi_idx, eob, first_ac_scan, nz, ac_nz, dc, abs_dc, max_abs);
                 }
             }
 

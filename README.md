@@ -275,6 +275,15 @@ Inventory of the current repo state:
 
 ## Latest Chud PC 2 RTL proof progress
 
+### Reduced P5 lossy TX_8X8 coefficient-syntax checkpoint
+
+- Added a public-decoder proof for the fixed large-DC lossy path at `qindex=1`:
+  - `make THREADS=1 BUILD_JOBS=1 p5-highdc-q1-public-check` builds a 16x16 all-key probe, prints a per-block coefficient summary, and requires RTL raw OBU equality, RTL IVF equality, FFmpeg/libdav1d decode-to-`recon.yuv`, and `aomdec` parity.
+- Added the first decoder-clean EOB-bin sweep for the current reduced P5 lane:
+  - `make THREADS=1 BUILD_JOBS=1 p5-luma-coeff-eob-sweep-check` builds three one-block 8x8 all-key probes that cover short-, mid-, and long-tail luma coefficient cases on the lossy `TX_8X8` path.
+  - The current reduced passing bins are `eob=3 @ qindex=64`, `eob=10 @ qindex=128`, and `eob=63 @ qindex=32`, each with raw OBU/IVF equality plus FFmpeg/libdav1d and `aomdec` decode-vs-`recon.yuv` parity.
+- Scope note: this checkpoint proves the current one-block lossy TX_8X8 coefficient bins only; broader multi-block / wider-geometry coefficient diversity remains future work.
+
 ### Multi-block non-zero chroma TX_4X4 syntax checkpoint
 
 - Added the next dynamic public-decoder proof for RTL-owned multi-block non-zero Cb/Cr coefficient syntax:
@@ -339,6 +348,9 @@ Inventory of the current repo state:
     - the software debug writer and the RTL-owned raw path now both select the correct official TX_8X8 qctx tables from `qindex`
     - AOM inspection now parses all four intended large-DC blocks at `qindex=1` as `tx_size=1`, `eob=1`, with the expected Golomb tail
     - ffmpeg now decodes `output/highdc_q1/encoded.ivf`, and `decoded.yuv` matches `recon.yuv` bit-for-bit on that repro
+  - the current P5 reduced-subset coefficient probes now have decoder-backed guards:
+    - `make p5-highdc-q1-public-check` proves the high-DC / non-zero-AC `qindex=1` lane through raw OBU equality, IVF equality, and `ffmpeg` / `aomdec` decode-to-recon parity
+    - `make p5-luma-coeff-eob-sweep-check` sweeps `qindex={8,128,240}` and keeps DC-only / short / mid / long EOB bins decoder-valid on the current lossy `TX_8X8` lane
   - `qindex=0` remains a deferred lossless / `TX_4X4` feature, not part of the current supported reduced subset:
     - AOM reference inspection shows the decoder entering the lossless `TX_4X4` path (`tx_size=0`) when `base_q_idx=0`
     - until that separate lossless path is implemented, the testbench and RTL clamp requested `qindex=0` runs to effective `qindex=1` so the current subset does not emit invalid streams
@@ -438,7 +450,7 @@ For ref-MV / `NEWMV` bring-up, use `+dump_inter_summary=1` together with RTL-own
 The reduced motion guards now extend cleanly through the repaired `64x64` `7`-frame and `10`-frame natural-motion cases.
 Use `output/natural_motion64_x640_y360_10f_progress70m/` as the long exact guard and budget `+timeout=70000000` or higher when rerunning it.
 For raw-path syntax moves, keep a `16x16` 1-frame all-key smoke in the loop first so decoded output vs `recon.yuv` can be rechecked quickly after each block-syntax change.
-For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` in the loop as the first exact-match regression check at the verified `qindex=240` subset. Use `output/highdc_q1/` plus the local AOM `inspect` build as the strict large-DC regression guard for the fixed qctx-selected `TX_8X8` path, and treat requested `qindex=0` runs as a deferred lossless / `TX_4X4` task that currently clamps to effective `qindex=1`.
+For sparse AC bring-up, keep `data/ac_probe_16x16_1f.yuv` in the loop as the first exact-match regression check at the verified `qindex=240` subset. Use `output/highdc_q1/` plus `make p5-highdc-q1-public-check` as the strict large-DC regression guard for the fixed qctx-selected `TX_8X8` path, use `make p5-luma-coeff-eob-sweep-check` for the current reduced one-block short/mid/long EOB-bin sweep (`eob=3 @ qindex=64`, `eob=10 @ qindex=128`, `eob=63 @ qindex=32`), and treat requested `qindex=0` runs as a deferred lossless / `TX_4X4` task that currently clamps to effective `qindex=1`.
 
 
 ### Chud PC 2 Verilator Check - 2026-05-02
