@@ -23,9 +23,9 @@ Completed:
 
 ## P7 Boundary Checkpoint
 
-- `P7_REFERENCE_BOUNDARY.md` records the current LAST-only inter contract and the currently deferred compound/reference families.
-- `make bitstream-check WIDTH=16 HEIGHT=16`, `make gop-lifecycle-syntax-check`, `make natural64-ip-mode-context-syntax-check`, and `make natural64-ip-fractional-syntax-check` are the boundary gates.
-- This is a staging checkpoint toward full RTL AV1 completion, not final scope closure.
+- `P7_REFERENCE_BOUNDARY.md` records the current LAST-only inter contract, the deferred compound/reference families, and the exact P7 evidence.
+- On canonical `main` at `8994490d209a745fb157e999af616b49de2c6ce1` (already pushed to `origin/main`), the single-threaded current matrix passed 21/21 gates: `make bitstream-check WIDTH=16 HEIGHT=16`, `make gop-lifecycle-syntax-check`, `make natural64-ip-mode-context-syntax-check` as the syntax/byte-ownership gate, and `make natural64-ip-fractional-syntax-check` as the q3 public-decoder proof alongside the existing 32x32/64x64 inter gates.
+- This is a staging checkpoint toward full RTL AV1 completion, not final scope closure; compound / multi-ref tools remain deferred for the reduced low-delay target.
 
 ## Next Slice
 
