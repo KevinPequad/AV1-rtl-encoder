@@ -39,6 +39,8 @@ The current low-delay target intentionally disables post-reconstruction AV1 filt
 
 This contract is tracked in `P9_DISABLED_FILTER_POLICY.md` and guarded by `make bitstream-check`, which parses sequence/key/inter headers and includes negative filter-enabled guard cases. If a future lane enables any of those filters, add real RTL post-recon filter/restoration writeback before dumping `recon.yuv` or promoting reference buffers; do not repair filtered references in the C++ testbench.
 
+Validation record: the post-merge proof was rechecked on canonical commit `55850d927f4f6018bcc00d7556fef2029d2404c7` from `origin/main` in a clean detached worktree at `/tmp/t_3754b875_clean`. Local `main` is currently `11021fac2ca7644e3acda4e38931663bea4cb49a` and is ahead of `origin/main` by 1 commit. Under `THREADS=1 BUILD_JOBS=1`, `make -C tb bitstream-check`, `make -C tb top-public-matrix-check` (FFmpeg/libdav1d and `aomdec` both matched `recon.yuv` on the 32x32 natural-ish fractional NEWMV proof), and `make -C tb standalone-matrix-check` all passed.
+
 ## Simulation Threads
 
 Simulation and Verilator builds must use all available host threads by default.
