@@ -22,7 +22,7 @@ from typing import Iterable
 
 REPO = Path(__file__).resolve().parents[1]
 TB = REPO / "tb"
-DEFAULT_THREADS = "16"
+DEFAULT_THREADS = "1"
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,7 @@ CURRENT_GATES: list[Gate] = [
     Gate("S8", "chroma-coeff-table-check", make_cmd("chroma-coeff-table-check"), TB, False, "AOM-derived chroma coefficient tables"),
     Gate("S9", "top-chroma-integration-check", make_cmd("top-chroma-integration-check"), TB, False, "static top-level chroma integration guard"),
     Gate("S16", "rtl-byte-owner-check", make_cmd("rtl-byte-owner-check"), TB, True, "positive RTL ownership plus N1-N5 anti-repair probes"),
-    Gate("T0", "chudpc2-smoke", ("bash", "scripts/run_av1_top_smoke.sh"), REPO, True, "16x16 all-key and IP Chud PC 2 public decoder smoke"),
+    Gate("T0", "chudpc2-smoke", ("bash", "scripts/run_av1_top_smoke.sh"), REPO, True, "16x16 all-key/IP plus GOP-boundary Chud PC 2 public decoder smoke"),
     Gate("T1", "nonzero-chroma-syntax-check", make_cmd("nonzero-chroma-syntax-check"), TB, True, "8x8 non-zero Cb/Cr public decoder proof"),
     Gate("T2", "nonzero-chroma16-syntax-check", make_cmd("nonzero-chroma16-syntax-check"), TB, True, "16x16 non-zero chroma public decoder proof"),
     Gate("T3", "natural32-chroma-syntax-check", make_cmd("natural32-chroma-syntax-check"), TB, True, "32x32 natural-ish all-key public decoder proof"),

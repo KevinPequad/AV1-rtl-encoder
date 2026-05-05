@@ -30,6 +30,8 @@ module av1_encoder_top #(
     input  wire [7:0]  me_newmv_limit_in,
     input  wire        dc_only_in,
     input  wire [7:0]  qindex_in,     // Quantization index (0-255)
+    input  wire [7:0]  refresh_frame_flags_in,
+    input  wire [20:0] ref_frame_idx_map_in,
 
     // Raw frame memory read port (YUV420 planar)
     output wire [20:0] raw_mem_addr,
@@ -286,6 +288,8 @@ module av1_encoder_top #(
     reg        is_keyframe;
     reg [7:0]  qindex;
     reg [3:0]  frame_num;
+    reg [31:0] frame_display_index;
+    reg        sequence_header_written;
 
     // Current block pixel buffer (8x8 = 64 pixels)
     reg [7:0]  cur_blk [0:63];
@@ -2404,6 +2408,8 @@ module av1_encoder_top #(
         .is_keyframe(is_keyframe),
         .qindex(qindex),
         .frame_num(frame_num),
+        .refresh_frame_flags_in(refresh_frame_flags_in),
+        .ref_frame_idx_map_in(ref_frame_idx_map_in),
         .busy(bs_busy),
         .done(bs_done),
         .byte_valid(bs_byte_valid),
@@ -2525,6 +2531,8 @@ module av1_encoder_top #(
             ec_symbol <= 5'd0;
             ec_nsyms <= 5'd0;
             ec_icdf_flat <= 256'd0;
+            frame_display_index <= 32'd0;
+            sequence_header_written <= 1'b0;
             cur_block_has_coeff <= 1'b0;
             cur_only_dc_nonzero <= 1'b1;
             cur_only_reduced_ac_nonzero <= 1'b1;
@@ -2629,6 +2637,8 @@ module av1_encoder_top #(
             ec_symbol <= 5'd0;
             ec_nsyms <= 5'd0;
             ec_icdf_flat <= 256'd0;
+            frame_display_index <= 32'd0;
+            sequence_header_written <= 1'b0;
 
             case (top_state)
                 TS_IDLE: begin
@@ -2636,6 +2646,7 @@ module av1_encoder_top #(
                         is_keyframe <= is_keyframe_in;
                         qindex      <= (qindex_in == 8'd0) ? 8'd1 : qindex_in;
                         frame_num   <= frame_num_in;
+                        frame_display_index <= frame_display_index + 1;
                         me_newmv_count <= 8'd0;
                         blk_x       <= 0;
                         blk_y       <= 0;
@@ -2697,13 +2708,14 @@ module av1_encoder_top #(
                 end
                 TS_WAIT_TD: begin
                     if (bs_done) begin
-                        top_state <= is_keyframe ? TS_WRITE_SEQ : TS_WRITE_FRM;
+                        top_state <= (is_keyframe && !sequence_header_written) ? TS_WRITE_SEQ : TS_WRITE_FRM;
                     end
                 end
 
                 // Write sequence header (keyframes only)
                 TS_WRITE_SEQ: begin
                     bs_write_seq <= 1;
+                    sequence_header_written <= 1'b1;
                     top_state    <= TS_WAIT_SEQ;
                 end
                 TS_WAIT_SEQ: begin
