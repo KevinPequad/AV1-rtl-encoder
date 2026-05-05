@@ -369,7 +369,7 @@ module av1_encoder_top #(
     reg [3:0]  mode_left      [0:MI_ROWS-1];
     reg        blk_inter_coded[0:BLK_COLS*BLK_ROWS-1];
     reg [2:0]  blk_ref0       [0:BLK_COLS*BLK_ROWS-1];
-    reg [1:0]  blk_inter_mode [0:BLK_COLS*BLK_ROWS-1];
+    reg [2:0]  blk_inter_mode [0:BLK_COLS*BLK_ROWS-1];
     reg signed [15:0] blk_mv_x [0:BLK_COLS*BLK_ROWS-1];
     reg signed [15:0] blk_mv_y [0:BLK_COLS*BLK_ROWS-1];
     reg [1:0]  dc_sign_above  [0:MI_COLS-1];
@@ -405,11 +405,12 @@ module av1_encoder_top #(
         REF_ALTREF  = 3'd6,
         REF_NONE    = 3'd7;
 
-    localparam [1:0]
-        REDUCED_INTER_NONE     = 2'd0,
-        REDUCED_INTER_GLOBALMV = 2'd1,
-        REDUCED_INTER_NEARESTMV= 2'd2,
-        REDUCED_INTER_NEWMV    = 2'd3;
+    localparam [2:0]
+        REDUCED_INTER_NONE     = 3'd0,
+        REDUCED_INTER_GLOBALMV = 3'd1,
+        REDUCED_INTER_NEARESTMV= 3'd2,
+        REDUCED_INTER_NEARMV   = 3'd3,
+        REDUCED_INTER_NEWMV    = 3'd4;
 
     localparam integer AV1_REF_CAT_LEVEL = 640;
     localparam integer AV1_GLOBALMV_OFFSET = 3;
@@ -2062,10 +2063,16 @@ module av1_encoder_top #(
     wire [11:0]  cur_mv_d = cur_mv_offset >> 3;
     wire [1:0]   cur_mv_fr = (cur_mv_offset >> 1) & 2'b11;
     wire         cur_mv_hp = cur_mv_offset[0];
-    wire [1:0]   cur_reduced_inter_mode =
+    wire signed [15:0] cur_nearmv_row =
+        (cur_mv_second_idx >= 0) ? cur_mv_cand_row[cur_mv_second_idx] : cur_ref_mv_row;
+    wire signed [15:0] cur_nearmv_col =
+        (cur_mv_second_idx >= 0) ? cur_mv_cand_col[cur_mv_second_idx] : cur_ref_mv_col;
+    wire [2:0]   cur_reduced_inter_mode =
         (me_mvx_q3 == 16'sd0 && me_mvy_q3 == 16'sd0) ? REDUCED_INTER_GLOBALMV :
         ((cur_mv_col == cur_ref_mv_col) && (cur_mv_row == cur_ref_mv_row)) ?
-            REDUCED_INTER_NEARESTMV : REDUCED_INTER_NEWMV;
+            REDUCED_INTER_NEARESTMV :
+        ((cur_mv_col == cur_nearmv_col) && (cur_mv_row == cur_nearmv_row)) ?
+            REDUCED_INTER_NEARMV : REDUCED_INTER_NEWMV;
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
 
