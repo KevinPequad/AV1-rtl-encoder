@@ -102,7 +102,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check clean help
+.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check gop-lifecycle-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check clean help
 
 all: $(SIM_BIN)
 
@@ -336,6 +336,11 @@ natural32-ip-fractional-syntax-check:
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural32_ip_fractional_syntax.py
 
+gop-lifecycle-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_gop_lifecycle_syntax.py
+
 partition-tree-current8x8-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
@@ -403,7 +408,9 @@ top-public-matrix-check:
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-newmv-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-fractional-syntax-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) gop-lifecycle-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-mode-context-syntax-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-fractional-syntax-check
 
 av1-current-matrix-check av1-regression-matrix:
 	cd .. && python3 scripts/run_av1_regression_matrix.py
@@ -449,15 +456,17 @@ help:
 	@echo "  natural64-chroma-syntax-check 64x64 sparse flat-luma / non-zero-chroma public-decoder proof"
 	@echo "  natural32-ip-newmv-syntax-check 32x32 shifted two-frame NEWMV public-decoder proof"
 	@echo "  natural32-ip-fractional-syntax-check 32x32 half-pel two-frame NEWMV public-decoder proof"
+	@echo "  gop-lifecycle-syntax-check 64x64 13-frame lowdelay_last GOP lifecycle public-decoder proof"
 	@echo "  natural64-ip-mode-context-syntax-check 64x64 LAST-path GLOBALMV/NEARESTMV/NEARMV public-decoder proof"
+	@echo "  natural64-ip-fractional-syntax-check 64x64 half-pel two-frame NEWMV public-decoder proof"
 	@echo "  partition-tree-current8x8-check 64x64 RTL-owned split-to-8x8 partition proof"
 	@echo "  qindex-sweep-lossy-check qindex 1..255 lossy public-decoder sweep"
 	@echo "  skip-txb-cbp-matrix-check all-zero/luma/Cb/Cr/mixed CBP public-decoder proof"
 	@echo "  quant-header-disabled-check static guard for qmatrix/delta-q/SB-QP disabled policy"
 	@echo "  rtl-byte-owner-check Positive RTL-byte ownership proof plus N1-N5 anti-repair probes"
 	@echo "  standalone-matrix-check Run S1-S9 standalone reduced-subset gates"
-	@echo "  top-public-matrix-check Run T1-T6 top-level public-decoder gates"
-	@echo "  av1-current-matrix-check Run scripted current reduced-subset matrix and write manifest"
+	@echo "  top-public-matrix-check Run T1-T9 top-level public-decoder gates"
+	@echo "  av1-current-matrix-check Run scripted current boundary matrix and write manifest"
 	@echo "  negative-*-check Run individual ownership negative probes"
 	@echo "  natural32-ip-chroma-delta-syntax-check 32x32 two-frame zero-MV chroma-inter residual public-decoder proof (64x64 follow-on still TODO)"
 	@echo "  natural64-ip-fractional-syntax-check 64x64 half-pel two-frame NEWMV public-decoder proof"
