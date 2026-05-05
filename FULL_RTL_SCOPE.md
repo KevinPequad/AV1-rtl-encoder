@@ -39,9 +39,27 @@ This matrix is the authoritative bridge between the SVT-AV1 feature inventory an
 | P8 | Reference frames, picture types, and GOP/session control | Inventory 3 and 7 | Low-delay I/P path, LAST-only refresh, and longer reduced-motion guards exist | Full reference-frame lifecycle, random access, open/closed GOP, overlays, hierarchical layers, and order hints | Longer-sequence and GOP control gates must validate the active scope |
 | P9 | Loop filter, CDEF, restoration, reconstructed-frame ownership | Inventory 6 | Filters are disabled in the frozen checkpoint | Deblock, CDEF, restoration, and filtered reference ownership for the full AV1 program | Filter-enabled clips must prove recon parity; this lane is active-scope work, not the historical freeze |
 | P10 | Rate control, quality control, mode decision, search quality | Inventory 4 | Fixed-QP / simple RC bring-up and limited search quality exist | CQP, CRF, VBR, CBR, AQ, ROI, recode loops, quant matrices, and psychovisual controls | Bitrate / quality regressions on representative clips must stay within target |
-| P11 | Input/output formats, resolution scaling, final target | Inventory 2 and 9 | 8-bit 4:2:0 raw YUV plus small fixtures exist | Big Buck Bunny `1280x720 @ 24 fps` for 10 s from the RTL byte path, plus packaging / metadata | The final clip must decode publicly and match recon at target scale |
+| P11 | Input/output formats, resolution scaling, final target | Inventory 2 and 9 | 8-bit 4:2:0 raw YUV plus small fixtures exist | Required P11 surfaces are listed below; the current RTL only owns the 8-bit raw-YUV subset today. Big Buck Bunny `1280x720 @ 24 fps` for 10 s from the RTL byte path remains the final target, plus packaging / metadata. | The final clip must decode publicly and match recon at target scale |
 | P12 | Advanced AV1 tools | Inventory 7, 8, 9 | Screen-content and advanced AV1 tools are deferred | Screen-content, IBC, palette, and the remaining advanced AV1 tools that the full program keeps in scope | Any enabled tool must have standalone RTL gates plus public-decoder gates |
 | P13 | ASIC readiness | Post-feature only | No ASIC synthesis / signoff evidence exists | Lint, synthesis, memory macro strategy, timing, P&R, gate-level, and power/area closure | ASIC work starts only after P0-P12 are actually green |
+
+### P11 explicit required surfaces
+
+The full AV1 program treats the following profile / bitdepth / input / output surfaces as required, not optional:
+
+- raw YUV input
+- Y4M input
+- 8-bit and 10-bit 4:2:0 workflows
+- Main / High / Professional profile signaling
+- automatic and explicit AV1 level signaling
+- reconstructed-frame output
+- PSNR / SSIM stat output
+- still-picture / AVIF-style support
+
+Current implementation boundary:
+
+- the repo currently owns only the 8-bit 4:2:0 raw-YUV subset and small fixtures
+- the rest of P11 remains open work and must be implemented or intentionally re-scoped in a future lane; the historical freeze wording does not remove these requirements
 
 ## Bottom line
 
