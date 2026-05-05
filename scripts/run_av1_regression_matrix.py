@@ -78,7 +78,8 @@ def gate_command(run_namespace: str, gate: Gate) -> list[str]:
 
 def gate_env(run_namespace: str, gate: Gate, base_env: dict[str, str]) -> dict[str, str]:
     env = base_env.copy()
-    env["AV1_TOP_SIM"] = f"./Vav1_encoder_top_{gate_namespace(run_namespace, gate)}"
+    ns = gate_namespace(run_namespace, gate)
+    env["AV1_TOP_SIM"] = f"./obj_dir_{ns}/Vav1_encoder_top_{ns}"
     return env
 
 
