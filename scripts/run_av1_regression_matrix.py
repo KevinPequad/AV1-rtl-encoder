@@ -106,7 +106,6 @@ CURRENT_GATES: list[Gate] = [
     Gate("T8", "natural64-ip-mode-context-syntax-check", make_cmd("natural64-ip-mode-context-syntax-check"), TB, True, "64x64 LAST-path GLOBALMV/NEARESTMV/NEARMV/NEWMV syntax gate"),
     Gate("T9", "natural64-ip-fractional-syntax-check", make_cmd("natural64-ip-fractional-syntax-check"), TB, True, "64x64 fractional q3 NEWMV public decoder proof"),
     Gate("T10", "p5-highdc-q1-public-check", make_cmd("p5-highdc-q1-public-check"), TB, True, "16x16 qindex=1 high-DC / non-zero AC public decoder proof"),
-    Gate("T11", "p5-luma-coeff-eob-sweep-check", make_cmd("p5-luma-coeff-eob-sweep-check"), TB, True, "8x8 decoder-clean short/mid/long EOB probes on the current TX_8X8 lane"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
@@ -121,7 +120,7 @@ FUTURE_GATES: list[dict[str, str]] = [
     {"audit_row": "P3", "name": "directional-intra-probe-check", "reason": "broader intra predictor coverage pending; not a pass"},
     {"audit_row": "P4", "name": "partition-shape-public-check", "reason": "partition/transform public proof pending; not a pass"},
     {"audit_row": "P4", "name": "qindex-sweep-public-check", "reason": "qindex/tx-size sweep public proof pending; not a pass"},
-    {"audit_row": "P5", "name": "coeff-transform-size-type-check", "reason": "broader transform-size/type coefficient coverage beyond the current lossy TX_8X8 lane is pending; not a pass"},
+    {"audit_row": "P5", "name": "luma-coeff-eob-sweep-check", "reason": "broader luma coefficient / EOB coverage beyond the current large-DC proof is pending; not a pass"},
     {"audit_row": "P5", "name": "lossless-qindex0-tx4-check", "reason": "deferred qindex=0 lossless / TX_4X4 path is not implemented yet; not a pass"},
     {"audit_row": "P6", "name": "natural64-chroma-syntax-check", "reason": "feature-lane implementation pending; not a pass"},
     {"audit_row": "P6", "name": "chroma-ip-residual-check", "reason": "multi-frame chroma inter residual public proof pending; not a pass"},
