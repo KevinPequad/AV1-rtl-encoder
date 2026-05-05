@@ -102,7 +102,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check clean help
+.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check clean help
 
 all: $(SIM_BIN)
 
@@ -403,6 +403,7 @@ top-public-matrix-check:
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-newmv-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-fractional-syntax-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-mode-context-syntax-check
 
 av1-current-matrix-check av1-regression-matrix:
 	cd .. && python3 scripts/run_av1_regression_matrix.py
@@ -416,6 +417,11 @@ natural64-ip-fractional-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural64_ip_fractional_syntax.py
+
+natural64-ip-mode-context-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural64_ip_mode_context_syntax.py
 
 clean:
 	rm -rf $(OBJ_DIR) $(TRACE_OBJ_DIR) $(ENTROPY_OBJ_DIR) $(BITSTREAM_OBJ_DIR) $(INV_XFORM_OBJ_DIR) $(INTER_OBJ_DIR) $(ME_OBJ_DIR) $(CHROMA_INTER_OBJ_DIR) $(CHROMA_RES_OBJ_DIR) $(SIM_BIN) $(TRACE_SIM_BIN) $(ENTROPY_SIM_BIN) $(BITSTREAM_SIM_BIN) $(INV_XFORM_SIM_BIN) $(INTER_SIM_BIN) $(ME_SIM_BIN) $(CHROMA_INTER_SIM_BIN) $(CHROMA_RES_SIM_BIN) $(CHROMA_COEFF_TABLE_BIN) test_chroma_coeff_tables __pycache__ *.vcd
@@ -443,6 +449,7 @@ help:
 	@echo "  natural64-chroma-syntax-check 64x64 sparse flat-luma / non-zero-chroma public-decoder proof"
 	@echo "  natural32-ip-newmv-syntax-check 32x32 shifted two-frame NEWMV public-decoder proof"
 	@echo "  natural32-ip-fractional-syntax-check 32x32 half-pel two-frame NEWMV public-decoder proof"
+	@echo "  natural64-ip-mode-context-syntax-check 64x64 LAST-path GLOBALMV/NEARESTMV/NEARMV public-decoder proof"
 	@echo "  partition-tree-current8x8-check 64x64 RTL-owned split-to-8x8 partition proof"
 	@echo "  qindex-sweep-lossy-check qindex 1..255 lossy public-decoder sweep"
 	@echo "  skip-txb-cbp-matrix-check all-zero/luma/Cb/Cr/mixed CBP public-decoder proof"

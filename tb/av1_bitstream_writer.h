@@ -680,6 +680,12 @@ public:
         bool    cr_has_coeff;
         uint8_t pred_mode;
         bool    is_inter;
+        uint8_t inter_mode;
+        uint8_t mode_ctx;
+        int16_t ref_mvx;  // q3 luma candidate MV component
+        int16_t ref_mvy;  // q3 luma candidate MV component
+        int16_t near_mvx;  // q3 luma second candidate MV component
+        int16_t near_mvy;  // q3 luma second candidate MV component
         int16_t mvx;  // q3 luma MV component
         int16_t mvy;  // q3 luma MV component
     };
@@ -774,7 +780,8 @@ private:
         REDUCED_INTER_NONE = 0,
         REDUCED_INTER_GLOBALMV = 1,
         REDUCED_INTER_NEARESTMV = 2,
-        REDUCED_INTER_NEWMV = 3,
+        REDUCED_INTER_NEARMV = 3,
+        REDUCED_INTER_NEWMV = 4,
     };
 
     class BitWriter {
@@ -1210,6 +1217,12 @@ private:
     }
 
     static ReducedMvCandidate get_reduced_newmv_ref_mv(const ReducedMvState& state) {
+        if (!state.stack.empty()) return state.stack[0];
+        return {0, 0, 0};
+    }
+
+    static ReducedMvCandidate get_reduced_nearmv_ref_mv(const ReducedMvState& state) {
+        if (state.stack.size() > 1) return state.stack[1];
         if (!state.stack.empty()) return state.stack[0];
         return {0, 0, 0};
     }
@@ -2093,13 +2106,17 @@ private:
                 const int refmv_ctx =
                     (mode_ctx >> AV1_REFMV_OFFSET) & AV1_REFMV_CTX_MASK;
                 const ReducedMvState mv_state = collect_reduced_single_ref_mv_state(blk_x, blk_y, ref_frame);
-                const ReducedMvCandidate ref_mv = get_reduced_newmv_ref_mv(mv_state);
-                const int ref_mvx = ref_mv.col;
-                const int ref_mvy = ref_mv.row;
+                const ReducedMvCandidate nearest_mv = get_reduced_newmv_ref_mv(mv_state);
+                const ReducedMvCandidate near_mv = get_reduced_nearmv_ref_mv(mv_state);
+                const int nearest_mvx = nearest_mv.col;
+                const int nearest_mvy = nearest_mv.row;
+                const int near_mvx = near_mv.col;
+                const int near_mvy = near_mv.row;
                 if (coeff_debug_mode_) {
                     fprintf(stderr,
-                            "[INTER] blk=%d ref=%u mv=(%d,%d) ref_mv=(%d,%d) mode_ctx=%d newmv_ctx=%d zeromv_ctx=%d refmv_ctx=%d\n",
-                            blk_idx, ref_frame, block_mvx, block_mvy, ref_mvx, ref_mvy,
+                            "[INTER] blk=%d ref=%u mv=(%d,%d) nearest=(%d,%d) near=(%d,%d) mode_ctx=%d newmv_ctx=%d zeromv_ctx=%d refmv_ctx=%d\n",
+                            blk_idx, ref_frame, block_mvx, block_mvy,
+                            nearest_mvx, nearest_mvy, near_mvx, near_mvy,
                             mode_ctx, newmv_ctx, zeromv_ctx, refmv_ctx);
                     fprintf(stderr, "[INTER] blk=%d stack_sz=%zu", blk_idx, mv_state.stack.size());
                     for (size_t si = 0; si < mv_state.stack.size() && si < 6; ++si) {
@@ -2115,11 +2132,16 @@ private:
                     inter_mode = REDUCED_INTER_GLOBALMV;
                     encode_symbol_ctx(rc, 1, av1_newmv_cdf[newmv_ctx], 2); // mode != NEWMV
                     encode_symbol_ctx(rc, 0, av1_zeromv_cdf[zeromv_ctx], 2); // mode == GLOBALMV
-                } else if (block_mvx == ref_mvx && block_mvy == ref_mvy) {
+                } else if (block_mvx == nearest_mvx && block_mvy == nearest_mvy) {
                     inter_mode = REDUCED_INTER_NEARESTMV;
                     encode_symbol_ctx(rc, 1, av1_newmv_cdf[newmv_ctx], 2); // mode != NEWMV
                     encode_symbol_ctx(rc, 1, av1_zeromv_cdf[zeromv_ctx], 2); // mode != GLOBALMV
                     encode_symbol_ctx(rc, 0, av1_refmv_cdf[refmv_ctx], 2); // mode == NEARESTMV
+                } else if (block_mvx == near_mvx && block_mvy == near_mvy) {
+                    inter_mode = REDUCED_INTER_NEARMV;
+                    encode_symbol_ctx(rc, 1, av1_newmv_cdf[newmv_ctx], 2); // mode != NEWMV
+                    encode_symbol_ctx(rc, 1, av1_zeromv_cdf[zeromv_ctx], 2); // mode != GLOBALMV
+                    encode_symbol_ctx(rc, 1, av1_refmv_cdf[refmv_ctx], 2); // mode == NEARMV
                 } else {
                     inter_mode = REDUCED_INTER_NEWMV;
                     encode_symbol_ctx(rc, 0, av1_newmv_cdf[newmv_ctx], 2); // mode == NEWMV
@@ -2128,7 +2150,7 @@ private:
                         encode_symbol_ctx(rc, 0, av1_drl_cdf[drl_ctx], 2); // keep ref_mv_idx = 0
                     }
                     encode_mv(rc, static_cast<int>(block_mvy), static_cast<int>(block_mvx),
-                              ref_mv.row, ref_mv.col, /*force_integer_mv=*/false);
+                              nearest_mv.row, nearest_mv.col, /*force_integer_mv=*/false);
                 }
             } else {
                 encode_symbol_ctx(rc, y_mode, av1_if_y_mode_cdf[1], 13);
