@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 TB = Path(__file__).resolve().parent
-SIM = TB / "Vav1_encoder_top"
+_SIM_ENV = os.environ.get("AV1_TOP_SIM")
+if _SIM_ENV:
+    _sim_path = Path(_SIM_ENV)
+    SIM = _sim_path if _sim_path.is_absolute() else (TB / _sim_path).resolve()
+else:
+    SIM = TB / "Vav1_encoder_top"
 
 
 def run(cmd: Iterable[object], *, cwd: Path = TB, check: bool = True) -> subprocess.CompletedProcess[str]:
