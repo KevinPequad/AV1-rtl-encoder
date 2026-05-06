@@ -105,6 +105,7 @@ CURRENT_GATES: list[Gate] = [
     Gate("T7", "gop-lifecycle-syntax-check", make_cmd("gop-lifecycle-syntax-check"), TB, True, "64x64 low-delay LAST-only GOP lifecycle proof"),
     Gate("T8", "natural64-ip-mode-context-syntax-check", make_cmd("natural64-ip-mode-context-syntax-check"), TB, True, "64x64 LAST-path GLOBALMV/NEARESTMV/NEARMV/NEWMV syntax gate"),
     Gate("T9", "natural64-ip-fractional-syntax-check", make_cmd("natural64-ip-fractional-syntax-check"), TB, True, "64x64 fractional q3 NEWMV public decoder proof"),
+    Gate("T10", "p5-highdc-q1-public-check", make_cmd("p5-highdc-q1-public-check"), TB, True, "16x16 qindex=1 high-DC / non-zero AC public decoder proof"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
@@ -119,8 +120,8 @@ FUTURE_GATES: list[dict[str, str]] = [
     {"audit_row": "P3", "name": "directional-intra-probe-check", "reason": "broader intra predictor coverage pending; not a pass"},
     {"audit_row": "P4", "name": "partition-shape-public-check", "reason": "partition/transform public proof pending; not a pass"},
     {"audit_row": "P4", "name": "qindex-sweep-public-check", "reason": "qindex/tx-size sweep public proof pending; not a pass"},
-    {"audit_row": "P5", "name": "luma-coeff-eob-sweep-check", "reason": "feature-lane implementation pending; not a pass"},
-    {"audit_row": "P5", "name": "highdc-q1-public-check", "reason": "luma coefficient stress probes pending; not a pass"},
+    {"audit_row": "P5", "name": "luma-coeff-eob-sweep-check", "reason": "broader luma coefficient / EOB coverage beyond the current large-DC proof is pending; not a pass"},
+    {"audit_row": "P5", "name": "lossless-qindex0-tx4-check", "reason": "deferred qindex=0 lossless / TX_4X4 path is not implemented yet; not a pass"},
     {"audit_row": "P6", "name": "natural64-chroma-syntax-check", "reason": "feature-lane implementation pending; not a pass"},
     {"audit_row": "P6", "name": "chroma-ip-residual-check", "reason": "multi-frame chroma inter residual public proof pending; not a pass"},
     {"audit_row": "P7", "name": "refmv-stack-check", "reason": "multi-reference/inter-syntax expansion pending; not a pass"},
@@ -243,6 +244,8 @@ def main() -> int:
     logs_dir = outdir / "logs"
     artifacts_dir = outdir / "artifacts"
     outdir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     base_env = os.environ.copy()
     base_env["THREADS"] = DEFAULT_THREADS
@@ -295,6 +298,9 @@ def main() -> int:
             "build_namespace": gate_namespace(run_namespace, gate),
         }
         manifest["gates"].append(record)
+        outdir.mkdir(parents=True, exist_ok=True)
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
         write_json_path = outdir / "av1_regression_manifest.json"
         write_json_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
         write_markdown(outdir / "av1_regression_manifest.md", manifest)
@@ -304,6 +310,9 @@ def main() -> int:
 
     manifest["completed_at"] = _dt.datetime.now().isoformat(timespec="seconds")
     manifest["overall_status"] = "fail" if failed else "pass"
+    outdir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
     (outdir / "av1_regression_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     write_markdown(outdir / "av1_regression_manifest.md", manifest)
     print(f"[MATRIX] manifest_json={outdir / 'av1_regression_manifest.json'}")
