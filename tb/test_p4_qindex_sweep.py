@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """P4 lossy qindex sweep for the current one-block 8x8/TX_8X8 lane."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
 
 TB = Path(__file__).resolve().parent
-SIM = TB / "Vav1_encoder_top"
+SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "Vav1_encoder_top"
 W = H = 8
 QINDICES = [1, 2, 4, 8, 16, 32, 64, 128, 192, 240, 255]
 

@@ -7,6 +7,7 @@ The partition dump is captured from accepted RTL entropy symbols, not repaired
 or inferred from the writer.
 """
 from pathlib import Path
+import os
 from collections import Counter
 import re
 import shutil
@@ -14,7 +15,7 @@ import subprocess
 import tempfile
 
 TB = Path(__file__).resolve().parent
-SIM = TB / "Vav1_encoder_top"
+SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "Vav1_encoder_top"
 W = H = 64
 EXPECTED_COUNTS = {6: 1, 5: 4, 4: 16, 3: 64}
 
