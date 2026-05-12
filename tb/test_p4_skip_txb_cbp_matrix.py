@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """P4 skip/txb_skip/CBP matrix for the current 8x8 luma + 4x4 chroma lane."""
 from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
 import tempfile
 
 TB = Path(__file__).resolve().parent
-SIM = TB / "Vav1_encoder_top"
+SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "Vav1_encoder_top"
 W = H = 8
 CASES = {
     "all_zero":  {"y": 128, "cb": 128, "cr": 128, "expect": (0, 0, 0, 1)},
