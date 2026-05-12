@@ -2584,28 +2584,28 @@ module av1_encoder_top #(
             chr_dc_sum <= 12'd0;
             chr_dc_count <= 4'd0;
             for (i = 0; i < MI_COLS; i = i + 1) begin
-                part_ctx_above[i] <= 8'd0;
-                skip_above[i] <= 1'b0;
-                inter_above[i] <= 1'b0;
-                ref_above[i] <= REF_NONE;
-                mode_above[i] <= AV1_DC_PRED;
-                dc_sign_above[i] <= 2'd0;
+                part_ctx_above[i] = 8'd0;
+                skip_above[i] = 1'b0;
+                inter_above[i] = 1'b0;
+                ref_above[i] = REF_NONE;
+                mode_above[i] = AV1_DC_PRED;
+                dc_sign_above[i] = 2'd0;
             end
             for (i = 0; i < BLK_COLS; i = i + 1) begin
-                cb_ctx_above[i] <= 5'd0;
-                cr_ctx_above[i] <= 5'd0;
+                cb_ctx_above[i] = 5'd0;
+                cr_ctx_above[i] = 5'd0;
             end
             for (i = 0; i < MI_ROWS; i = i + 1) begin
-                part_ctx_left[i] <= 8'd0;
-                skip_left[i] <= 1'b0;
-                inter_left[i] <= 1'b0;
-                ref_left[i] <= REF_NONE;
-                mode_left[i] <= AV1_DC_PRED;
-                dc_sign_left[i] <= 2'd0;
+                part_ctx_left[i] = 8'd0;
+                skip_left[i] = 1'b0;
+                inter_left[i] = 1'b0;
+                ref_left[i] = REF_NONE;
+                mode_left[i] = AV1_DC_PRED;
+                dc_sign_left[i] = 2'd0;
             end
             for (i = 0; i < BLK_ROWS; i = i + 1) begin
-                cb_ctx_left[i] <= 5'd0;
-                cr_ctx_left[i] <= 5'd0;
+                cb_ctx_left[i] = 5'd0;
+                cr_ctx_left[i] = 5'd0;
             end
             for (i = 0; i < (BLK_COLS * BLK_ROWS); i = i + 1) begin
                 blk_inter_coded[i] = 1'b0;
@@ -2674,28 +2674,28 @@ module av1_encoder_top #(
                         part_symbol <= 5'd0;
                         part_nsyms <= 5'd0;
                         for (i = 0; i < MI_COLS; i = i + 1) begin
-                            part_ctx_above[i] <= 8'd0;
-                            skip_above[i] <= 1'b0;
-                            inter_above[i] <= 1'b0;
-                            ref_above[i] <= REF_NONE;
-                            mode_above[i] <= AV1_DC_PRED;
-                            dc_sign_above[i] <= 2'd0;
+                            part_ctx_above[i] = 8'd0;
+                            skip_above[i] = 1'b0;
+                            inter_above[i] = 1'b0;
+                            ref_above[i] = REF_NONE;
+                            mode_above[i] = AV1_DC_PRED;
+                            dc_sign_above[i] = 2'd0;
                         end
                         for (i = 0; i < BLK_COLS; i = i + 1) begin
-                            cb_ctx_above[i] <= 5'd0;
-                            cr_ctx_above[i] <= 5'd0;
+                            cb_ctx_above[i] = 5'd0;
+                            cr_ctx_above[i] = 5'd0;
                         end
                         for (i = 0; i < MI_ROWS; i = i + 1) begin
-                            part_ctx_left[i] <= 8'd0;
-                            skip_left[i] <= 1'b0;
-                            inter_left[i] <= 1'b0;
-                            ref_left[i] <= REF_NONE;
-                            mode_left[i] <= AV1_DC_PRED;
-                            dc_sign_left[i] <= 2'd0;
+                            part_ctx_left[i] = 8'd0;
+                            skip_left[i] = 1'b0;
+                            inter_left[i] = 1'b0;
+                            ref_left[i] = REF_NONE;
+                            mode_left[i] = AV1_DC_PRED;
+                            dc_sign_left[i] = 2'd0;
                         end
                         for (i = 0; i < BLK_ROWS; i = i + 1) begin
-                            cb_ctx_left[i] <= 5'd0;
-                            cr_ctx_left[i] <= 5'd0;
+                            cb_ctx_left[i] = 5'd0;
+                            cr_ctx_left[i] = 5'd0;
                         end
                         for (i = 0; i < (BLK_COLS * BLK_ROWS); i = i + 1) begin
                             blk_inter_coded[i] = 1'b0;
