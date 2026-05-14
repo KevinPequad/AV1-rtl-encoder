@@ -262,6 +262,12 @@ Inventory of the current repo state:
     - `output/natural_motion64_x640_y360_10f_progress70m/`: `64x64`, `10` frames, `qindex=128`, byte-exact between software-owned and RTL-owned OBU/IVF outputs, strict `aomdec` output matches `recon.yuv`
     - the first longer-sequence drift was not MV payload packing; the reduced ref-MV stack was reaching one row and one column farther than AOM's `MVREF_ROW_COLS == 3` scan and was overweighting a later NEWMV candidate by `+4`
 - earlier `64x64` repeated-frame and `debug_64x64_2f` decoder-corruption cases were cleared on the reduced video path before the ME core update
+- the first real non-zero fractional-pel translational checkpoint on the reduced single-reference LAST path is now exact:
+  - `make THREADS=1 BUILD_JOBS=1 me-check` passes and confirms the half-pel refine search is active
+  - `make THREADS=1 BUILD_JOBS=1 WIDTH=32 HEIGHT=32 natural32-ip-fractional-syntax-check natural32-ip-newmv-syntax-check natural32-ip-syntax-check` passes with `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and FFmpeg/libdav1d plus `aomdec` decode-vs-`recon.yuv` parity on the named 32x32 fixtures
+  - `make THREADS=1 BUILD_JOBS=1 natural32-chroma-syntax-check nonzero-chroma16-syntax-check nonzero-chroma-syntax-check` passes with the same raw-byte and public-decoder parity on the named chroma fixtures
+  - `make THREADS=1 BUILD_JOBS=1 natural64-ip-fractional-syntax-check` passes with `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and FFmpeg/libdav1d plus `aomdec` parity on the 64x64 natural-motion guard
+  - this is the first real non-zero fractional-pel translational motion on the reduced single-reference LAST path; it does not yet prove full AV1, multi-reference inter, arbitrary natural-motion coverage, or final 1280x720@24fps Big Buck Bunny validation, and the software writer/testbench still serves as the oracle where applicable
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
 - Placeholder or debug-only:
@@ -366,15 +372,14 @@ Inventory of the current repo state:
   - the first strict decoder corruption after enabling subpel syntax was shared writer/RTL syntax, not ownership drift:
     - `mv_hp` was missing after `mv_fr` on reduced `NEWMV` components
     - `allow_high_precision_mv` was missing in the reduced inter frame header after `force_integer_mv=0`
-  - the next remaining inter ownership work is widening beyond the current reduced single-reference LAST syntax-only subpel subset, starting with real non-zero fractional-pel translational motion
+  - the next remaining inter ownership work is widening beyond the current reduced single-reference LAST syntax-only subpel subset into broader natural-motion clips and reference-MV-context debugging
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
-  - implementing real non-zero fractional-pel translational motion on the current reduced single-reference LAST path
-  - expanding beyond the current reduced single-reference subset once the ownership path is real
+  - widening beyond the current reduced single-reference LAST motion subset into multi-reference/reference-MV-context coverage on broader natural clips
   - restoring the original `data/ac_probe_16x16_1f.yuv` local asset in this checkout, because `data/tmp_probe_16x16_1f.yuv` is decode-clean but not a byte-exact substitute ownership gate
 - A lightweight debug probe now exists in the testbench:
   - `+dump_inter_summary=1` prints captured inter blocks, MVs, and nonzero counts after each frame
