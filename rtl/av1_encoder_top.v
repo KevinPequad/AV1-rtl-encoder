@@ -2308,10 +2308,10 @@ module av1_encoder_top #(
     wire [17:0] me_best_sad;
     // Default public-clean mode: keep unconstrained runs on GLOBALMV/zero-MV
     // inter unless a test/bring-up path explicitly opts into NEWMV with
-    // +me_newmv_limit=N. The NEWMV syntax path is still available for focused
-    // ownership tests, but unrestricted NEWMV streams are not public-decoder
-    // clean yet at larger full-coeff sizes.
-    wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0);
+    // +me_newmv_limit=N. DC-only syntax ownership tests keep their existing
+    // NEWMV coverage; unrestricted full-coeff NEWMV streams are not
+    // public-decoder clean yet at larger sizes.
+    wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_newmv_limit_in != 8'd0) &&
                                    (me_newmv_count >= me_newmv_limit_in));
