@@ -956,6 +956,72 @@ module av1_encoder_top #(
         end
     endfunction
 
+
+
+    function [15:0] icdf_flat_entry;
+        input [255:0] flat;
+        input integer idx;
+        begin
+            icdf_flat_entry = (flat >> (idx * 16)) & 16'hFFFF;
+        end
+    endfunction
+
+    function integer icdf_prob_flat;
+        input [255:0] flat;
+        input integer sym;
+        integer lo;
+        integer hi;
+        begin
+            lo = (sym > 0) ? icdf_flat_entry(flat, sym - 1) : 32768;
+            hi = icdf_flat_entry(flat, sym);
+            icdf_prob_flat = lo - hi;
+        end
+    endfunction
+
+    function [255:0] partition_gather_vert_icdf_flat;
+        input [255:0] flat;
+        input integer nsyms_in;
+        integer p;
+        reg [15:0] gathered;
+        begin
+            p = 32768;
+            if (nsyms_in >= 4) begin
+                p = p - icdf_prob_flat(flat, 2);
+                p = p - icdf_prob_flat(flat, 3);
+            end
+            if (nsyms_in >= 10) begin
+                p = p - icdf_prob_flat(flat, 4);
+                p = p - icdf_prob_flat(flat, 6);
+                p = p - icdf_prob_flat(flat, 7);
+                p = p - icdf_prob_flat(flat, 9);
+            end
+            gathered = 32768 - p;
+            partition_gather_vert_icdf_flat = {224'd0, 16'd0, gathered};
+        end
+    endfunction
+
+    function [255:0] partition_gather_horz_icdf_flat;
+        input [255:0] flat;
+        input integer nsyms_in;
+        integer p;
+        reg [15:0] gathered;
+        begin
+            p = 32768;
+            if (nsyms_in >= 4) begin
+                p = p - icdf_prob_flat(flat, 1);
+                p = p - icdf_prob_flat(flat, 3);
+            end
+            if (nsyms_in >= 10) begin
+                p = p - icdf_prob_flat(flat, 4);
+                p = p - icdf_prob_flat(flat, 5);
+                p = p - icdf_prob_flat(flat, 6);
+                p = p - icdf_prob_flat(flat, 8);
+            end
+            gathered = 32768 - p;
+            partition_gather_horz_icdf_flat = {224'd0, 16'd0, gathered};
+        end
+    endfunction
+
     function [2:0] intra_mode_context_from_mode;
         input [3:0] mode;
         begin
@@ -2773,6 +2839,30 @@ module av1_encoder_top #(
                                                           {4'd0, blk_y, 3'b000},
                                                           2'd3));
                                 top_state <= TS_PART_WAIT;
+                            end else if (({4'd0, blk_x, 3'b000} + 14'd32) < FRAME_WIDTH) begin
+                                part_level_log2 <= 3'd6;
+                                part_symbol     <= 5'd1; // vertical-alike boundary split
+                                part_nsyms      <= 5'd2;
+                                ec_encode_symbol <= 1;
+                                ec_symbol        <= 5'd1;
+                                ec_nsyms         <= 5'd2;
+                                ec_icdf_flat     <= partition_gather_vert_icdf_flat(
+                                    partition_icdf_flat(get_partition_ctx_cur({4'd0, blk_x, 3'b000},
+                                                                               {4'd0, blk_y, 3'b000},
+                                                                               2'd3)), 10);
+                                top_state <= TS_PART_WAIT;
+                            end else if (({4'd0, blk_y, 3'b000} + 14'd32) < FRAME_HEIGHT) begin
+                                part_level_log2 <= 3'd6;
+                                part_symbol     <= 5'd1; // horizontal-alike boundary split
+                                part_nsyms      <= 5'd2;
+                                ec_encode_symbol <= 1;
+                                ec_symbol        <= 5'd1;
+                                ec_nsyms         <= 5'd2;
+                                ec_icdf_flat     <= partition_gather_horz_icdf_flat(
+                                    partition_icdf_flat(get_partition_ctx_cur({4'd0, blk_x, 3'b000},
+                                                                               {4'd0, blk_y, 3'b000},
+                                                                               2'd3)), 10);
+                                top_state <= TS_PART_WAIT;
                             end else begin
                                 part_stage <= 2'd2;
                                 top_state  <= TS_PART_EMIT;
@@ -2792,6 +2882,30 @@ module av1_encoder_top #(
                                     get_partition_ctx_cur({4'd0, blk_x, 3'b000},
                                                           {4'd0, blk_y, 3'b000},
                                                           2'd2));
+                                top_state <= TS_PART_WAIT;
+                            end else if (({4'd0, blk_x, 3'b000} + 14'd16) < FRAME_WIDTH) begin
+                                part_level_log2 <= 3'd5;
+                                part_symbol     <= 5'd1; // vertical-alike boundary split
+                                part_nsyms      <= 5'd2;
+                                ec_encode_symbol <= 1;
+                                ec_symbol        <= 5'd1;
+                                ec_nsyms         <= 5'd2;
+                                ec_icdf_flat     <= partition_gather_vert_icdf_flat(
+                                    partition_icdf_flat(get_partition_ctx_cur({4'd0, blk_x, 3'b000},
+                                                                               {4'd0, blk_y, 3'b000},
+                                                                               2'd2)), 10);
+                                top_state <= TS_PART_WAIT;
+                            end else if (({4'd0, blk_y, 3'b000} + 14'd16) < FRAME_HEIGHT) begin
+                                part_level_log2 <= 3'd5;
+                                part_symbol     <= 5'd1; // horizontal-alike boundary split
+                                part_nsyms      <= 5'd2;
+                                ec_encode_symbol <= 1;
+                                ec_symbol        <= 5'd1;
+                                ec_nsyms         <= 5'd2;
+                                ec_icdf_flat     <= partition_gather_horz_icdf_flat(
+                                    partition_icdf_flat(get_partition_ctx_cur({4'd0, blk_x, 3'b000},
+                                                                               {4'd0, blk_y, 3'b000},
+                                                                               2'd2)), 10);
                                 top_state <= TS_PART_WAIT;
                             end else begin
                                 part_stage <= 2'd1;
