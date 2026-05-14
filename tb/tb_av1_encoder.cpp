@@ -1332,23 +1332,6 @@ int main(int argc, char** argv) {
                              "reconstruction as the LAST reference.\n");
             }
 
-            if (!P9_POST_RECON_FILTERS_DISABLED ||
-                P9_LOOP_FILTER_LEVEL_0 != 0 || P9_LOOP_FILTER_LEVEL_1 != 0 ||
-                P9_ENABLE_CDEF != 0 || P9_ENABLE_RESTORATION != 0) {
-                std::fprintf(stderr,
-                             "[TB] ERROR: ref promotion writes unfiltered reconstruction, "
-                             "but P9 disabled-filter policy is not active. Add RTL post-filter "
-                             "writeback before promoting references.\n");
-                delete dut;
-                return 1;
-            }
-            if (frame_idx == 0) {
-                std::fprintf(stderr,
-                             "[TB] P9 disabled-filter policy active: loop_filter_level[0..1]=0, "
-                             "enable_cdef=0, enable_restoration=0; promoting unfiltered RTL "
-                             "reconstruction as the LAST reference.\n");
-            }
-
             // Dump encoder reconstruction as YUV
             {
                 static std::ofstream recon_yuv;
