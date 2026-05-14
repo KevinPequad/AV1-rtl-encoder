@@ -12,6 +12,7 @@ module av1_me #(
     input  wire        rst_n,
     input  wire        start,
     input  wire        zero_mv_only,
+    input  wire        integer_mv_only,
     output reg         done,
 
     input  wire [10:0] cur_x,
@@ -276,8 +277,8 @@ module av1_me #(
                     end else if (zero_mv_pending) begin
                         zero_mv_pending <= 0;
                         if (single_candidate_w) begin
-                            sub_idx <= zero_mv_only ? 4'd9 : 4'd0;
-                            state <= zero_mv_only ? S_DONE : S_SUB_START;
+                            sub_idx <= (zero_mv_only || integer_mv_only) ? 4'd9 : 4'd0;
+                            state <= (zero_mv_only || integer_mv_only) ? S_DONE : S_SUB_START;
                         end else if (mv_x_min == 9'sd0 && mv_y_min == 9'sd0) begin
                             mv_x  <= first_scan_x_w;
                             mv_y  <= first_scan_y_w;
@@ -288,8 +289,8 @@ module av1_me #(
                             state <= S_INIT;
                         end
                     end else if (mv_x == mv_x_max && mv_y == mv_y_max) begin
-                        sub_idx <= zero_mv_only ? 4'd9 : 4'd0;
-                        state <= zero_mv_only ? S_DONE : S_SUB_START;
+                        sub_idx <= (zero_mv_only || integer_mv_only) ? 4'd9 : 4'd0;
+                        state <= (zero_mv_only || integer_mv_only) ? S_DONE : S_SUB_START;
                     end else begin
                         mv_x <= next_mv_x_w;
                         mv_y <= next_mv_y_w;

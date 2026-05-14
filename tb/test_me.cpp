@@ -66,6 +66,7 @@ bool run_halfpel_refine_case(const char* name, int expected_mvx_q3, int expected
     dut.rst_n = 0;
     dut.start = 0;
     dut.zero_mv_only = 0;
+    dut.integer_mv_only = 0;
     dut.cur_x = 8;
     dut.cur_y = 8;
     dut.ref_mem_data = 0;
