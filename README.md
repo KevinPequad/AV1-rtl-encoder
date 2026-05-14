@@ -378,6 +378,7 @@ Inventory of the current repo state:
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
+  - non-DC inter residual/coefficient public-decoder correctness: after branch consolidation, `64x64` low-delay gradient `+frames=2 +dc_only=0 +all_key=0 +gop_mode=lowdelay_last +key_interval=12` is byte-identical between software-owned and RTL-owned OBU/IVF, but public decoders reject or stop at the inter tile data; the `32x32` equivalent decodes both frames but does not match `recon.yuv`
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor

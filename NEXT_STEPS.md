@@ -17,7 +17,7 @@
 
 ## Current Full-Resolution BBB Finding
 
-The old 240-frame target has been replaced by the smallest representative proof that exercises the behavior. Start with a 2-frame full-resolution KEY→INTER BBB smoke; increase to 5-10 frames only after that passes or if the feature under test requires a longer reference/GOP sequence. The current 1280x720 low-delay BBB smoke (`+frames=5 +dc_only=0 +all_key=0 +key_interval=12`) exposed the blocker: frame 0 encodes as KEY, frames 1-3 encode as INTER, but the promoted LAST reference collapses to flat luma (`avg=16 min=16 max=16`) and inter frames report `0/14400` coefficient-bearing blocks. Frame 4 then runs extremely slowly / times out. Treat the flat-LAST/inter-coeff issue as the active P7/P8/P11 blocker before any longer soak.
+The old 240-frame target is no longer the next debug loop. After branch consolidation on `main`, the 64x64 low-delay gradient repro now completes 5 frames with non-flat LAST references and nonzero inter coefficient blocks; the old flat-LAST collapse is not the current blocker. The active blocker is decoder/recon correctness for non-DC inter coefficient streams: `64x64`, `+frames=2`, `+dc_only=0`, `+all_key=0`, `+gop_mode=lowdelay_last`, `+key_interval=12`, gradient input, produces RTL/SW byte-identical OBU/IVF but public decoders reject or stop at the inter frame (`aomdec`: corrupt tile data). The `32x32` equivalent decodes both frames but decoded YUV differs from `recon.yuv`, so fix the reduced inter residual/coefficient syntax and recon parity before returning to full-resolution BBB soak.
 
 ## Validation Entry Points
 
