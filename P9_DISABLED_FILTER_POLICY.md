@@ -16,3 +16,21 @@ Guardrails added for this policy:
 - `tb/tb_av1_encoder.cpp` has a plusarg-independent P9 invariant before `recon.yuv` dump and reference promotion, making direct unfiltered promotion conditional on this disabled-filter policy.
 
 Do not make the testbench repair filtered references. If a future lane enables loop filtering, CDEF, or restoration, the encoder must add real RTL post-reconstruction filter/restoration writeback before dumping `recon.yuv` or promoting reference buffers.
+
+## Validation record
+
+- Canonical proof commit: `55850d927f4f6018bcc00d7556fef2029d2404c7` (`origin/main` at validation time).
+- Validation worktree: `/tmp/t_3754b875_clean`.
+- Repo status when this note was written: local `main` is `11021fac2ca7644e3acda4e38931663bea4cb49a` and is ahead of `origin/main` by 1 commit.
+- Gates passed under `THREADS=1 BUILD_JOBS=1`:
+  - `make -C tb bitstream-check`
+  - `make -C tb top-public-matrix-check`
+  - `make -C tb standalone-matrix-check`
+- Proof result:
+  - sequence headers keep `enable_cdef=0` and `enable_restoration=0`
+  - frame headers keep `loop_filter_level[0..1]=0`, so no chroma loop-filter levels are emitted
+  - the harness promotes reconstructed luma/chroma buffers directly into LAST because post-reconstruction filtering is intentionally absent
+  - `top-public-matrix-check` proved the 32x32 natural-ish fractional NEWMV path, and both FFmpeg/libdav1d and `aomdec` decoded the RTL IVF back to `recon.yuv`
+- Deferred tools:
+  - if loop filter, CDEF, restoration, superres, or film grain are re-enabled later, the RTL must add real post-reconstruction writeback before `recon.yuv` dump or reference promotion
+  - the C++ testbench must not repair filtered references
