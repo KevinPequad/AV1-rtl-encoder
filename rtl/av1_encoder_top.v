@@ -2308,14 +2308,19 @@ module av1_encoder_top #(
     wire [17:0] me_best_sad;
     // Default public-clean mode: keep unconstrained runs on GLOBALMV/zero-MV
     // inter unless a test/bring-up path explicitly opts into NEWMV with
-    // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs;
-    // fractional NEWMV remains isolated to DC-only syntax ownership bring-up
-    // until its public-decoder recon parity is exact.
+    // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
+    // At 64x64+ the reduced reference-stack/MV-prediction model is proven
+    // public-clean through the first 13 non-zero-MV blocks; cap larger requests
+    // there until the unrestricted stack model is decoder-exact. DC-only tests
+    // retain their uncapped fractional/NEAREST/NEARMV syntax ownership coverage.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
+    wire [7:0]  me_effective_newmv_limit =
+        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd13)) ?
+            8'd13 : me_newmv_limit_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
-                                  ((me_newmv_limit_in != 8'd0) &&
-                                   (me_newmv_count >= me_newmv_limit_in));
+                                  ((me_effective_newmv_limit != 8'd0) &&
+                                   (me_newmv_count >= me_effective_newmv_limit));
     wire [19:0] me_ref_rd_addr;
 
     // Neighbor loading address
