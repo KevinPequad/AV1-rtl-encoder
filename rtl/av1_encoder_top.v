@@ -2306,8 +2306,15 @@ module av1_encoder_top #(
     wire signed [8:0] me_best_mvx, me_best_mvy;
     wire signed [15:0] me_best_mvx_q3, me_best_mvy_q3;
     wire [17:0] me_best_sad;
-    wire        me_limit_zero_mv = (me_newmv_limit_in != 8'd0) &&
-                                  (me_newmv_count >= me_newmv_limit_in);
+    // Default public-clean mode: keep unconstrained runs on GLOBALMV/zero-MV
+    // inter unless a test/bring-up path explicitly opts into NEWMV with
+    // +me_newmv_limit=N. The NEWMV syntax path is still available for focused
+    // ownership tests, but unrestricted NEWMV streams are not public-decoder
+    // clean yet at larger full-coeff sizes.
+    wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0);
+    wire        me_limit_zero_mv = me_auto_zero_mv ||
+                                  ((me_newmv_limit_in != 8'd0) &&
+                                   (me_newmv_count >= me_newmv_limit_in));
     wire [19:0] me_ref_rd_addr;
 
     // Neighbor loading address
