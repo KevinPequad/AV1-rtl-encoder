@@ -2308,10 +2308,11 @@ module av1_encoder_top #(
     wire [17:0] me_best_sad;
     // Default public-clean mode: keep unconstrained runs on GLOBALMV/zero-MV
     // inter unless a test/bring-up path explicitly opts into NEWMV with
-    // +me_newmv_limit=N. DC-only syntax ownership tests keep their existing
-    // NEWMV coverage; unrestricted full-coeff NEWMV streams are not
-    // public-decoder clean yet at larger sizes.
+    // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs;
+    // fractional NEWMV remains isolated to DC-only syntax ownership bring-up
+    // until its public-decoder recon parity is exact.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
+    wire        me_integer_mv_only = !dc_only_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_newmv_limit_in != 8'd0) &&
                                    (me_newmv_count >= me_newmv_limit_in));
@@ -2355,6 +2356,7 @@ module av1_encoder_top #(
         .clk(clk), .rst_n(rst_n),
         .start(me_start),
         .zero_mv_only(me_zero_mv_only_in || me_limit_zero_mv),
+        .integer_mv_only(me_integer_mv_only),
         .done(me_done),
         .cur_x({1'b0, blk_x} * 8),
         .cur_y({1'b0, blk_y} * 8),
