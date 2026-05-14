@@ -208,6 +208,7 @@
 - Do not pause for progress summaries or routine check-ins.
 - If a milestone is reached, commit it, push it, and keep working without waiting for confirmation.
 - Keep `README.md` and `AGENTS.md` current instead of using milestone replies as the main status log.
+- Remove/substitute generated blobs, stale debug logs, duplicate workspaces, and garbled notes that slow ASIC/feature completion without adding proof; archive useful artifacts outside the repo instead of committing or carrying them.
 - Do not reply only because a side-task request was completed if active encoder implementation work still remains.
 - Do not reply only because the work reached a natural pause point.
 - Do not reply only because a push or doc update just completed.
@@ -249,17 +250,15 @@ The H.264 RTL encoder was already completed and is located at `av1-reference-doc
 - If an inference is unavoidable, mark it as temporary and verify it as soon as possible against the spec or reference software.
 
 ## Test Video
-- **Big Buck Bunny** at **720p** is the reference video for all testing and verification.
-- **Final deliverable**: First **10 seconds** of Big Buck Bunny at **1280x720 @ 24 fps**, encoded by the RTL AV1 encoder, decoded, visually verified, and delivered as a playable MP4 derived from the RTL-generated AV1 stream.
-- During initial development and verification, you do not need to encode all 10 seconds - use smaller clips or single frames to validate. The full 10-second encode is the final project milestone.
+- **Big Buck Bunny** at **720p** is a useful reference source for representative natural-video tests, not a fixed-duration completion gate.
+- **Proof target**: use the smallest representative RTL-owned decoded proof that exercises the feature under test; one frame is enough for intra/residual behavior, two frames are enough when a KEY→INTER/reference transition proves the target behavior, and longer clips are only soak/regression evidence when they add coverage.
+- Do not optimize work around a mandatory 10-second/240-frame milestone. Optimize for fast, meaningful ASIC/feature progress with public-decoder/recon evidence.
 
 ## Simulation Environment
 - Prefer Linux flow via **WSL Ubuntu** or **Docker Ubuntu**.
 - Docker configuration and simulation scripts go in the Docker Ubuntu folder.
-- For Verilator builds and simulation, use the maximum available host threads by default unless a specific debugging task requires fewer threads.
-- On this machine, the default target is `24` threads and `24` build jobs.
-- If the environment does not reliably expose all CPUs through `nproc`, explicitly set `THREADS=24` and `BUILD_JOBS=24`.
-- Do not quietly fall back to reduced parallelism for normal runs.
+- For Verilator builds and simulation, use `THREADS=1 BUILD_JOBS=1` by default unless Kevin explicitly asks for a fast/max-thread run or a justified batch gate.
+- Do not quietly escalate to max threads or fixed `24`-thread commands just because an older note says so; keep iterations fast enough to prove the feature without making the machine unusable.
 - Be wary of simulation times. Do not jump to long or high-resolution runs until smaller cases decode and look sane.
 - After RTL edits, prefer clean rebuilds so stale simulator outputs do not mask changes.
 
@@ -363,8 +362,8 @@ The H.264 RTL encoder was already completed and is located at `av1-reference-doc
   - the stream is visually verified against the source
   - intra and inter paths are both verified on project test content
   - comparison against `ffmpeg` AV1 reference output for sanity checking
-  - normal regression/build flow is run on this machine with `THREADS=24` and `BUILD_JOBS=24`
-  - the final Big Buck Bunny deliverable is produced at `1280x720 @ 24 fps` according to the project rules
+  - normal regression/build flow uses `THREADS=1 BUILD_JOBS=1` unless a fast/max-thread run is explicitly requested or justified
+  - the claimed feature set has the smallest representative RTL-owned decoded proof that actually exercises it; longer Big Buck Bunny clips are optional soak/regression evidence only
 - Finishing one phase does not count as overall completion. Move to the next phase automatically until all required phases are complete or a concrete local blocker is reached.
 
 ## Agent Rules
@@ -388,6 +387,6 @@ The H.264 RTL encoder was already completed and is located at `av1-reference-doc
 3. Reference SVT-AV1 and the AV1 spec for all AV1-specific implementation details.
 4. Implement only the current phase feature subset unless the project rules are explicitly expanded.
 5. Build and simulate RTL in the Docker Ubuntu environment.
-6. Encode Big Buck Bunny frames, decode them, and visually compare output to input.
+6. Encode the smallest representative source frames that exercise the feature, decode them, and visually/byte/metric compare output to the expected reconstruction as appropriate.
 7. Advance to the next phase after the current phase is implemented, decoded, and verified.
 8. Only mark the encoder as complete once the full proposed feature roadmap has been implemented and verification passes.
