@@ -440,17 +440,18 @@ module av1_encoder_top #(
     function [3:0] intra_mode_from_idx;
         input [3:0] idx;
         begin
+            // Keep the closed-loop reference path on predictor modes that are
+            // already byte/recon exact at 32x32+ full-coeff sizes. The angular
+            // directional predictor currently diverges from public decoders once
+            // top-right/bottom-left availability matters beyond the 16x16 smoke
+            // cases, which poisons LAST references for following inter frames.
+            // Re-enable D45/D135/D113/D157/D203/D67 only after their edge
+            // availability and intra-edge-filter behavior are made spec-exact.
             case (idx)
                 4'd0: intra_mode_from_idx = AV1_DC_PRED;
                 4'd1: intra_mode_from_idx = AV1_V_PRED;
                 4'd2: intra_mode_from_idx = AV1_H_PRED;
-                4'd3: intra_mode_from_idx = AV1_D45_PRED;
-                4'd4: intra_mode_from_idx = AV1_D135_PRED;
-                4'd5: intra_mode_from_idx = AV1_D113_PRED;
-                4'd6: intra_mode_from_idx = AV1_D157_PRED;
-                4'd7: intra_mode_from_idx = AV1_D203_PRED;
-                4'd8: intra_mode_from_idx = AV1_D67_PRED;
-                4'd9: intra_mode_from_idx = AV1_SMOOTH_PRED;
+                4'd3: intra_mode_from_idx = AV1_SMOOTH_PRED;
                 default: intra_mode_from_idx = AV1_PAETH_PRED;
             endcase
         end
