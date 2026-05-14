@@ -2138,7 +2138,8 @@ module av1_encoder_top #(
         (me_mvx_q3 == 16'sd0 && me_mvy_q3 == 16'sd0) ? REDUCED_INTER_GLOBALMV :
         ((cur_mv_col == cur_ref_mv_col) && (cur_mv_row == cur_ref_mv_row)) ?
             REDUCED_INTER_NEARESTMV :
-        ((cur_mv_col == cur_nearmv_col) && (cur_mv_row == cur_nearmv_row)) ?
+        (((cur_mv_col == cur_nearmv_col) && (cur_mv_row == cur_nearmv_row)) &&
+         (dc_only_in || (FRAME_WIDTH < 64))) ?
             REDUCED_INTER_NEARMV : REDUCED_INTER_NEWMV;
 
     wire [3:0] intra_eval_mode = intra_mode_from_idx(intra_eval_idx);
@@ -2310,14 +2311,14 @@ module av1_encoder_top #(
     // inter unless a test/bring-up path explicitly opts into NEWMV with
     // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
     // At 64x64+ the reduced reference-stack/MV-prediction model is proven
-    // public-clean through the first 15 non-zero-MV blocks; cap larger requests
+    // public-clean through the first 16 non-zero-MV blocks; cap larger requests
     // there until the unrestricted stack model is decoder-exact. DC-only tests
     // retain their uncapped fractional/NEAREST/NEARMV syntax ownership coverage.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
     wire [7:0]  me_effective_newmv_limit =
-        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd15)) ?
-            8'd15 : me_newmv_limit_in;
+        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd16)) ?
+            8'd16 : me_newmv_limit_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_effective_newmv_limit != 8'd0) &&
                                    (me_newmv_count >= me_effective_newmv_limit));

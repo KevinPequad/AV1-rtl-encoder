@@ -2142,7 +2142,8 @@ private:
                     encode_symbol_ctx(rc, 1, av1_newmv_cdf[newmv_ctx], 2); // mode != NEWMV
                     encode_symbol_ctx(rc, 1, av1_zeromv_cdf[zeromv_ctx], 2); // mode != GLOBALMV
                     encode_symbol_ctx(rc, 0, av1_refmv_cdf[refmv_ctx], 2); // mode == NEARESTMV
-                } else if (block_mvx == near_mvx && block_mvy == near_mvy) {
+                } else if (block_mvx == near_mvx && block_mvy == near_mvy &&
+                           (dc_only_mode_ || width_ < 64)) {
                     inter_mode = REDUCED_INTER_NEARMV;
                     encode_symbol_ctx(rc, 1, av1_newmv_cdf[newmv_ctx], 2); // mode != NEWMV
                     encode_symbol_ctx(rc, 1, av1_zeromv_cdf[zeromv_ctx], 2); // mode != GLOBALMV
