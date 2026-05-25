@@ -2317,8 +2317,8 @@ module av1_encoder_top #(
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
     wire [7:0]  me_effective_newmv_limit =
-        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd20)) ?
-            8'd20 : me_newmv_limit_in;
+        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd21)) ?
+            8'd21 : me_newmv_limit_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_effective_newmv_limit != 8'd0) &&
                                    (me_newmv_count >= me_effective_newmv_limit));
