@@ -1,0 +1,26 @@
+# Yosys frontend smoke for AV1 ASIC-readiness bring-up.
+# Run from repo root:
+#   yosys -s scripts/asic_yosys_smoke.ys
+#
+# This is a frontend/elaboration smoke, not a final ASIC synthesis script.
+
+read_verilog -sv -Irtl \
+  rtl/av1_bitstream.v \
+  rtl/av1_chroma_inter_pred.v \
+  rtl/av1_chroma_residual.v \
+  rtl/av1_encoder_top.v \
+  rtl/av1_entropy.v \
+  rtl/av1_fetch.v \
+  rtl/av1_inter_pred.v \
+  rtl/av1_intra_pred.v \
+  rtl/av1_inverse_quant.v \
+  rtl/av1_inverse_transform.v \
+  rtl/av1_me.v \
+  rtl/av1_quantize.v \
+  rtl/av1_reconstruct.v \
+  rtl/av1_transform.v
+
+hierarchy -check -top av1_encoder_top
+proc
+opt
+stat

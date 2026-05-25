@@ -148,6 +148,7 @@ Always use primary references before making codec decisions.
 
 - `av1-reference-docs/av1-spec.pdf`
 - `FULL_RTL_SCOPE.md`
+- `ASIC_READINESS.md`
 - `../SVT-AV1/`
 - local or mirrored `libaom` sources under `av1-reference-docs/external/`
 - official blocker notes in `av1-reference-docs/external/README.md`
