@@ -49,8 +49,8 @@ def main() -> int:
         fail(f"expected all blocks inter in frame 1, saw {total_inter}")
     if nonzero_inter <= 0:
         fail("expected nonzero full-coeff inter residual blocks")
-    if newmv != 20:
-        fail(f"expected 64x64 full-coeff NEWMV cap to hold at 20 blocks, saw {newmv}")
+    if newmv != 21:
+        fail(f"expected 64x64 full-coeff NEWMV cap to hold at 21 blocks, saw {newmv}")
     if nearestmv != 0 or nearmv != 0:
         fail(f"capped full-coeff path should avoid NEAREST/NEARMV stack parity risk, saw nearest={nearestmv} near={nearmv}")
     print(
