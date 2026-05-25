@@ -40,6 +40,70 @@ The active program goal is full feature-complete RTL AV1.
 - The exact matrix is derived from `av1-reference-docs/svt-av1-feature-inventory.md` plus the prior gap audit.
 - Historical checkpoint details live in `PRE_ASIC_HANDOFF.md` and `P7_REFERENCE_BOUNDARY.md`.
 
+
+## Full AV1 / ASIC Implementation Gap Checklist
+
+This is the README-level feature inventory for reaching a real full RTL AV1
+encoder and then an ASIC-ready implementation. A green smoke test, a reduced
+checkpoint, or a software-writer-matching debug run is not completion unless the
+item is owned by the RTL path and independently decoded/verified.
+
+### Codec features still required for full AV1
+
+- **Bitstream ownership and headers:** complete OBU, sequence header, frame
+  header, tile group, metadata, packetization, and final IVF/container wrapping
+  from RTL-owned bytes; remove dependency on the C++ debug writer for finished
+  syntax.
+- **Entropy and CDF state:** complete symbol/CDF coverage, adaptive CDF update
+  and refresh semantics, frame-context carryover, and context reset rules across
+  key/inter frames and GOP boundaries.
+- **Input/output surfaces:** raw YUV and Y4M input, 8-bit and 10-bit 4:2:0,
+  Main/High/Professional profile signaling, automatic/explicit level signaling,
+  reconstructed-frame output, PSNR/SSIM reporting, still-picture/AVIF-style
+  support, and representative `1280x720 @ 24 fps` outputs.
+- **Partitioning and transforms:** full recursive partition coverage, square and
+  non-square block sizes, transform-size/type selection, lossless `qindex=0`
+  / `TX_4X4`, delta-q, and reconstruction parity for every enabled transform.
+- **Intra tools:** complete luma/chroma intra prediction, CfL, filter intra,
+  palette/screen-content decisions if kept in scope, and natural-keyframe proof
+  cases beyond the current reduced probes.
+- **Coefficient syntax:** full luma and chroma coefficient syntax across EOB
+  ranges, coefficient magnitudes, transform sizes, transform types, qindex
+  ranges, and dense/high-energy natural-content distributions.
+- **Chroma tools:** non-flat Cb/Cr residual coding, chroma intra-neighbor
+  ownership, chroma inter prediction/residual integration, and decoder-to-recon
+  parity on natural chroma clips.
+- **Inter prediction and motion:** multi-reference frames beyond LAST-only,
+  complete MV predictor/context classes, fractional/subpel coverage, compound
+  references, global/warped motion, OBMC, inter-intra, wedge/compound modes,
+  MFMV/order-hint behavior, and broader natural-motion validation.
+- **Reference/GOP control:** full reference-frame lifecycle, refresh-map
+  management, random access, open/closed GOP behavior, overlays/show-existing
+  frame handling if enabled, hierarchical layers, and long-sequence stability.
+- **Post-reconstruction filters:** loop filter, CDEF, restoration, superres/film
+  grain policy, and filtered-reference writeback before any filtered tool is
+  advertised in the bitstream.
+- **Rate/quality control:** CQP/CRF/VBR/CBR-style control as scoped, AQ/ROI,
+  mode-decision/RD search, recode loops as needed, and quality/bitrate
+  regression evidence against representative clips.
+- **Advanced/deferred AV1 tools:** screen-content tools, segmentation, global
+  metadata/signaling, and any remaining advanced AV1 tool that is not explicitly
+  de-scoped in a future standards-backed decision.
+
+### ASIC-readiness work still required after codec feature closure
+
+- lint-clean synthesizable RTL with simulation-only code guarded or removed;
+- explicit SRAM/DRAM/frame-buffer interfaces instead of testbench-owned memory
+  assumptions;
+- hierarchy-preserving synthesis scripts, constraints, and module-level gates;
+- clock/reset strategy, CDC review if multiple clocks are introduced, and scan /
+  DFT planning;
+- timing, area, power, and gate-level simulation evidence on the chosen ASIC
+  flow; and
+- repo hygiene suitable for handoff: no generated build trees, stale worktrees,
+  debug dumps, or software-authored final-bitstream shortcuts in the source
+  tree.
+
 ## Bitstream Ownership Rule
 
 The RTL must own the final AV1 syntax generation needed for completion. The testbench may feed raw YUV, capture RTL bytes, decode output, compute metrics, and package a playable container, but it must not author the final AV1 syntax on behalf of the RTL for project completion.
@@ -77,44 +141,6 @@ make THREADS=16 BUILD_JOBS=16
 
 Historical pre-ASIC validation matrix: see `PRE_ASIC_HANDOFF.md` for the canonical single-thread command and gate list; see `FULL_RTL_SCOPE.md` for the active scope.
 
-## Continuous Codex Supervisor
-
-The repo now includes a restartable Codex supervisor that keeps a non-interactive `codex exec` session running on `gpt-5.4` with `xhigh` reasoning, resumes the same thread after each turn, and only exits cleanly when the agent marks the project `complete` (or when you opt into `--stop-on-blocker`).
-
-Files:
-
-- `scripts/codex_supervisor.js`: main loop
-- `scripts/codex_supervisor.ps1`: Windows wrapper
-- `scripts/codex_supervisor.initial.md`: first-turn mission prompt
-- `scripts/codex_supervisor.continue.md`: resume prompt
-
-Runtime artifacts are written under `.codex-supervisor/` and are git-ignored.
-
-Recommended launch from the repo root on this machine:
-
-```powershell
-.\scripts\codex_supervisor.ps1
-```
-
-Equivalent direct Node launch:
-
-```bash
-node scripts/codex_supervisor.js --repo .
-```
-
-Useful flags:
-
-- `--fresh`: ignore any saved session id and start a new Codex thread
-- `--max-runs 1`: do a bounded smoke run
-- `--stop-on-blocker`: exit if the agent reports a true hard blocker
-- `--search`: enable Codex web search on the first launch turn
-
-Supervisor contract:
-
-- the agent must rewrite `.codex-supervisor/status.json` before ending each turn
-- `status` must be one of `continue`, `blocked`, or `complete`
-- `next_prompt` should contain the exact best follow-up instruction for the next resume turn
-- `complete` is only valid once the repo's full AV1 acceptance target is actually verified
 
 ## References
 
