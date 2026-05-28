@@ -14,12 +14,12 @@ module av1_chroma_residual (
     input  wire        dc_only,
     output reg         done,
 
-    input  wire [7:0]  cur  [0:15],
-    input  wire [7:0]  pred [0:15],
+    input  wire [127:0] cur,
+    input  wire [127:0] pred,
 
-    output reg signed [15:0] qcoeff [0:15],
-    output reg [7:0]  recon [0:15],
-    output reg        block_has_coeff
+    output wire [255:0] qcoeff,
+    output wire [127:0] recon,
+    output reg          block_has_coeff
 );
 
     localparam [4:0]
@@ -43,6 +43,21 @@ module av1_chroma_residual (
     reg [2:0] col_idx;
     reg [4:0] proc_idx;
     integer i;
+    reg signed [15:0] qcoeff_mem [0:15];
+    reg [7:0] recon_mem [0:15];
+
+    assign qcoeff = {
+        qcoeff_mem[15], qcoeff_mem[14], qcoeff_mem[13], qcoeff_mem[12],
+        qcoeff_mem[11], qcoeff_mem[10], qcoeff_mem[9],  qcoeff_mem[8],
+        qcoeff_mem[7],  qcoeff_mem[6],  qcoeff_mem[5],  qcoeff_mem[4],
+        qcoeff_mem[3],  qcoeff_mem[2],  qcoeff_mem[1],  qcoeff_mem[0]
+    };
+    assign recon = {
+        recon_mem[15], recon_mem[14], recon_mem[13], recon_mem[12],
+        recon_mem[11], recon_mem[10], recon_mem[9],  recon_mem[8],
+        recon_mem[7],  recon_mem[6],  recon_mem[5],  recon_mem[4],
+        recon_mem[3],  recon_mem[2],  recon_mem[1],  recon_mem[0]
+    };
 
     reg signed [15:0] residual [0:15];
     reg signed [15:0] tx_tmp   [0:15];
@@ -117,6 +132,20 @@ module av1_chroma_residual (
         .out4(inv_out[4]), .out5(inv_out[5]), .out6(inv_out[6]), .out7(inv_out[7])
     );
 
+    function [7:0] cur_px;
+        input [3:0] idx;
+        begin
+            cur_px = cur[idx*8 +: 8];
+        end
+    endfunction
+
+    function [7:0] pred_px;
+        input [3:0] idx;
+        begin
+            pred_px = pred[idx*8 +: 8];
+        end
+    endfunction
+
     function signed [15:0] round_shift16;
         input signed [15:0] val;
         input integer shift;
@@ -166,8 +195,8 @@ module av1_chroma_residual (
                 coeff[i] <= 16'sd0;
                 dqcoeff[i] <= 16'sd0;
                 inv_tmp[i] <= 16'sd0;
-                qcoeff[i] <= 16'sd0;
-                recon[i] <= 8'd128;
+                qcoeff_mem[i] <= 16'sd0;
+                recon_mem[i] <= 8'd128;
             end
             for (i = 0; i < 8; i = i + 1) begin
                 xform_in[i] <= 16'sd0;
@@ -184,13 +213,13 @@ module av1_chroma_residual (
                 S_IDLE: begin
                     if (start) begin
                         for (i = 0; i < 16; i = i + 1) begin
-                            residual[i] <= $signed({1'b0, cur[i]}) - $signed({1'b0, pred[i]});
+                            residual[i] <= $signed({1'b0, cur_px(i[3:0])}) - $signed({1'b0, pred_px(i[3:0])});
                             tx_tmp[i] <= 16'sd0;
                             coeff[i] <= 16'sd0;
                             dqcoeff[i] <= 16'sd0;
                             inv_tmp[i] <= 16'sd0;
-                            qcoeff[i] <= 16'sd0;
-                            recon[i] <= pred[i];
+                            qcoeff_mem[i] <= 16'sd0;
+                            recon_mem[i] <= pred_px(i[3:0]);
                         end
                         block_has_coeff <= 1'b0;
                         row_idx <= 3'd0;
@@ -253,7 +282,7 @@ module av1_chroma_residual (
 
                 S_Q_WAIT: begin
                     if (quant_done) begin
-                        qcoeff[proc_idx[3:0]] <= (dc_only && proc_idx != 5'd0) ? 16'sd0 : quant_coeff_out;
+                        qcoeff_mem[proc_idx[3:0]] <= (dc_only && proc_idx != 5'd0) ? 16'sd0 : quant_coeff_out;
                         if (((dc_only && proc_idx != 5'd0) ? 16'sd0 : quant_coeff_out) != 16'sd0)
                             block_has_coeff <= 1'b1;
                         if (proc_idx == 5'd0)
@@ -272,7 +301,7 @@ module av1_chroma_residual (
 
                 S_IQ_START: begin
                     iq_start <= 1'b1;
-                    iq_qcoeff_in <= qcoeff[proc_idx[3:0]];
+                    iq_qcoeff_in <= qcoeff_mem[proc_idx[3:0]];
                     iq_dequant <= (proc_idx == 5'd0) ? dequant_dc : dequant_ac;
                     state <= S_IQ_WAIT;
                 end
@@ -325,8 +354,8 @@ module av1_chroma_residual (
                 S_INV_COLW: begin
                     if (inv_done) begin
                         for (i = 0; i < 4; i = i + 1)
-                            recon[{i[1:0], col_idx[1:0]}] <=
-                                clip_pred_res(pred[{i[1:0], col_idx[1:0]}], round_shift16(inv_out[i], 3));
+                            recon_mem[{i[1:0], col_idx[1:0]}] <=
+                                clip_pred_res(pred_px({i[1:0], col_idx[1:0]}), round_shift16(inv_out[i], 3));
                         if (col_idx < 3'd3) begin
                             col_idx <= col_idx + 1'b1;
                             state <= S_INV_COL;

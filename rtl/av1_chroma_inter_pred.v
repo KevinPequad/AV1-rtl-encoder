@@ -21,7 +21,7 @@ module av1_chroma_inter_pred #(
     input  wire [7:0]  ref_mem_data,
 
     output reg         done,
-    output reg  [7:0]  pred [0:15]
+    output wire [127:0] pred
 );
 
     localparam [2:0]
@@ -48,6 +48,14 @@ module av1_chroma_inter_pred #(
     reg signed [31:0] h_rounded;
     reg signed [31:0] v_next;
     integer i;
+    reg [7:0] pred_mem [0:15];
+
+    assign pred = {
+        pred_mem[15], pred_mem[14], pred_mem[13], pred_mem[12],
+        pred_mem[11], pred_mem[10], pred_mem[9],  pred_mem[8],
+        pred_mem[7],  pred_mem[6],  pred_mem[5],  pred_mem[4],
+        pred_mem[3],  pred_mem[2],  pred_mem[1],  pred_mem[0]
+    };
 
     function integer clamp_i;
         input integer v;
@@ -296,7 +304,7 @@ module av1_chroma_inter_pred #(
             h_acc <= 32'sd0;
             v_acc <= 32'sd0;
             for (i = 0; i < 16; i = i + 1)
-                pred[i] <= 8'd128;
+                pred_mem[i] <= 8'd128;
         end else begin
             done <= 1'b0;
             case (state)
@@ -352,13 +360,13 @@ module av1_chroma_inter_pred #(
                 S_READ: begin
                     case (mode)
                         MODE_FULL: begin
-                            pred[out_idx] <= ref_mem_data;
+                            pred_mem[out_idx] <= ref_mem_data;
                             advance_pixel();
                         end
                         MODE_H: begin
                             acc_next = h_acc + small_regular_coeff(phase_x, tap_idx) * $signed({1'b0, ref_mem_data});
                             if (tap_idx == 3'd7) begin
-                                pred[out_idx] <= clip_round_filter(acc_next);
+                                pred_mem[out_idx] <= clip_round_filter(acc_next);
                                 h_acc <= 32'sd0;
                                 advance_pixel();
                             end else begin
@@ -370,7 +378,7 @@ module av1_chroma_inter_pred #(
                         MODE_V: begin
                             acc_next = v_acc + small_regular_coeff(phase_y, tap_idx) * $signed({1'b0, ref_mem_data});
                             if (tap_idx == 3'd7) begin
-                                pred[out_idx] <= clip_round_filter(acc_next);
+                                pred_mem[out_idx] <= clip_round_filter(acc_next);
                                 v_acc <= 32'sd0;
                                 advance_pixel();
                             end else begin
@@ -386,7 +394,7 @@ module av1_chroma_inter_pred #(
                                 v_next = v_acc + small_regular_coeff(phase_y, tap_y_idx) * h_rounded;
                                 h_acc <= 32'sd0;
                                 if (tap_y_idx == 3'd7) begin
-                                    pred[out_idx] <= clip_round_filter_hv(v_next);
+                                    pred_mem[out_idx] <= clip_round_filter_hv(v_next);
                                     v_acc <= 32'sd0;
                                     advance_pixel();
                                 end else begin
