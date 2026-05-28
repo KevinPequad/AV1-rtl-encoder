@@ -600,6 +600,7 @@ module av1_encoder_top #(
         input integer blk_x_in;
         input integer blk_y_in;
         integer bs;
+        integer k;
         integer mask_row;
         integer mask_col;
         reg has_tr;
@@ -611,16 +612,20 @@ module av1_encoder_top #(
                 mask_row = blk_y_in & 7;
                 mask_col = blk_x_in & 7;
                 has_tr = !((mask_row & bs) && (mask_col & bs));
-                while (bs < 8) begin
-                    if (mask_col & bs) begin
-                        if ((mask_col & (2 * bs)) && (mask_row & (2 * bs))) begin
-                            has_tr = 1'b0;
-                            bs = 8;
+                // Static bound for synthesis frontends; mirrors the original
+                // bs=1,2,4 dynamic walk and uses bs=8 as the stop sentinel.
+                for (k = 0; k < 3; k = k + 1) begin
+                    if (bs < 8) begin
+                        if (mask_col & bs) begin
+                            if ((mask_col & (2 * bs)) && (mask_row & (2 * bs))) begin
+                                has_tr = 1'b0;
+                                bs = 8;
+                            end else begin
+                                bs = bs << 1;
+                            end
                         end else begin
-                            bs = bs << 1;
+                            bs = 8;
                         end
-                    end else begin
-                        bs = 8;
                     end
                 end
                 block_has_top_right_fn = has_tr && (blk_y_in > 0) && (blk_x_in + 1 < BLK_COLS);
@@ -877,12 +882,15 @@ module av1_encoder_top #(
     function [3:0] log_in_base_2_fn;
         input [15:0] n;
         reg [15:0] tmp;
+        integer k;
         begin
             tmp = n;
             log_in_base_2_fn = 4'd0;
-            while (tmp > 16'd1) begin
-                tmp = tmp >> 1;
-                log_in_base_2_fn = log_in_base_2_fn + 1'b1;
+            for (k = 0; k < 16; k = k + 1) begin
+                if (tmp > 16'd1) begin
+                    tmp = tmp >> 1;
+                    log_in_base_2_fn = log_in_base_2_fn + 1'b1;
+                end
             end
         end
     endfunction
@@ -1738,12 +1746,15 @@ module av1_encoder_top #(
     function [4:0] bit_length16_fn;
         input [15:0] val;
         integer tmp;
+        integer k;
         begin
             bit_length16_fn = 5'd0;
             tmp = val;
-            while (tmp > 0) begin
-                bit_length16_fn = bit_length16_fn + 5'd1;
-                tmp = tmp >> 1;
+            for (k = 0; k < 16; k = k + 1) begin
+                if (tmp > 0) begin
+                    bit_length16_fn = bit_length16_fn + 5'd1;
+                    tmp = tmp >> 1;
+                end
             end
             if (bit_length16_fn == 5'd0)
                 bit_length16_fn = 5'd1;
@@ -1916,20 +1927,22 @@ module av1_encoder_top #(
             cur_sby = cur_blk_y_in >> 3;
             next_blk_morton_packed = 21'd0;
             found = 1'b0;
-            for (sby_scan = cur_sby; sby_scan < SB_ROWS; sby_scan = sby_scan + 1) begin
+            for (sby_scan = 0; sby_scan < SB_ROWS; sby_scan = sby_scan + 1) begin
                 for (sbx_scan = 0; sbx_scan < SB_COLS; sbx_scan = sbx_scan + 1) begin
-                    if (!found &&
+                    if (!found && (sby_scan >= cur_sby) &&
                         ((sby_scan > cur_sby) || ((sby_scan == cur_sby) && (sbx_scan >= cur_sbx)))) begin
                         if ((sby_scan == cur_sby) && (sbx_scan == cur_sbx))
                             start_morton = morton3_from_xy(cur_blk_x_in[2:0], cur_blk_y_in[2:0]) + 1;
                         else
                             start_morton = 0;
-                        for (morton_scan = start_morton; morton_scan < 64; morton_scan = morton_scan + 1) begin
-                            cand_x = (sbx_scan << 3) + morton3_to_x(morton_scan[5:0]);
-                            cand_y = (sby_scan << 3) + morton3_to_y(morton_scan[5:0]);
-                            if (!found && (cand_x < BLK_COLS) && (cand_y < BLK_ROWS)) begin
-                                next_blk_morton_packed = {1'b1, cand_y[9:0], cand_x[9:0]};
-                                found = 1'b1;
+                        for (morton_scan = 0; morton_scan < 64; morton_scan = morton_scan + 1) begin
+                            if (morton_scan >= start_morton) begin
+                                cand_x = (sbx_scan << 3) + morton3_to_x(morton_scan[5:0]);
+                                cand_y = (sby_scan << 3) + morton3_to_y(morton_scan[5:0]);
+                                if (!found && (cand_x < BLK_COLS) && (cand_y < BLK_ROWS)) begin
+                                    next_blk_morton_packed = {1'b1, cand_y[9:0], cand_x[9:0]};
+                                    found = 1'b1;
+                                end
                             end
                         end
                     end
