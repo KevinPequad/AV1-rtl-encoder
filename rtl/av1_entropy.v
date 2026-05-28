@@ -84,12 +84,15 @@ module av1_entropy #(
     function integer ilog_nz;
         input [15:0] val;
         integer tmp;
+        integer k;
         begin
             ilog_nz = 0;
             tmp = val;
-            while (tmp > 0) begin
-                ilog_nz = ilog_nz + 1;
-                tmp = tmp >> 1;
+            for (k = 0; k < 16; k = k + 1) begin
+                if (tmp > 0) begin
+                    ilog_nz = ilog_nz + 1;
+                    tmp = tmp >> 1;
+                end
             end
             if (ilog_nz < 1)
                 ilog_nz = 1;
@@ -123,10 +126,12 @@ module av1_entropy #(
         reg [8:0] sum;
         begin
             carry = 1'b1;
-            for (idx = start_pos - 1; idx >= 0 && carry; idx = idx - 1) begin
-                sum = {1'b0, out_buf[idx]} + 9'd1;
-                out_buf[idx] = sum[7:0];
-                carry = sum[8];
+            for (idx = BUF_BYTES - 1; idx >= 0; idx = idx - 1) begin
+                if ((idx < start_pos) && carry) begin
+                    sum = {1'b0, out_buf[idx]} + 9'd1;
+                    out_buf[idx] = sum[7:0];
+                    carry = sum[8];
+                end
             end
         end
     endtask
@@ -136,12 +141,14 @@ module av1_entropy #(
         input integer num_bytes;
         integer idx;
         begin
-            for (idx = num_bytes - 1; idx >= 0; idx = idx - 1) begin
-                if (out_len < BUF_BYTES) begin
-                    out_buf[out_len] = (value >> (idx * 8)) & 64'hFF;
-                    out_len = out_len + 1;
-                end else begin
-                    overflow_seen = 1'b1;
+            for (idx = 7; idx >= 0; idx = idx - 1) begin
+                if (idx < num_bytes) begin
+                    if (out_len < BUF_BYTES) begin
+                        out_buf[out_len] = (value >> (idx * 8)) & 64'hFF;
+                        out_len = out_len + 1;
+                    end else begin
+                        overflow_seen = 1'b1;
+                    end
                 end
             end
         end
