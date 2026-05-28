@@ -2339,7 +2339,7 @@ module av1_encoder_top #(
     wire        chroma_pred_done;
     reg         chroma_pred_start;
     wire [17:0] chroma_pred_ref_addr;
-    wire [7:0]  chroma_pred_out [0:15];
+    wire [127:0] chroma_pred_out;
     wire        chroma_pred_active = (top_state == TS_CHR_WAIT) && use_inter && !is_keyframe;
     assign chr_ref_rd_is_neigh = chr_ref_neigh_active;
     assign chr_cb_ref_rd_addr = (chr_ref_neigh_active && !chr_plane) ? chr_ref_neigh_addr :
@@ -2412,9 +2412,21 @@ module av1_encoder_top #(
 
     wire        chroma_res_done;
     reg         chroma_res_start;
-    wire signed [15:0] chroma_res_qcoeff [0:15];
-    wire [7:0]  chroma_res_recon [0:15];
+    wire [255:0] chroma_res_qcoeff;
+    wire [127:0] chroma_res_recon;
     wire        chroma_res_has_coeff;
+    wire [127:0] chr_cur_blk_flat = {
+        chr_cur_blk[15], chr_cur_blk[14], chr_cur_blk[13], chr_cur_blk[12],
+        chr_cur_blk[11], chr_cur_blk[10], chr_cur_blk[9],  chr_cur_blk[8],
+        chr_cur_blk[7],  chr_cur_blk[6],  chr_cur_blk[5],  chr_cur_blk[4],
+        chr_cur_blk[3],  chr_cur_blk[2],  chr_cur_blk[1],  chr_cur_blk[0]
+    };
+    wire [127:0] chr_pred_blk_flat = {
+        chr_pred_blk[15], chr_pred_blk[14], chr_pred_blk[13], chr_pred_blk[12],
+        chr_pred_blk[11], chr_pred_blk[10], chr_pred_blk[9],  chr_pred_blk[8],
+        chr_pred_blk[7],  chr_pred_blk[6],  chr_pred_blk[5],  chr_pred_blk[4],
+        chr_pred_blk[3],  chr_pred_blk[2],  chr_pred_blk[1],  chr_pred_blk[0]
+    };
 
     av1_chroma_residual u_chroma_residual (
         .clk(clk),
@@ -2423,8 +2435,8 @@ module av1_encoder_top #(
         .qindex(qindex),
         .dc_only(dc_only_in),
         .done(chroma_res_done),
-        .cur(chr_cur_blk),
-        .pred(chr_pred_blk),
+        .cur(chr_cur_blk_flat),
+        .pred(chr_pred_blk_flat),
         .qcoeff(chroma_res_qcoeff),
         .recon(chroma_res_recon),
         .block_has_coeff(chroma_res_has_coeff)
@@ -4939,7 +4951,7 @@ module av1_encoder_top #(
                     end
                     if (chroma_pred_done) begin
                         for (i = 0; i < 16; i = i + 1)
-                            chr_pred_blk[i] <= chroma_pred_out[i];
+                            chr_pred_blk[i] <= chroma_pred_out[i*8 +: 8];
                         chr_pred_seen <= 1'b1;
                     end
                     if ((fetch_done || chr_fetch_seen) &&
@@ -4950,7 +4962,7 @@ module av1_encoder_top #(
                         end
                         if (use_inter && !is_keyframe && chroma_pred_done) begin
                             for (i = 0; i < 16; i = i + 1)
-                                chr_pred_blk[i] <= chroma_pred_out[i];
+                                chr_pred_blk[i] <= chroma_pred_out[i*8 +: 8];
                         end
                         chroma_res_start <= 1'b1;
                         top_state <= TS_CHR_RES_WAIT;
@@ -4960,12 +4972,12 @@ module av1_encoder_top #(
                 TS_CHR_RES_WAIT: begin
                     if (chroma_res_done) begin
                         for (i = 0; i < 16; i = i + 1) begin
-                            chr_blk[i] <= chroma_res_recon[i];
-                            chr_qcoeff[i] <= chroma_res_qcoeff[i];
+                            chr_blk[i] <= chroma_res_recon[i*8 +: 8];
+                            chr_qcoeff[i] <= $signed(chroma_res_qcoeff[i*16 +: 16]);
                             if (!chr_plane)
-                                chr_cb_qcoeff[i] <= chroma_res_qcoeff[i];
+                                chr_cb_qcoeff[i] <= $signed(chroma_res_qcoeff[i*16 +: 16]);
                             else
-                                chr_cr_qcoeff[i] <= chroma_res_qcoeff[i];
+                                chr_cr_qcoeff[i] <= $signed(chroma_res_qcoeff[i*16 +: 16]);
                         end
                         chr_block_has_coeff <= chroma_res_has_coeff;
                         if (!chr_plane)

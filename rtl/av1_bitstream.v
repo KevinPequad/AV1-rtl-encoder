@@ -94,12 +94,17 @@ module av1_bitstream #(
     function integer bits_needed;
         input integer val;
         integer tmp;
+        integer k;
         begin
             bits_needed = 0;
             tmp = val - 1;
-            while (tmp > 0) begin
-                bits_needed = bits_needed + 1;
-                tmp = tmp >> 1;
+            // Static bound for synthesis frontends; equivalent to shifting
+            // tmp until it reaches zero for the supported integer width.
+            for (k = 0; k < 32; k = k + 1) begin
+                if (tmp > 0) begin
+                    bits_needed = bits_needed + 1;
+                    tmp = tmp >> 1;
+                end
             end
             if (bits_needed < 1)
                 bits_needed = 1;
@@ -110,11 +115,19 @@ module av1_bitstream #(
         input integer blk_size;
         input integer target;
         integer k;
+        integer blk_scaled;
         begin
-            k = 0;
-            while ((blk_size << k) < target)
-                k = k + 1;
-            tile_log2 = k;
+            tile_log2 = 0;
+            blk_scaled = blk_size;
+            // Static bound for synthesis frontends. Only keep shifting while
+            // the original dynamic loop would still be active, avoiding later
+            // signed overflow from changing the result.
+            for (k = 0; k < 32; k = k + 1) begin
+                if (blk_scaled < target) begin
+                    tile_log2 = tile_log2 + 1;
+                    blk_scaled = blk_scaled << 1;
+                end
+            end
         end
     endfunction
 
@@ -163,16 +176,24 @@ module av1_bitstream #(
         input integer nbits;
         integer k;
         begin
-            for (k = nbits - 1; k >= 0; k = k - 1)
-                bw_write_bit((val >> k) & 1);
+            // Keep the loop bounds static for synthesis frontends while
+            // preserving MSB-first writes for the low nbits of val.
+            for (k = 31; k >= 0; k = k - 1) begin
+                if (k < nbits)
+                    bw_write_bit((val >> k) & 1);
+            end
         end
     endtask
 
     task bw_write_trailing_bits;
+        integer k;
         begin
             bw_write_bit(1);
-            while (bw_bit_pos != 0)
-                bw_write_bit(0);
+            // At most seven zero pad bits are needed to byte-align.
+            for (k = 0; k < 7; k = k + 1) begin
+                if (bw_bit_pos != 0)
+                    bw_write_bit(0);
+            end
         end
     endtask
 
