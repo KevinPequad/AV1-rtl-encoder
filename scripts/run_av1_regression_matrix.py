@@ -108,6 +108,7 @@ CURRENT_GATES: list[Gate] = [
     Gate("T10", "p5-highdc-q1-public-check", make_cmd("p5-highdc-q1-public-check"), TB, True, "16x16 qindex=1 high-DC / non-zero AC public decoder proof"),
     Gate("T11", "natural64-ip-fullcoeff-newmv-4frame-syntax-check", make_cmd("natural64-ip-fullcoeff-newmv-4frame-syntax-check"), TB, True, "64x64 4-frame full-coeff unrestricted NEWMV LAST-chain public decoder/recon parity proof"),
     Gate("T12", "natural64-ip-fullcoeff-newmv-5frame-syntax-check", make_cmd("natural64-ip-fullcoeff-newmv-5frame-syntax-check"), TB, True, "64x64 5-frame full-coeff unrestricted NEWMV LAST-chain public decoder/recon parity proof"),
+    Gate("T13", "natural64-ip-fullcoeff-newmv-6frame-syntax-check", make_cmd("natural64-ip-fullcoeff-newmv-6frame-syntax-check"), TB, True, "64x64 6-frame full-coeff unrestricted NEWMV LAST-chain public decoder/recon parity proof"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
@@ -127,7 +128,7 @@ FUTURE_GATES: list[dict[str, str]] = [
     {"audit_row": "P6", "name": "natural64-chroma-syntax-check", "reason": "feature-lane implementation pending; not a pass"},
     {"audit_row": "P6", "name": "chroma-ip-residual-check", "reason": "multi-frame chroma inter residual public proof pending; not a pass"},
     {"audit_row": "P7", "name": "refmv-stack-check", "reason": "multi-reference/inter-syntax expansion pending; not a pass"},
-    {"audit_row": "P8", "name": "ip-10f-last-public-check", "reason": "longer-GOP feature-lane implementation pending; not a pass"},
+    {"audit_row": "P8", "name": "ip-10f-last-public-check", "reason": "longer-GOP feature-lane implementation pending beyond the current 6-frame LAST-chain checkpoint; not a pass"},
     {"audit_row": "P8", "name": "keyframe-interval-check", "reason": "session-control/reference-refresh coverage pending; not a pass"},
     {"audit_row": "P9", "name": "filters-disabled-public-check", "reason": "filter-scope public proof pending; not a pass"},
     {"audit_row": "P9", "name": "recon-ref-ownership-check", "reason": "reconstructed-reference ownership audit pending; not a pass"},
