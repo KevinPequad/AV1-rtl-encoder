@@ -35,6 +35,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 blanket-phase contrast follow-up: the 3-frame probe now computes full blk33/34 Cb predictor vectors from the actual frame-1 reference taps for both phase 8 and the tempting phase 9 contrast. Phase 9 matches the public decoder at the single failing local sample, but it would introduce six other Cb predictor deltas per block, so a blanket phase bump is now executable-rejected; the next step remains extracting the precise public-decoder per-sample/subpel/ref interpretation for blk33/34.
 
+2026-05-31 round-offset anti-workaround note: a temporary rebuilt RTL probe changing `rtl/av1_chroma_inter_pred.v` horizontal filter rounding from `+64` to `+68` did flip the local blk33/34 sample from RTL 0xA3/0xA7 to the public 0xA4/0xA8 values, but it did not solve the 3-frame stream. FFmpeg/libdav1d and `aomdec` still agreed with each other and then mismatched RTL recon at 13 bytes (first offsets 10476..10479 and later frame-2 Cb/Cr samples), so round-offset bias is now explicitly rejected as another blanket workaround. Keep pursuing the actual public-decoder per-sample/subpel/ref interpretation.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
