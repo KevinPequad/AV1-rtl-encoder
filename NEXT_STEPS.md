@@ -29,6 +29,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 force-integer MV follow-up: the same probe now mirrors libaom force_integer_mv component decode for blk=33/34 and proves the NEWMV residuals round-trip exactly to (104,-128) / (40,-128) from their current ref MVs. It also compares small-block and full regular-filter coefficients at the exact frame-1 Cb taps; both phase-8 filters still predict the RTL 0xA3 value while phase 9 predicts the public-decoder 0xA4 value. The probe now also captures the RTL chroma pixel predictor/recon vectors for blk33/34: blk33 local Cb sample (1,3) is pure prediction/recon 0xA3 with no Cb residual, and blk34 local Cb sample (1,3) reconstructs 0xA7 after the single DC residual while both public decoders reconstruct 0xA4/0xA8 respectively. That narrows the remaining public-decoder +1 Cb delta away from MV component coding, away from a simple small-vs-full regular-filter swap, and into decoded syntax/ref-sample interpretation around blk33/34.
 
+2026-05-31 source-backed chroma-origin follow-up: `tb/test_natural64_ip_fullcoeff_newmv_3frame_probe.py` now also mirrors current libaom `reconinter.h:init_subpel_params()` q10 unscaled chroma setup against the reduced spec derivation. Both keep the failing frame-2 Cb samples at base `(11,11)` / phase `(8,0)`, while the scaled-path/phase-9 alternatives only remain contrasts. The next debug step should extract the public decoder's actual decoded MV/ref-sample inputs for blk33/34 rather than patching `rtl/av1_chroma_inter_pred.v` with an unsupported phase offset.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.

@@ -121,6 +121,26 @@ def _wrong_scaled_siting_origin(blk: int, px: int, py: int, mvx_q3: int, mvy_q3:
     return cur_x + (x_q4 >> 4), cur_y + (y_q4 >> 4), x_q4 & 15, y_q4 & 15
 
 
+def _libaom_q10_unscaled_chroma_origin(blk: int, px: int, py: int, mvx_q3: int, mvy_q3: int) -> tuple[int, int, int, int]:
+    """Mirror current libaom's unscaled 4:2:0 chroma subpel setup.
+
+    `av1/common/reconinter.h:init_subpel_params()` forms q4 current-plane
+    positions, multiplies by `1 << SCALE_EXTRA_BITS`, then adds
+    `SCALE_EXTRA_OFF`.  For the identity-scale LAST case that offset is only a
+    q10 rounding guard and must not advance the q4 filter phase.  Keeping this
+    executable beside the reduced spec derivation prevents the current
+    frame-2 +1 Cb delta from being "fixed" by a blind chroma phase +1.
+    """
+    blk_cols = W // 8
+    cur_x = (blk % blk_cols) * 4 + px
+    cur_y = (blk // blk_cols) * 4 + py
+    scale_extra_bits = 6
+    scale_extra_off = 1 << (scale_extra_bits - 1)
+    pos_x_q10 = ((cur_x << 4) + mvx_q3) * (1 << scale_extra_bits) + scale_extra_off
+    pos_y_q10 = ((cur_y << 4) + mvy_q3) * (1 << scale_extra_bits) + scale_extra_off
+    return pos_x_q10 >> 10, pos_y_q10 >> 10, (pos_x_q10 & 1023) >> 6, (pos_y_q10 & 1023) >> 6
+
+
 def _check_expected_inter_stack(log: str) -> None:
     """Pin the frame-2 blocker to the current reduced ref-MV stack.
 
@@ -244,6 +264,15 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
     }
     if wrong_siting_origins != {33: (12, 11, 0, 8), 34: (12, 11, 0, 8)}:
         fail(f"unexpected scaled-path chroma-siting contrast: {wrong_siting_origins}")
+    libaom_q10_origins = {
+        33: _libaom_q10_unscaled_chroma_origin(33, 1, 3, 104, -128),
+        34: _libaom_q10_unscaled_chroma_origin(34, 1, 3, 40, -128),
+    }
+    if libaom_q10_origins != sample_origins:
+        fail(
+            "current libaom q10 unscaled chroma setup no longer matches the reduced spec derivation: "
+            f"spec={sample_origins} libaom={libaom_q10_origins}"
+        )
 
     small_phase8 = (0, 0, -12, 76, 76, -12, 0, 0)
     small_phase9 = (0, 0, -10, 66, 84, -12, 0, 0)
@@ -262,11 +291,11 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
             f"phase8={regular8_pred} phase9={regular9_pred}"
         )
     print(
-        "[PASS] frame-2 Cb blocker narrowed: unscaled AV1 chroma derivation keeps "
-        "blk33/34 at base=(11,11) phase=(8,0) and rules out the scaled-path +8 "
-        "siting origin base=(12,11) phase=(0,8); frame-1 taps match public decode; "
-        "small and full regular phase8 both predict RTL 0xA3 while neighboring "
-        "phase9 predicts decoder 0xA4"
+        "[PASS] frame-2 Cb blocker narrowed: spec and current libaom unscaled "
+        "chroma setup keep blk33/34 at base=(11,11) phase=(8,0) and rule out "
+        "the scaled-path +8 siting origin base=(12,11) phase=(0,8); frame-1 taps "
+        "match public decode; small and full regular phase8 both predict RTL 0xA3 "
+        "while neighboring phase9 predicts decoder 0xA4"
     )
 
 

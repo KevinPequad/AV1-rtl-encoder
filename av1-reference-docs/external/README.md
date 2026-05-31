@@ -68,6 +68,10 @@ syntax or verification blocker.
 - `libaom-mvref_common.h`
   - Source: `https://aomedia.googlesource.com/aom/`
   - Purpose: supporting declarations for the MV reference stack logic.
+- `libaom-reconinter.h`
+  - Source: `https://aomedia.googlesource.com/aom/`
+  - Purpose: official inter-predictor setup reference for current unscaled/scaled
+    subpel origin math, including 4:2:0 chroma MV conversion.
 - `libaom-pred_common.c`
   - Source: `https://aomedia.googlesource.com/aom/`
   - Purpose: official intra/inter and single-ref context functions.
@@ -192,6 +196,16 @@ syntax or verification blocker.
   - AOM inspection now parses all four intended `highdc_q1` blocks as
     `tx_size=1`, `eob=1`, with the expected Golomb tail
   - ffmpeg decode now matches `recon.yuv` bit-for-bit on that strict repro
+- For the current `64x64` 3-frame full-coeff NEWMV chroma blocker, both the
+  official AV1 spec inter-prediction process and current libaom
+  `reconinter.h:init_subpel_params()` agree that unscaled 4:2:0 LAST chroma
+  prediction for frame-2 `blk=33/34` local Cb sample `(1,3)` stays at
+  base `(11,11)` / phase `(8,0)`.  The tempting scaled-path half-sample siting
+  contrast would be base `(12,11)` / phase `(0,8)`, and a neighboring phase-9
+  filter predicts the public-decoder value, but that is not backed by the
+  unscaled reference path.  Keep the remaining +1 Cb delta assigned to decoded
+  syntax/ref-sample interpretation until a decoder-side MV/predictor dump proves
+  otherwise.
 - The stricter AOM decoder now splits the remaining blockers into two separate
   issues:
   - `qindex=0`:
