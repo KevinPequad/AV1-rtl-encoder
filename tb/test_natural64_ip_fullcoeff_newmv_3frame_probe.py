@@ -251,11 +251,22 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
     phase9_pred = _round_filter(expected_ref, small_phase9)
     if (phase8_pred, phase9_pred) != (0xA3, 0xA4):
         fail(f"unexpected Cb halfpel predictor signature phase8={phase8_pred} phase9={phase9_pred}")
+
+    regular8_phase8 = (0, 2, -14, 76, 76, -14, 2, 0)
+    regular8_phase9 = (0, 2, -12, 66, 84, -14, 2, 0)
+    regular8_pred = _round_filter(expected_ref, regular8_phase8)
+    regular9_pred = _round_filter(expected_ref, regular8_phase9)
+    if (regular8_pred, regular9_pred) != (0xA3, 0xA4):
+        fail(
+            "unexpected full regular-filter contrast for Cb halfpel blocker: "
+            f"phase8={regular8_pred} phase9={regular9_pred}"
+        )
     print(
         "[PASS] frame-2 Cb blocker narrowed: unscaled AV1 chroma derivation keeps "
         "blk33/34 at base=(11,11) phase=(8,0) and rules out the scaled-path +8 "
         "siting origin base=(12,11) phase=(0,8); frame-1 taps match public decode; "
-        "small phase8 predicts RTL 0xA3 while neighboring phase9 predicts decoder 0xA4"
+        "small and full regular phase8 both predict RTL 0xA3 while neighboring "
+        "phase9 predicts decoder 0xA4"
     )
 
 

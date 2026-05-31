@@ -27,7 +27,7 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 follow-up: the 3-frame probe now also pins the unscaled identity-reference chroma origin for `blk=33/34` to base `(11,11)` / phase `(8,0)` and records that the scaled-reference `+8` chroma-siting derivation would instead land at base `(12,11)` / phase `(0,8)`. Do not try to fix this blocker by adding a blanket +8 offset in `rtl/av1_chroma_inter_pred.v`; the remaining delta still needs a decoded-MV/ref-stack or filter-selection explanation.
 
-2026-05-31 force-integer MV follow-up: the same probe now mirrors libaom force_integer_mv component decode for blk=33/34 and proves the NEWMV residuals round-trip exactly to (104,-128) / (40,-128) from their current ref MVs. That narrows the remaining public-decoder +1 Cb delta away from MV component coding and toward chroma sampling/filter-selection or reference-sample interpretation.
+2026-05-31 force-integer MV follow-up: the same probe now mirrors libaom force_integer_mv component decode for blk=33/34 and proves the NEWMV residuals round-trip exactly to (104,-128) / (40,-128) from their current ref MVs. It also compares small-block and full regular-filter coefficients at the exact frame-1 Cb taps; both phase-8 filters still predict the RTL 0xA3 value while phase 9 predicts the public-decoder 0xA4 value. That narrows the remaining public-decoder +1 Cb delta away from MV component coding and away from a simple small-vs-full regular-filter swap; next debug should inspect decoded syntax/ref-sample interpretation around blk33/34.
 
 ## Validation Entry Points
 
