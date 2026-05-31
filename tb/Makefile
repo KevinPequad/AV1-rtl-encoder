@@ -67,6 +67,7 @@ BUILD_JOBS      ?= $(THREADS)
 # races at -j16 on Chud PC 2, so serialize just that inner make step.
 SIM_THREADS     ?= 1
 SIM_BUILD_JOBS  ?= 1
+TOP_CONFIG_STAMP := $(OBJ_DIR)/.config-W$(WIDTH)-H$(HEIGHT)-T$(SIM_THREADS)
 
 
 # Collect all Verilog sources from the RTL directory
@@ -106,7 +107,13 @@ EXTRA_PLUSARGS   ?=
 
 all: $(SIM_BIN)
 
-$(SIM_BIN): $(TB_CPP) $(RTL_SRCS)
+$(TOP_CONFIG_STAMP):
+	@echo "Configuring $(SIM_BIN) for WIDTH=$(WIDTH) HEIGHT=$(HEIGHT) SIM_THREADS=$(SIM_THREADS)"
+	@rm -rf $(OBJ_DIR) $(SIM_BIN)
+	@mkdir -p $(OBJ_DIR)
+	@touch $@
+
+$(SIM_BIN): $(TB_CPP) $(RTL_SRCS) $(TOP_CONFIG_STAMP)
 	$(VERILATOR) $(VERILATOR_FLAGS) \
 		$(RTL_SRCS) \
 		$(TB_CPP) \
