@@ -265,6 +265,30 @@ SMALL_REGULAR_FILTERS: tuple[tuple[int, ...], ...] = (
 )
 
 
+SMOOTH_4TAP_FILTERS: tuple[tuple[int, ...], ...] = (
+    (0, 0, 0, 128, 0, 0, 0, 0),
+    (0, 0, 30, 62, 34, 2, 0, 0),
+    (0, 0, 26, 62, 36, 4, 0, 0),
+    (0, 0, 22, 62, 40, 4, 0, 0),
+    (0, 0, 20, 60, 42, 6, 0, 0),
+    (0, 0, 18, 58, 44, 8, 0, 0),
+    (0, 0, 16, 56, 46, 10, 0, 0),
+    (0, 0, 14, 54, 48, 12, 0, 0),
+    (0, 0, 12, 52, 52, 12, 0, 0),
+    (0, 0, 12, 48, 54, 14, 0, 0),
+    (0, 0, 10, 46, 56, 16, 0, 0),
+    (0, 0, 8, 44, 58, 18, 0, 0),
+    (0, 0, 6, 42, 60, 20, 0, 0),
+    (0, 0, 4, 40, 62, 22, 0, 0),
+    (0, 0, 4, 36, 62, 26, 0, 0),
+    (0, 0, 2, 34, 62, 30, 0, 0),
+)
+
+BILINEAR_FILTERS: tuple[tuple[int, ...], ...] = tuple(
+    (0, 0, 0, 128 - 8 * phase, 8 * phase, 0, 0, 0) for phase in range(16)
+)
+
+
 def _cb_ref_sample(data: bytes, x: int, y: int) -> int:
     cb1 = _cb_offset(1)
     sx = _clamp(x, 0, W // 2 - 1)
@@ -690,6 +714,55 @@ def _check_single_tap_equivalent_delta(dec: Path) -> None:
 
 
 
+def _check_no_filter_family_explanation(dec: Path) -> None:
+    """Reject switchable-filter family drift as the blk33/34 Cb +1 explanation.
+
+    For chroma width <= 4, libaom maps regular and sharp to the 4-tap regular
+    table; smooth has a separate 4-tap table.  This check also includes the
+    bilinear contrast so the remaining one-LSB public-decoder delta is not
+    attributed to a broad interpolation-filter-family mismatch.
+    """
+    data = dec.read_bytes()
+    public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    expected_phase8 = {
+        "regular4_or_sharp4": [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 163, 167, 166],
+        "smooth4": [146, 154, 161, 162, 146, 156, 166, 168, 152, 160, 166, 167, 158, 163, 165, 166],
+        "bilinear": [145, 154, 162, 162, 144, 157, 168, 168, 151, 160, 167, 167, 158, 163, 166, 166],
+    }
+    filter_tables = (
+        ("regular4_or_sharp4", SMALL_REGULAR_FILTERS),
+        ("smooth4", SMOOTH_4TAP_FILTERS),
+        ("bilinear", BILINEAR_FILTERS),
+    )
+    for name, table in filter_tables:
+        block = _filtered_cb_block_from_frame1(data, 33, 104, -128, table[8])
+        if block != expected_phase8[name]:
+            fail(f"frame-2 blk33 {name} phase8 predictor contrast drifted: {block}")
+        block34 = _filtered_cb_block_from_frame1(data, 34, 40, -128, table[8])
+        if block34 != expected_phase8[name]:
+            fail(f"frame-2 blk34 {name} phase8 predictor contrast drifted: {block34}")
+
+    matches: list[tuple[str, int]] = []
+    best: tuple[int, int, str, int, list[int]] | None = None
+    for order, (name, table) in enumerate(filter_tables):
+        for phase in range(16):
+            block = _filtered_cb_block_from_frame1(data, 33, 104, -128, table[phase])
+            if block == public_predictor:
+                matches.append((name, phase))
+            sad = sum(abs(got - exp) for got, exp in zip(block, public_predictor))
+            candidate = (sad, order, name, phase, block)
+            if best is None or candidate < best:
+                best = candidate
+    expected_best = (1, 0, "regular4_or_sharp4", 8, expected_phase8["regular4_or_sharp4"])
+    if matches or best != expected_best:
+        fail(f"unexpected filter-family explanation for public Cb predictor: matches={matches} best={best}")
+    print(
+        "[PASS] no AV1 width<=4 interpolation-filter family explains the public "
+        "blk33/34 Cb +1: regular/sharp phase8 remains the nearest one-LSB-low "
+        "candidate, while smooth4/bilinear drift multiple neighboring samples"
+    )
+
+
 def _check_sensitive_tap_producers(log: str, dec: Path, recon: Path) -> None:
     """Map the two sensitive frame-1 Cb taps back to their producer blocks.
 
@@ -853,6 +926,7 @@ def main() -> int:
     _check_no_single_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
     _check_single_tap_equivalent_delta(ff_rtl)
+    _check_no_filter_family_explanation(ff_rtl)
     _check_sensitive_tap_producers(log, ff_rtl, recon)
     _check_no_uniform_subpel_candidate(ff_rtl)
     print(

@@ -43,6 +43,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 single-tap sensitivity follow-up: the 3-frame probe now also proves the public-decoder +1 at blk33/34 sample `(1,3)` is equivalent, under the current phase-8 predictor math, to exactly two one-byte frame-1 Cb tap interpretations on row 11: x=10 being 154 instead of 155, or x=12 being 167 instead of 166. Frame-1 decoder/recon bytes are still equal, so this is not broad reference corruption; the next source trace should identify the exact public-decoder per-sample input/rounding path that selects one of those effective tap values.
 
+2026-05-31 filter-family follow-up: the 3-frame probe now also rejects a broad interpolation-filter-family explanation for the same blk33/34 Cb +1. At the current width<=4 chroma origin, regular/sharp phase 8 remains the nearest one-LSB-low predictor, while smooth4 and bilinear drift multiple neighboring samples; scanning all q4 phases across those families finds no full-block match to the public decoder. The remaining target is still the precise public-decoder per-sample/ref input interpretation, not a switchable-filter-family patch.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
