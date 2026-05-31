@@ -1015,6 +1015,166 @@ def _check_no_filter_family_explanation(dec: Path) -> None:
     )
 
 
+
+def _cb_ref_sample_frame(data: bytes, frame: int, x: int, y: int) -> int:
+    cb = _cb_offset(frame)
+    sx = _clamp(x, 0, W // 2 - 1)
+    sy = _clamp(y, 0, H // 2 - 1)
+    return data[cb + sy * (W // 2) + sx]
+
+
+def _predict_cb_sample_from_frame(
+    data: bytes,
+    frame: int,
+    blk: int,
+    sample_idx: int,
+    mvx_q3: int,
+    mvy_q3: int,
+) -> dict[str, object]:
+    """Return one Cb predictor sample plus exact filter sums/margins.
+
+    This mirrors the reduced RTL chroma MC datapath for a single 4:2:0 sample
+    and keeps the frame-1 producer side of the frame-2 Cb blocker executable.
+    """
+    blk_cols = W // 8
+    block_x = (blk % blk_cols) * 4
+    block_y = (blk // blk_cols) * 4
+    sample_x = sample_idx % 4
+    sample_y = sample_idx // 4
+    base_x = block_x + (mvx_q3 >> 4)
+    base_y = block_y + (mvy_q3 >> 4)
+    phase_x = mvx_q3 % 16
+    phase_y = mvy_q3 % 16
+    coeffs_x = SMALL_REGULAR_FILTERS[phase_x]
+    coeffs_y = SMALL_REGULAR_FILTERS[phase_y]
+
+    if phase_x == 0 and phase_y == 0:
+        out = _cb_ref_sample_frame(data, frame, base_x + sample_x, base_y + sample_y)
+        return {"base": (base_x, base_y), "phase": (phase_x, phase_y), "out": out}
+
+    if phase_y == 0:
+        taps = [
+            _cb_ref_sample_frame(data, frame, base_x + sample_x + tap - 3, base_y + sample_y)
+            for tap in range(8)
+        ]
+        acc = sum(coeff * sample for coeff, sample in zip(coeffs_x, taps))
+        out = (acc + 64) >> 7
+        return {
+            "base": (base_x, base_y),
+            "phase": (phase_x, phase_y),
+            "taps": taps,
+            "acc": acc,
+            "out": out,
+            "margin_up": ((out + 1) << 7) - 64 - acc,
+            "margin_down": acc - (out << 7) + 64,
+        }
+
+    if phase_x == 0:
+        taps = [
+            _cb_ref_sample_frame(data, frame, base_x + sample_x, base_y + sample_y + tap - 3)
+            for tap in range(8)
+        ]
+        acc = sum(coeff * sample for coeff, sample in zip(coeffs_y, taps))
+        out = (acc + 64) >> 7
+        return {
+            "base": (base_x, base_y),
+            "phase": (phase_x, phase_y),
+            "taps": taps,
+            "acc": acc,
+            "out": out,
+            "margin_up": ((out + 1) << 7) - 64 - acc,
+            "margin_down": acc - (out << 7) + 64,
+        }
+
+    rows: list[list[int]] = []
+    horizontal: list[tuple[int, int]] = []
+    vertical_acc = 0
+    for tap_y in range(8):
+        row = [
+            _cb_ref_sample_frame(data, frame, base_x + sample_x + tap_x - 3, base_y + sample_y + tap_y - 3)
+            for tap_x in range(8)
+        ]
+        h_acc = sum(coeff * sample for coeff, sample in zip(coeffs_x, row))
+        h_rounded = (h_acc + 4) >> 3
+        rows.append(row)
+        horizontal.append((h_acc, h_rounded))
+        vertical_acc += coeffs_y[tap_y] * h_rounded
+    out = (vertical_acc + 1024) >> 11
+    return {
+        "base": (base_x, base_y),
+        "phase": (phase_x, phase_y),
+        "rows": rows,
+        "horizontal": horizontal,
+        "acc": vertical_acc,
+        "out": out,
+        "margin_up": ((out + 1) << 11) - 1024 - vertical_acc,
+        "margin_down": vertical_acc - (out << 11) + 1024,
+    }
+
+
+def _check_sensitive_producer_interpolation_margins(dec: Path) -> None:
+    """Pin the frame-0 -> frame-1 interpolation that produced sensitive taps.
+
+    The remaining frame-2 public +1 is equivalent to reading frame-1 Cb row11
+    x10 as one lower or row11 x12 as one higher.  Those samples are themselves
+    zero-residual NEWMV outputs from frame 1, so this check records their exact
+    source taps and filter margins from frame 0.  It keeps the next trace focused
+    on public-decoder private reference sampling/rounding, not on broad frame-1
+    residual or ref-buffer corruption.
+    """
+    data = dec.read_bytes()
+    got = {
+        18: _predict_cb_sample_from_frame(data, 0, 18, 14, 88, 24),
+        19: _predict_cb_sample_from_frame(data, 0, 19, 12, 128, 56),
+    }
+    expected = {
+        18: {
+            "base": (13, 9),
+            "phase": (8, 8),
+            "rows": [
+                [142, 142, 142, 142, 146, 146, 146, 146],
+                [142, 142, 142, 142, 146, 146, 146, 146],
+                [142, 142, 142, 142, 146, 146, 146, 146],
+                [151, 151, 151, 151, 158, 158, 158, 158],
+                [151, 151, 151, 151, 158, 158, 158, 158],
+                [151, 151, 151, 151, 158, 158, 158, 158],
+                [151, 151, 151, 151, 158, 158, 158, 158],
+                [158, 158, 158, 158, 162, 162, 162, 162],
+            ],
+            "horizontal": [
+                (18432, 2304),
+                (18432, 2304),
+                (18432, 2304),
+                (19776, 2472),
+                (19776, 2472),
+                (19776, 2472),
+                (19776, 2472),
+                (20480, 2560),
+            ],
+            "acc": 318432,
+            "out": 155,
+            "margin_up": 32,
+            "margin_down": 2016,
+        },
+        19: {
+            "base": (20, 11),
+            "phase": (0, 8),
+            "taps": [157, 167, 167, 167, 167, 174, 174, 174],
+            "acc": 21292,
+            "out": 166,
+            "margin_up": 20,
+            "margin_down": 108,
+        },
+    }
+    if got != expected:
+        fail(f"frame-1 sensitive Cb producer interpolation margins drifted: {got}")
+    print(
+        "[PASS] frame-1 sensitive Cb producer interpolation margins pinned: "
+        "blk18 sample14 is 32 q11 units below round-up and blk19 sample12 is "
+        "20 q7 units below round-up; public frame-1 output still matches RTL, "
+        "so the frame-2 +1 remains a private reference-sampling/rounding trace"
+    )
+
 def _check_sensitive_tap_producers(log: str, dec: Path, recon: Path) -> None:
     """Map the two sensitive frame-1 Cb taps back to their producer blocks.
 
@@ -1243,6 +1403,7 @@ def main() -> int:
     _check_single_tap_equivalent_delta(ff_rtl)
     _check_active_tap_perturbation_space(ff_rtl)
     _check_no_filter_family_explanation(ff_rtl)
+    _check_sensitive_producer_interpolation_margins(ff_rtl)
     _check_sensitive_tap_producers(log, ff_rtl, recon)
     _check_no_uniform_subpel_candidate(ff_rtl)
     print(
