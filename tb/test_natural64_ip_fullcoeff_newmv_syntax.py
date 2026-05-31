@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""64x64 full-coeff low-delay LAST inter proof with block52-guarded integer motion.
+"""64x64 full-coeff low-delay LAST unrestricted integer-motion proof.
 
 The 64x64 reduced reference-stack/MV-prediction model is public-decoder exact
 for the natural full-coeff fixture with unrestricted requested motion
-(+me_newmv_limit=255): 43 NEWMV payload blocks plus two stack-hit NEARESTMV
-blocks, while the known block-52 candidate-stack probe remains pinned to
-GLOBALMV until the unrestricted reference-stack model is decoder-exact.
+(+me_newmv_limit=255): block 52 is admitted as NEWMV and the neighboring
+candidate-stack hits stay decoder/recon clean without a block-local guard.
 """
 from pathlib import Path
 import os
@@ -52,14 +51,14 @@ def main() -> int:
     if nonzero_inter <= 0:
         fail("expected nonzero full-coeff inter residual blocks")
     nonzero_motion_modes = newmv + nearestmv + nearmv
-    if nonzero_motion_modes != 45:
+    if nonzero_motion_modes != 46:
         fail(
-            f"expected 64x64 full-coeff block52-guarded unrestricted request to hold at 45 non-zero blocks, "
+            f"expected 64x64 full-coeff unrestricted request to admit 46 non-zero motion-mode blocks, "
             f"saw new={newmv} nearest={nearestmv} near={nearmv}"
         )
-    if newmv != 43 or nearestmv != 2 or nearmv != 0:
+    if newmv != 43 or nearestmv != 3 or nearmv != 0:
         fail(
-            f"expected block52-guarded unrestricted mix NEWMV=43 NEARESTMV=2 NEARMV=0, "
+            f"expected unrestricted mix NEWMV=43 NEARESTMV=3 NEARMV=0, "
             f"saw new={newmv} nearest={nearestmv} near={nearmv}"
         )
     block52 = re.search(
@@ -68,51 +67,48 @@ def main() -> int:
         log,
     )
     if not block52:
-        fail("missing cap-boundary block 52 summary")
+        fail("missing unrestricted block 52 summary")
     ref_x, ref_y, near_x, near_y = map(int, block52.groups()[:4])
-    if block52.group(5) != "GLOBALMV":
+    if block52.group(5) != "NEWMV":
+        fail("expected unrestricted block 52 to be admitted as NEWMV")
+    if (ref_x, ref_y, near_x, near_y) != (128, -128, 0, 0):
         fail(
-            "expected cap-boundary block 52 to stay GLOBALMV; "
-            "this guarded candidate-stack probe is still the unrestricted recon-parity blocker"
-        )
-    if (ref_x, ref_y, near_x, near_y) != (0, 0, 128, -128):
-        fail(
-            "cap-boundary block 52 reference-MV selection drifted before the "
-            f"known unrestricted recon fix: ref=({ref_x},{ref_y}) near=({near_x},{near_y})"
+            "unrestricted block 52 reference-MV selection drifted: "
+            f"ref=({ref_x},{ref_y}) near=({near_x},{near_y})"
         )
     block52_line = block52.group(0)
     for expected in (
         "cand0=(64,-128,w=644)",
-        "cand1=(0,0,w=648)",
-        "cand2=(128,-128,w=648)",
+        "cand1=(128,-128,w=648)",
+        "cand2=(0,0,w=648)",
     ):
         if expected not in block52_line:
             fail(
-                "cap-boundary block 52 candidate stack drifted before the "
-                f"known unrestricted recon fix: missing {expected}; line={block52_line}"
+                "unrestricted block 52 candidate stack drifted: "
+                f"missing {expected}; line={block52_line}"
             )
 
-    for blk, ref_pair in ((58, (0, 0)), (60, (0, 0))):
-        admitted = re.search(
-            rf"inter_summary frame=1 blk={blk} [^\n]* ref=\((-?\d+),(-?\d+)\) "
-            rf"near=\((-?\d+),(-?\d+)\) mode=([A-Z]+MV) [^\n]*",
-            log,
-        )
-        if not admitted:
-            fail(f"missing guarded-cap admitted NEWMV block {blk} summary")
-        blk_ref = tuple(map(int, admitted.groups()[:2]))
-        if admitted.group(5) != "NEWMV" or blk_ref != ref_pair:
-            fail(
-                f"guarded-cap admitted block {blk} drifted: "
-                f"mode={admitted.group(5)} ref={blk_ref} expected NEWMV/ref={ref_pair}"
-            )
+    block58 = re.search(
+        r"inter_summary frame=1 blk=58 [^\n]* ref=\((-?\d+),(-?\d+)\) "
+        r"near=\((-?\d+),(-?\d+)\) mode=([A-Z]+MV) [^\n]*",
+        log,
+    )
+    if not block58 or block58.group(5) != "NEWMV" or tuple(map(int, block58.groups()[:2])) != (0, 0):
+        fail("expected downstream block58 to remain NEWMV/ref=(0,0)")
+    block60 = re.search(
+        r"inter_summary frame=1 blk=60 [^\n]* ref=\((-?\d+),(-?\d+)\) "
+        r"near=\((-?\d+),(-?\d+)\) mode=([A-Z]+MV) [^\n]*",
+        log,
+    )
+    if not block60 or block60.group(5) != "NEARESTMV" or tuple(map(int, block60.groups()[:2])) != (64, -128):
+        fail("expected downstream block60 to be NEARESTMV/ref=(64,-128)")
     print(
-        "[PASS] 64x64 full-coeff block52-guarded unrestricted-request integer motion summary: "
+        "[PASS] 64x64 full-coeff unrestricted-request integer motion summary: "
         f"total_inter={total_inter} nonzero_inter={nonzero_inter} "
         f"mode_counts={{GLOBALMV:{globalmv} NEARESTMV:{nearestmv} NEARMV:{nearmv} NEWMV:{newmv}}}"
     )
-    check_public_decoder_case(paths, "64x64 full-coeff block52-guarded unrestricted-request integer motion")
-    print("[PASS] 64x64 full-coeff block52-guarded unrestricted-request integer motion public-decoder proof")
+    check_public_decoder_case(paths, "64x64 full-coeff unrestricted-request integer motion")
+    print("[PASS] 64x64 full-coeff unrestricted-request integer motion public-decoder proof")
     return 0
 
 

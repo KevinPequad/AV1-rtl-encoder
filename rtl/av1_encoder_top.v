@@ -28,7 +28,6 @@ module av1_encoder_top #(
     input  wire        force_intra_in,
     input  wire        me_zero_mv_only_in,
     input  wire [7:0]  me_newmv_limit_in,
-    input  wire        me_allow_boundary52_newmv_in,
     input  wire        dc_only_in,
     input  wire [7:0]  qindex_in,     // Quantization index (0-255)
     input  wire [7:0]  refresh_frame_flags_in,
@@ -2016,9 +2015,9 @@ module av1_encoder_top #(
         cur_mv_second_idx = -1;
 
         add_cur_mv_candidate(blk_x,     blk_y - 1, REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x - 1, blk_y,     REF_LAST, 10'd4);
         if (block_has_top_right_fn(blk_x, blk_y))
             add_cur_mv_candidate(blk_x + 1, blk_y - 1, REF_LAST, 10'd4);
-        add_cur_mv_candidate(blk_x - 1, blk_y,     REF_LAST, 10'd4);
 
         cur_mv_nearest_count = cur_mv_cand_count;
         for (cur_mv_i = 0; cur_mv_i < 10; cur_mv_i = cur_mv_i + 1)
@@ -2325,20 +2324,12 @@ module av1_encoder_top #(
     // inter unless a test/bring-up path explicitly opts into NEWMV with
     // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
     // At 64x64+ the reduced reference-stack/MV-prediction model is public-clean
-    // for the natural full-coeff fixture with the explicit block-52 boundary
-    // probe pinned to GLOBALMV. Do not apply a second hard 64x64 cap here: when
-    // +me_newmv_limit=255 is requested, every other ME-selected non-zero block is
-    // allowed through so the remaining unrestricted blocker stays visible.
+    // for the natural full-coeff fixture without a block-52 special guard; keep
+    // cap-based tests as probes, not as the unrestricted completion criterion.
     // DC-only tests retain their uncapped fractional/NEAREST/NEARMV coverage.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
-    // The 64x64 gradient block 52 candidate stack is known to be public-decoder
-    // divergent as NEWMV; keep just that single boundary probe on GLOBALMV until
-    // the unrestricted reference-stack/MV-prediction model is decoder-exact.
-    wire        me_boundary52_zero_mv = !me_allow_boundary52_newmv_in &&
-                                        !dc_only_in && (FRAME_WIDTH >= 64) &&
-                                        (blk_x == 10'd4) && (blk_y == 10'd6);
-    wire        me_limit_zero_mv = me_auto_zero_mv || me_boundary52_zero_mv ||
+    wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_newmv_limit_in != 8'd0) &&
                                    (me_newmv_count >= me_newmv_limit_in));
     wire [19:0] me_ref_rd_addr;

@@ -1206,9 +1206,9 @@ private:
         ReducedMvState state;
         const bool has_tr = block_has_top_right(blk_x, blk_y);
         add_reduced_single_ref_mv_candidate(state.stack, blk_x,     blk_y - 1, ref_frame, 4);
+        add_reduced_single_ref_mv_candidate(state.stack, blk_x - 1, blk_y,     ref_frame, 4);
         if (has_tr)
             add_reduced_single_ref_mv_candidate(state.stack, blk_x + 1, blk_y - 1, ref_frame, 4);
-        add_reduced_single_ref_mv_candidate(state.stack, blk_x - 1, blk_y,     ref_frame, 4);
 
         const size_t nearest_refmv_count = state.stack.size();
         for (size_t i = 0; i < nearest_refmv_count; ++i)
