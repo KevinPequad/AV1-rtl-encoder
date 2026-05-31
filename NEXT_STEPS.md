@@ -23,6 +23,8 @@ Current 64x64 full-coeff NEWMV boundary: the checked-in reduced reference-stack/
 
 The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradient fixture: keep exercising downstream reference-stack/MV-prediction behavior and multi-frame LAST refresh effects without treating this checkpoint as full inter/reference completion. The current public-clean natural64 full-coeff fixture verifies 43 NEWMV plus 3 NEARESTMV blocks with RTL/SW byte equality, FFmpeg/libdav1d decode-to-recon, and `aomdec` decode-to-recon; broader P7/P8 reference classes, GOP shapes, and full-resolution representative clips remain open.
 
+2026-05-30 cron widening note: the first strict 3-frame version of that same unrestricted 64x64 gradient proof (`+frames=3`, `+dc_only=0`, `+all_key=0`, `+gop_mode=lowdelay_last`, `+key_interval=12`, `+me_newmv_limit=255`, `+dump_inter_summary=1`, `+dump_ref_summary=1`) keeps RTL/software OBU and IVF bytes equal, and frame 1 keeps the known public-clean `GLOBALMV:18 NEARESTMV:3 NEARMV:0 NEWMV:43` mix, but frame 2 currently misses FFmpeg/libdav1d decode-to-recon parity by two Cb bytes: frame 2 Cb `(x=5,y=19)` and `(x=9,y=19)` are decoder `+1` versus RTL recon, mapping to luma blocks 33 and 34. Frame 2's summary is `GLOBALMV:34 NEARESTMV:3 NEARMV:0 NEWMV:27` with only one nonzero luma-inter block, so the next technical debug target is the frame-2 chroma inter prediction/reconstruction path for those LAST-ref NEWMV blocks, not another cap raise.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
