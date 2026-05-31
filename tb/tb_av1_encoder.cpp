@@ -117,6 +117,7 @@ int main(int argc, char** argv) {
     int force_intra = 0;
     int me_zero_mv_only = 0;
     int me_newmv_limit = 0;
+    int me_allow_boundary52_newmv = 0;
     int zero_inter_coeffs = 0;
     int limit_newmv_blocks = -1;
     int limit_inter_blocks = -1;
@@ -179,6 +180,8 @@ int main(int argc, char** argv) {
         else if (arg.rfind("+force_intra=", 0) == 0) force_intra = std::atoi(arg.c_str() + 13);
         else if (arg.rfind("+me_zero_mv_only=", 0) == 0) me_zero_mv_only = std::atoi(arg.c_str() + 17);
         else if (arg.rfind("+me_newmv_limit=", 0) == 0) me_newmv_limit = std::atoi(arg.c_str() + 16);
+        else if (arg == "+me_allow_boundary52_newmv" || arg == "+me_allow_boundary52_newmv=1") me_allow_boundary52_newmv = 1;
+        else if (arg.rfind("+me_allow_boundary52_newmv=", 0) == 0) me_allow_boundary52_newmv = std::atoi(arg.c_str() + std::strlen("+me_allow_boundary52_newmv="));
         else if (arg.rfind("+zero_inter_coeffs=", 0) == 0) zero_inter_coeffs = std::atoi(arg.c_str() + 19);
         else if (arg.rfind("+limit_newmv_blocks=", 0) == 0) limit_newmv_blocks = std::atoi(arg.c_str() + 20);
         else if (arg.rfind("+limit_inter_blocks=", 0) == 0) limit_inter_blocks = std::atoi(arg.c_str() + 20);
@@ -370,6 +373,7 @@ int main(int argc, char** argv) {
     dut->force_intra_in = force_intra ? 1 : 0;
     dut->me_zero_mv_only_in = me_zero_mv_only ? 1 : 0;
     dut->me_newmv_limit_in = (me_newmv_limit < 0) ? 0 : (me_newmv_limit > 255 ? 255 : me_newmv_limit);
+    dut->me_allow_boundary52_newmv_in = me_allow_boundary52_newmv ? 1 : 0;
     dut->dc_only_in = dc_only ? 1 : 0;
     dut->qindex_in = effective_qindex;
     dut->ref_mem_rd_data = 128;
@@ -427,6 +431,7 @@ int main(int argc, char** argv) {
             dut->force_intra_in = force_intra ? 1 : 0;
             dut->me_zero_mv_only_in = me_zero_mv_only ? 1 : 0;
             dut->me_newmv_limit_in = (me_newmv_limit < 0) ? 0 : (me_newmv_limit > 255 ? 255 : me_newmv_limit);
+            dut->me_allow_boundary52_newmv_in = me_allow_boundary52_newmv ? 1 : 0;
             dut->dc_only_in = dc_only ? 1 : 0;
             dut->qindex_in = effective_qindex;
             current_frame_is_key = is_key;

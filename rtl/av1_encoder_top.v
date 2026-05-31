@@ -28,6 +28,7 @@ module av1_encoder_top #(
     input  wire        force_intra_in,
     input  wire        me_zero_mv_only_in,
     input  wire [7:0]  me_newmv_limit_in,
+    input  wire        me_allow_boundary52_newmv_in,
     input  wire        dc_only_in,
     input  wire [7:0]  qindex_in,     // Quantization index (0-255)
     input  wire [7:0]  refresh_frame_flags_in,
@@ -2334,7 +2335,8 @@ module av1_encoder_top #(
     // The 64x64 gradient block 52 candidate stack is known to be public-decoder
     // divergent as NEWMV; keep just that single boundary probe on GLOBALMV until
     // the unrestricted reference-stack/MV-prediction model is decoder-exact.
-    wire        me_boundary52_zero_mv = !dc_only_in && (FRAME_WIDTH >= 64) &&
+    wire        me_boundary52_zero_mv = !me_allow_boundary52_newmv_in &&
+                                        !dc_only_in && (FRAME_WIDTH >= 64) &&
                                         (blk_x == 10'd4) && (blk_y == 10'd6);
     wire        me_limit_zero_mv = me_auto_zero_mv || me_boundary52_zero_mv ||
                                   ((me_newmv_limit_in != 8'd0) &&
