@@ -947,7 +947,22 @@ def main() -> int:
             fail(f"missing frame-2 block {blk} chroma pixel detail")
         if detail.group(1) != expected:
             fail(f"unexpected frame-2 block {blk} chroma pixel detail: {detail.group(1)}")
-    print("[PASS] frame-2 Cb blocker blocks have stable chroma coeff/pixel prediction signature")
+
+    expected_tap_detail = {
+        33: "sample=13 block_base=(10,8) phase=(8,0) "
+            "cb_taps=152,151,155,160,166,166,166,166 "
+            "cr_taps=146,147,145,143,141,141,141,141",
+        34: "sample=13 block_base=(10,8) phase=(8,0) "
+            "cb_taps=152,151,155,160,166,166,166,166 "
+            "cr_taps=146,147,145,143,141,141,141,141",
+    }
+    for blk, expected in expected_tap_detail.items():
+        detail = re.search(rf"\[TB\] chroma_tap_detail frame=2 blk={blk} ([^\n]+)", log)
+        if not detail:
+            fail(f"missing frame-2 block {blk} chroma tap detail")
+        if detail.group(1) != expected:
+            fail(f"unexpected frame-2 block {blk} chroma tap detail: {detail.group(1)}")
+    print("[PASS] frame-2 Cb blocker blocks have stable chroma coeff/pixel prediction and RTL previous-reference tap signatures")
 
     rtl_ivf = Path(paths["rtl_ivf"])
     recon = Path(paths["recon"])

@@ -1326,6 +1326,49 @@ int main(int argc, char** argv) {
                             fprintf(stderr, "%s%u", qi ? "," : "", frame_cr_recon_dbg[bi_idx][qi]);
                         }
                         fprintf(stderr, "\n");
+
+                        if (bi.is_inter && !current_frame_is_key) {
+                            auto floor_div16 = [](int v) -> int {
+                                return (v >= 0) ? (v >> 4) : -(((-v) + 15) >> 4);
+                            };
+                            auto phase_mod16 = [](int v) -> int {
+                                int r = v % 16;
+                                return (r < 0) ? (r + 16) : r;
+                            };
+                            auto clamp_coord = [](int v, int lo, int hi) -> int {
+                                return (v < lo) ? lo : ((v > hi) ? hi : v);
+                            };
+                            const int chroma_w = FRAME_WIDTH / 2;
+                            const int chroma_h = FRAME_HEIGHT / 2;
+                            const int blk_chroma_x = (static_cast<int>(bi_idx) % BLK_COLS) * 4;
+                            const int blk_chroma_y = (static_cast<int>(bi_idx) / BLK_COLS) * 4;
+                            const int base_x = blk_chroma_x + floor_div16(bi.mvx);
+                            const int base_y = blk_chroma_y + floor_div16(bi.mvy);
+                            const int phase_x = phase_mod16(bi.mvx);
+                            const int phase_y = phase_mod16(bi.mvy);
+                            constexpr int sample_idx = 13;
+                            const int sample_x = sample_idx % 4;
+                            const int sample_y = sample_idx >> 2;
+                            fprintf(stderr,
+                                    "[TB] chroma_tap_detail frame=%d blk=%zu sample=%d block_base=(%d,%d) phase=(%d,%d) cb_taps=",
+                                    frame_idx, bi_idx, sample_idx, base_x, base_y, phase_x, phase_y);
+                            for (int tap = 0; tap < 8; ++tap) {
+                                const int sx = clamp_coord(base_x + sample_x + tap - 3, 0, chroma_w - 1);
+                                const int sy = clamp_coord(base_y + sample_y, 0, chroma_h - 1);
+                                const size_t addr = static_cast<size_t>(sy) * chroma_w + static_cast<size_t>(sx);
+                                const uint8_t value = (addr < ref_cb_rd.size()) ? ref_cb_rd[addr] : 128;
+                                fprintf(stderr, "%s%u", tap ? "," : "", value);
+                            }
+                            fprintf(stderr, " cr_taps=");
+                            for (int tap = 0; tap < 8; ++tap) {
+                                const int sx = clamp_coord(base_x + sample_x + tap - 3, 0, chroma_w - 1);
+                                const int sy = clamp_coord(base_y + sample_y, 0, chroma_h - 1);
+                                const size_t addr = static_cast<size_t>(sy) * chroma_w + static_cast<size_t>(sx);
+                                const uint8_t value = (addr < ref_cr_rd.size()) ? ref_cr_rd[addr] : 128;
+                                fprintf(stderr, "%s%u", tap ? "," : "", value);
+                            }
+                            fprintf(stderr, "\n");
+                        }
                     }
                 }
                 fprintf(stderr,
