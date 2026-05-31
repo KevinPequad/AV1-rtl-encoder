@@ -917,6 +917,50 @@ def _check_single_tap_equivalent_delta(dec: Path) -> None:
 
 
 
+def _check_active_tap_perturbation_space(dec: Path) -> None:
+    """Exhaust the active phase-8 tap deltas that can reproduce public +1.
+
+    The previous single-tap scan leaves row11/x10 -1 and row11/x12 +1 as
+    equivalent explanations under current phase-8 math.  This wider active-tap
+    search rules out a hidden combination across the nonzero phase-8 taps: even
+    allowing +/-8 on x10..x13, the only full-block matches are x10 -1, x12 +1,
+    or both together.  That keeps the next source trace focused on the two
+    center-weighted reference taps rather than a diffuse four-tap perturbation.
+    """
+    from itertools import product
+
+    data = dec.read_bytes()
+    public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    cb1 = _cb_offset(1)
+    row_y = 11
+    active_x = (10, 11, 12, 13)
+    matches: list[tuple[tuple[int, int], ...]] = []
+    searched = 0
+    for deltas in product(range(-8, 9), repeat=len(active_x)):
+        if not any(deltas):
+            continue
+        patched = bytearray(data)
+        for x, delta in zip(active_x, deltas):
+            off = cb1 + row_y * (W // 2) + x
+            patched[off] = _clamp(patched[off] + delta, 0, 255)
+        searched += 1
+        block = _filtered_cb_block_from_frame1(bytes(patched), 33, 104, -128, SMALL_REGULAR_FILTERS[8])
+        if block == public_predictor:
+            matches.append(tuple((x, delta) for x, delta in zip(active_x, deltas) if delta))
+    expected = [
+        ((10, -1),),
+        ((10, -1), (12, 1)),
+        ((12, 1),),
+    ]
+    if searched != 83520 or matches != expected:
+        fail(f"frame-2 Cb active-tap perturbation scan drifted: searched={searched} matches={matches}")
+    print(
+        "[PASS] frame-2 Cb active-tap perturbation scan: across x10..x13 with +/-8, "
+        "only row11 x10=-1, x12=+1, or both reproduce the public predictor; "
+        "no diffuse four-tap explanation remains"
+    )
+
+
 def _check_no_filter_family_explanation(dec: Path) -> None:
     """Reject switchable-filter family drift as the blk33/34 Cb +1 explanation.
 
@@ -1192,6 +1236,7 @@ def main() -> int:
     _check_halfpel_ref_signature(ff_rtl, recon)
     _check_phase8_rounding_margin(ff_rtl)
     _check_single_tap_equivalent_delta(ff_rtl)
+    _check_active_tap_perturbation_space(ff_rtl)
     _check_no_filter_family_explanation(ff_rtl)
     _check_sensitive_tap_producers(log, ff_rtl, recon)
     _check_no_uniform_subpel_candidate(ff_rtl)
