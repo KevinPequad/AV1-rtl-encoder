@@ -69,6 +69,34 @@ def _same_size_chroma_origin(blk: int, px: int, py: int, mvx_q3: int, mvy_q3: in
     return cur_x + (mvx_q3 >> 4), cur_y + (mvy_q3 >> 4), mvx_q3 & 15, mvy_q3 & 15
 
 
+def _check_expected_inter_stack(log: str) -> None:
+    """Pin the frame-2 blocker to the current reduced ref-MV stack.
+
+    The public-decoder delta only appears after widening into frame 2, where
+    blk33/34 are encoded as NEWMV against non-zero nearest candidates inherited
+    from frame-2 neighbors.  Keep the exact ref/near/candidate-stack signature
+    executable so the next fix can distinguish syntax/ref-stack drift from the
+    chroma reconstruction delta itself.
+    """
+    expected = {
+        33: "[TB] inter_summary frame=2 blk=33 mv=(104,-128) ref=(120,-88) near=(48,-56) "
+            "mode=NEWMV mode_ctx=84 ctx(new=4 zero=0 ref=5) dc=0 nz=0 cand_count=6 "
+            "cand0=(120,-88,w=644) cand1=(48,-56,w=644) cand2=(128,-120,w=644) "
+            "cand3=(0,0,w=4) cand4=(32,-32,w=4) cand5=(-40,32,w=4)",
+        34: "[TB] inter_summary frame=2 blk=34 mv=(40,-128) ref=(128,-120) near=(104,-128) "
+            "mode=NEWMV mode_ctx=84 ctx(new=4 zero=0 ref=5) dc=0 nz=0 cand_count=7 "
+            "cand0=(128,-120,w=644) cand1=(104,-128,w=644) cand2=(0,0,w=644) "
+            "cand3=(120,-88,w=4) cand4=(48,-24,w=4) cand5=(48,-56,w=4) cand6=(-88,72,w=4)",
+    }
+    for blk, expected_line in expected.items():
+        line = re.search(rf"\[TB\] inter_summary frame=2 blk={blk} [^\n]+", log)
+        if not line:
+            fail(f"missing frame-2 block {blk} inter stack summary")
+        if line.group(0) != expected_line:
+            fail(f"frame-2 block {blk} inter stack drifted: {line.group(0)}")
+    print("[PASS] frame-2 Cb blocker MV/ref stack signature stable for blk33/34")
+
+
 def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
     """Keep the current Cb blocker narrowed to chroma MC phase/reference math.
 
@@ -161,6 +189,7 @@ def main() -> int:
     for blk in (33, 34):
         if not re.search(rf"inter_summary frame=2 blk={blk} .* mode=NEWMV ", log):
             fail(f"expected frame-2 block {blk} to stay in the NEWMV region")
+    _check_expected_inter_stack(log)
 
     expected_chroma_detail = {
         33: "inter=1 mv=(104,-128) cb_has=0 cr_has=1 cb_nz=0 cr_nz=1 "
