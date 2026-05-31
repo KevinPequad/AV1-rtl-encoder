@@ -70,6 +70,17 @@ def main() -> int:
             "expected cap-boundary block 52 to stay GLOBALMV; "
             "the experimental cap-45 NEWMV block is the current recon-parity blocker"
         )
+    block52_line = block52.group(0)
+    for expected in (
+        "cand0=(64,-128,w=644)",
+        "cand1=(0,0,w=648)",
+        "cand2=(128,-128,w=648)",
+    ):
+        if expected not in block52_line:
+            fail(
+                "cap-boundary block 52 candidate stack drifted before the "
+                f"known cap-45 recon fix: missing {expected}; line={block52_line}"
+            )
     print(
         "[PASS] 64x64 full-coeff capped integer motion summary: "
         f"total_inter={total_inter} nonzero_inter={nonzero_inter} "
