@@ -733,11 +733,21 @@ int main(int argc, char** argv) {
                     bi.ref_mvy = 0;
                     bi.near_mvx = 0;
                     bi.near_mvy = 0;
+                    bi.mv_cand_count = 0;
+                    for (int ci = 0; ci < 10; ++ci) {
+                        bi.mv_cand_mvx[ci] = 0;
+                        bi.mv_cand_mvy[ci] = 0;
+                        bi.mv_cand_weight[ci] = 0;
+                    }
                     if (bi.is_inter) {
                         const int cand_count = root->av1_encoder_top__DOT__cur_ref_mv_count;
+                        bi.mv_cand_count = static_cast<uint8_t>(cand_count < 0 ? 0 : (cand_count > 10 ? 10 : cand_count));
                         int best_idx = -1;
                         int second_idx = -1;
                         for (int ci = 0; ci < cand_count && ci < 10; ++ci) {
+                            bi.mv_cand_mvx[ci] = sign_extend_16(root->av1_encoder_top__DOT__cur_mv_cand_col[ci]);
+                            bi.mv_cand_mvy[ci] = sign_extend_16(root->av1_encoder_top__DOT__cur_mv_cand_row[ci]);
+                            bi.mv_cand_weight[ci] = root->av1_encoder_top__DOT__cur_mv_cand_weight[ci];
                             if (best_idx < 0 ||
                                 root->av1_encoder_top__DOT__cur_mv_cand_weight[ci] > root->av1_encoder_top__DOT__cur_mv_cand_weight[best_idx]) {
                                 second_idx = best_idx;
@@ -1304,11 +1314,20 @@ int main(int argc, char** argv) {
                     const unsigned refmv_ctx =
                         (mode_ctx >> AV1_REFMV_OFFSET) & AV1_REFMV_CTX_MASK;
                     fprintf(stderr,
-                            "[TB] inter_summary frame=%d blk=%zu mv=(%d,%d) ref=(%d,%d) near=(%d,%d) mode=%s mode_ctx=%u ctx(new=%u zero=%u ref=%u) dc=%d nz=%d\n",
+                            "[TB] inter_summary frame=%d blk=%zu mv=(%d,%d) ref=(%d,%d) near=(%d,%d) mode=%s mode_ctx=%u ctx(new=%u zero=%u ref=%u) dc=%d nz=%d",
                             frame_idx, bi_idx, bi.mvx, bi.mvy,
                             bi.ref_mvx, bi.ref_mvy, bi.near_mvx, bi.near_mvy,
                             reduced_inter_mode_name(bi.inter_mode), mode_ctx,
                             newmv_ctx, zeromv_ctx, refmv_ctx, bi.qcoeff[0], nonzero);
+                    if (bi.mv_cand_count > 0) {
+                        fprintf(stderr, " cand_count=%u", bi.mv_cand_count);
+                        for (uint8_t ci = 0; ci < bi.mv_cand_count && ci < 10; ++ci) {
+                            fprintf(stderr, " cand%u=(%d,%d,w=%u)",
+                                    ci, bi.mv_cand_mvx[ci], bi.mv_cand_mvy[ci],
+                                    bi.mv_cand_weight[ci]);
+                        }
+                    }
+                    fprintf(stderr, "\n");
                 }
                 fprintf(stderr,
                         "[TB] inter_summary frame=%d total_inter=%d nonzero_inter=%d first_inter_blk=%d mode_counts={GLOBALMV:%d NEARESTMV:%d NEARMV:%d NEWMV:%d}\n",

@@ -687,6 +687,10 @@ public:
         int16_t ref_mvy;  // q3 luma candidate MV component
         int16_t near_mvx;  // q3 luma second candidate MV component
         int16_t near_mvy;  // q3 luma second candidate MV component
+        uint8_t mv_cand_count = 0;
+        int16_t mv_cand_mvx[10] = {};  // q3 luma candidate stack, col/x
+        int16_t mv_cand_mvy[10] = {};  // q3 luma candidate stack, row/y
+        uint16_t mv_cand_weight[10] = {};
         int16_t mvx;  // q3 luma MV component
         int16_t mvy;  // q3 luma MV component
     };
