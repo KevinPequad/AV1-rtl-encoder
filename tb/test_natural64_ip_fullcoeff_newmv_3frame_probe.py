@@ -149,6 +149,45 @@ def _round_filter(samples: list[int], coeffs: tuple[int, ...]) -> int:
     return _round_filter_with_offset(samples, coeffs, 64)
 
 
+I_COSPI_16 = 3784
+I_COSPI_32 = 2896
+I_COSPI_48 = 1567
+
+
+def _half_btf(w0: int, a: int, w1: int, b: int, cos_bit: int = 12) -> int:
+    return (w0 * a + w1 * b + (1 << (cos_bit - 1))) >> cos_bit
+
+
+def _round_shift(v: int, shift: int) -> int:
+    return (v + (1 << (shift - 1))) >> shift
+
+
+def _idct4(vec: list[int]) -> list[int]:
+    # Mirrors the 4x4 inverse transform path used by tb/test_chroma_residual.cpp.
+    bf = [vec[0], vec[2], vec[1], vec[3]]
+    st0 = _half_btf(I_COSPI_32, bf[0], I_COSPI_32, bf[1])
+    st1 = _half_btf(I_COSPI_32, bf[0], -I_COSPI_32, bf[1])
+    st2 = _half_btf(I_COSPI_48, bf[2], -I_COSPI_16, bf[3])
+    st3 = _half_btf(I_COSPI_16, bf[2], I_COSPI_48, bf[3])
+    return [st0 + st3, st1 + st2, st1 - st2, st0 - st3]
+
+
+def _chroma_inv4x4_residual(qcoeff: list[int]) -> list[int]:
+    # qindex=128 reduced chroma dequants, matching av1_chroma_residual.
+    dq = [v * (140 if i == 0 else 176) for i, v in enumerate(qcoeff)]
+    inv_tmp = [0] * 16
+    out = [0] * 16
+    for y in range(4):
+        row = _idct4([dq[y * 4 + x] for x in range(4)])
+        for x in range(4):
+            inv_tmp[y * 4 + x] = row[x] >> 1
+    for x in range(4):
+        col = _idct4([inv_tmp[y * 4 + x] for y in range(4)])
+        for y in range(4):
+            out[y * 4 + x] = _round_shift(col[y], 3)
+    return out
+
+
 def _clamp(v: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, v))
 
@@ -245,6 +284,48 @@ def _predict_cb_candidate(data: bytes, base_x: int, base_y: int, phase_x: int, p
                 vertical_acc += coeffs_y[tap_y] * horizontal
             out.append(max(0, min(255, (vertical_acc + 1024) >> 11)))
     return out
+
+
+def _check_no_single_coeff_residual_explanation() -> None:
+    """Reject a one-symbol Cb residual explanation for the public +1 sample.
+
+    The blk33 public-decoder Cb block differs from RTL prediction by only sample
+    index 13.  If this were a simple Cb coefficient coding drift rather than an
+    inter predictor/sample-selection issue, a small single qcoeff should be able
+    to synthesize the same sparse +1 residual through the reduced q128 4x4 inverse
+    transform.  The executable search below proves it cannot: every nonzero
+    single coefficient spreads to all 16 pixels, and the closest single-symbol
+    explanation is only DC +1, which adds +4 everywhere.
+    """
+    target = [0] * 16
+    target[13] = 1
+    matches: list[tuple[int, int]] = []
+    best: tuple[int, int, int, int, list[int]] | None = None
+    min_nz = 16
+    for idx in range(16):
+        for val in range(-8, 9):
+            if val == 0:
+                continue
+            qcoeff = [0] * 16
+            qcoeff[idx] = val
+            residual = _chroma_inv4x4_residual(qcoeff)
+            nz = sum(1 for v in residual if v != 0)
+            min_nz = min(min_nz, nz)
+            if residual == target:
+                matches.append((idx, val))
+            sad = sum(abs(a - b) for a, b in zip(residual, target))
+            candidate = (sad, nz, idx, val, residual)
+            if best is None or candidate < best:
+                best = candidate
+    if matches:
+        fail(f"unexpected single-qcoeff Cb residual explanation for blk33/34 +1 sample: {matches}")
+    expected_best = (63, 16, 0, 1, [4] * 16)
+    if best != expected_best or min_nz != 16:
+        fail(f"single-qcoeff Cb residual search drifted: best={best} min_nz={min_nz}")
+    print(
+        "[PASS] no single q128 4x4 Cb coefficient can explain the public +1 sample: "
+        "all one-symbol residuals affect all 16 pixels; closest is DC+1 => +4 everywhere"
+    )
 
 
 def _check_no_uniform_subpel_candidate(dec: Path) -> None:
@@ -644,6 +725,7 @@ def main() -> int:
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
+    _check_no_single_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
     _check_no_uniform_subpel_candidate(ff_rtl)
     print(

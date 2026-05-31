@@ -39,6 +39,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 uniform-subpel scan follow-up: the 3-frame probe now exhaustively checks nearby frame-1 Cb base positions `x=7..13`, `y=5..11` across all q4 horizontal/vertical phases for a single uniform 4x4 chroma predictor matching public decoders on blk33/34. No candidate matches; the nearest legal uniform candidate is still the current RTL base `(10,8)` / phase `(8,0)`, one LSB low only at sample 13. The exact failing phase-8 tap sum is now pinned at 20924, four filter-sum units below the 0xA4 round-up threshold; phase 9 would sum to 20962 and round up, but still breaks six neighboring samples. That rejects another broad origin/phase workaround and keeps the next target at the exact public-decoder per-sample/ref interpretation.
 
+2026-05-31 residual-symbol anti-workaround note: the 3-frame probe now also runs a qindex-128 4x4 chroma inverse-transform search for the public-decoder +1 Cb sample shape. No single nonzero Cb qcoeff in `[-8,8]` can synthesize only sample `(1,3)`; every one-symbol residual affects all 16 pixels, with the closest case being DC+1 adding +4 everywhere. This makes a one-symbol Cb residual coding drift an unlikely fix path and keeps the next target on public-decoder per-sample inter predictor/ref interpretation.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
