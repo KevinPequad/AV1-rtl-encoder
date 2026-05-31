@@ -880,6 +880,49 @@ def _check_sensitive_tap_producers(log: str, dec: Path, recon: Path) -> None:
         if line.group(0) != expected:
             fail(f"frame-1 sensitive Cb producer block {blk} summary drifted: {line.group(0)}")
 
+    expected_detail = {
+        18: "[TB] chroma_detail frame=1 blk=18 inter=1 mv=(88,24) cb_has=0 cr_has=0 cb_nz=0 cr_nz=0 "
+            "cb_qcoeff=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 "
+            "cr_qcoeff=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        19: "[TB] chroma_detail frame=1 blk=19 inter=1 mv=(128,56) cb_has=0 cr_has=0 cb_nz=0 cr_nz=0 "
+            "cb_qcoeff=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 "
+            "cr_qcoeff=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+    }
+    expected_pixel_detail = {
+        18: "cb_pred=142,142,144,146,141,141,143,145,147,146,149,153,152,151,155,160 "
+            "cb_recon=142,142,144,146,141,141,143,145,147,146,149,153,152,151,155,160 "
+            "cr_pred=141,141,141,140,141,141,140,140,144,144,143,141,146,147,145,143 "
+            "cr_recon=141,141,141,140,141,141,140,140,144,144,143,141,146,147,145,143",
+        19: "cb_pred=162,162,162,162,168,168,168,168,167,167,167,167,166,166,166,166 "
+            "cb_recon=162,162,162,162,168,168,168,168,167,167,167,167,166,166,166,166 "
+            "cr_pred=140,140,140,140,141,141,141,141,141,141,141,141,141,141,141,141 "
+            "cr_recon=140,140,140,140,141,141,141,141,141,141,141,141,141,141,141,141",
+    }
+    expected_tap_detail = {
+        18: "sample=13 block_base=(13,9) phase=(8,8) "
+            "cb_taps=142,151,151,151,151,158,158,158 "
+            "cr_taps=150,146,146,146,146,143,143,143",
+        19: "sample=13 block_base=(20,11) phase=(0,8) "
+            "cb_taps=158,158,167,167,167,167,174,174 "
+            "cr_taps=143,143,141,141,141,141,139,139",
+    }
+    for blk, expected in expected_detail.items():
+        detail = re.search(rf"\[TB\] chroma_detail frame=1 blk={blk} [^\n]+", log)
+        if not detail:
+            fail(f"missing frame-1 sensitive Cb producer block {blk} chroma detail")
+        if detail.group(0) != expected:
+            fail(f"frame-1 sensitive Cb producer block {blk} chroma detail drifted: {detail.group(0)}")
+        pixel = re.search(rf"\[TB\] chroma_pixel_detail frame=1 blk={blk} ([^\n]+)", log)
+        if not pixel:
+            fail(f"missing frame-1 sensitive Cb producer block {blk} chroma pixel detail")
+        if pixel.group(1) != expected_pixel_detail[blk]:
+            fail(f"frame-1 sensitive Cb producer block {blk} pixel detail drifted: {pixel.group(1)}")
+        taps = re.search(rf"\[TB\] chroma_tap_detail frame=1 blk={blk} ([^\n]+)", log)
+        if not taps:
+            fail(f"missing frame-1 sensitive Cb producer block {blk} chroma tap detail")
+        if taps.group(1) != expected_tap_detail[blk]:
+            fail(f"frame-1 sensitive Cb producer block {blk} tap detail drifted: {taps.group(1)}")
+
     dec_bytes = dec.read_bytes()
     recon_bytes = recon.read_bytes()
     expected_blocks = {
@@ -907,10 +950,10 @@ def _check_sensitive_tap_producers(log: str, dec: Path, recon: Path) -> None:
         if expected_blocks[blk][idx] != expected_value:
             fail(f"sensitive tap-to-block mapping drifted for x{x}/y{y}: blk={blk} idx={idx}")
     print(
-        "[PASS] sensitive frame-1 Cb taps are pinned to decoder/recon-equal NEWMV "
-        "producer blocks: row11 x10=155 from blk18 sample14 and row11 x12=166 "
-        "from blk19 sample12; next trace should inspect public decoder internal "
-        "reference sampling at these two taps"
+        "[PASS] sensitive frame-1 Cb taps are pinned to zero-chroma-residual "
+        "NEWMV producer blocks with decoder/recon-equal output: row11 x10=155 "
+        "from blk18 sample14 and row11 x12=166 from blk19 sample12; next trace "
+        "should inspect public decoder internal reference sampling at these taps"
     )
 
 
@@ -939,7 +982,8 @@ def main() -> int:
             "+dump_ref_summary=1",
             "+dump_chroma_summary=1",
             "+dump_chroma_detail=1",
-            "+dump_chroma_detail_start=33",
+            "+dump_chroma_detail_all=1",
+            "+dump_chroma_detail_start=18",
             "+dump_chroma_detail_end=34",
         ],
     )

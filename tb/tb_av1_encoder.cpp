@@ -145,6 +145,7 @@ int main(int argc, char** argv) {
     int trace_writer_entropy = 0;
     int dump_chroma_summary = 0;
     int dump_chroma_detail = 0;
+    int dump_chroma_detail_all = 0;
     int dump_chroma_detail_start = -1;
     int dump_chroma_detail_end = -1;
     int ownership_strict = 0;
@@ -234,6 +235,8 @@ int main(int argc, char** argv) {
             dump_chroma_summary = std::atoi(arg.c_str() + 21);
         } else if (arg.rfind("+dump_chroma_detail=", 0) == 0) {
             dump_chroma_detail = std::atoi(arg.c_str() + std::strlen("+dump_chroma_detail="));
+        } else if (arg.rfind("+dump_chroma_detail_all=", 0) == 0) {
+            dump_chroma_detail_all = std::atoi(arg.c_str() + std::strlen("+dump_chroma_detail_all="));
         } else if (arg.rfind("+dump_chroma_detail_start=", 0) == 0) {
             dump_chroma_detail_start = std::atoi(arg.c_str() + std::strlen("+dump_chroma_detail_start="));
         } else if (arg.rfind("+dump_chroma_detail_end=", 0) == 0) {
@@ -1293,7 +1296,7 @@ int main(int argc, char** argv) {
                         (dump_chroma_detail_start < 0 || static_cast<int>(bi_idx) >= dump_chroma_detail_start) &&
                         (dump_chroma_detail_end < 0 || static_cast<int>(bi_idx) <= dump_chroma_detail_end);
                     if (dump_chroma_detail && chroma_detail_in_range &&
-                        (cb_nz || cr_nz || bi.cb_has_coeff || bi.cr_has_coeff)) {
+                        (dump_chroma_detail_all || cb_nz || cr_nz || bi.cb_has_coeff || bi.cr_has_coeff)) {
                         fprintf(stderr,
                                 "[TB] chroma_detail frame=%d blk=%zu inter=%d mv=(%d,%d) cb_has=%d cr_has=%d cb_nz=%d cr_nz=%d cb_qcoeff=",
                                 frame_idx, bi_idx, bi.is_inter ? 1 : 0, bi.mvx, bi.mvy,
