@@ -917,6 +917,60 @@ def _check_single_tap_equivalent_delta(dec: Path) -> None:
 
 
 
+def _check_sensitive_tap_weight_trace(dec: Path) -> None:
+    """Record the exact weighted tap trace for the isolated Cb +1.
+
+    The previous scans prove only row11/x10=-1 or row11/x12=+1 can explain the
+    public predictor under the current phase-8 math.  This check keeps the raw
+    phase-8 dot product executable so the next decoder-internal trace has exact
+    weights, products, threshold, and one-byte perturbation effects for the two
+    center taps instead of just the matching final block vector.
+    """
+    data = dec.read_bytes()
+    cb1 = _cb_offset(1)
+    row_y = 11
+    xs = tuple(range(8, 16))
+    samples = [data[cb1 + row_y * (W // 2) + x] for x in xs]
+    coeffs = SMALL_REGULAR_FILTERS[8]
+    products = [sample * coeff for sample, coeff in zip(samples, coeffs)]
+    acc = sum(products)
+    out = (acc + 64) >> 7
+    threshold = (0xA4 << 7) - 64
+    if (samples, list(coeffs), products, acc, out, threshold - acc) != (
+        [152, 151, 155, 160, 166, 166, 166, 166],
+        [0, 0, -12, 76, 76, -12, 0, 0],
+        [0, 0, -1860, 12160, 12616, -1992, 0, 0],
+        20924,
+        0xA3,
+        4,
+    ):
+        fail(
+            "frame-2 Cb sensitive tap weight trace drifted: "
+            f"samples={samples} coeffs={list(coeffs)} products={products} "
+            f"acc={acc} out={out} margin={threshold - acc}"
+        )
+
+    perturbations: list[tuple[int, int, int, int]] = []
+    for idx, x in enumerate(xs):
+        coeff = coeffs[idx]
+        if coeff == 0:
+            continue
+        for delta in (-1, 1):
+            perturbed_acc = acc + coeff * delta
+            perturbed_out = (perturbed_acc + 64) >> 7
+            if perturbed_out == 0xA4:
+                perturbations.append((x, delta, coeff, perturbed_acc))
+    expected = [(10, -1, -12, 20936), (11, 1, 76, 21000), (12, 1, 76, 21000), (13, -1, -12, 20936)]
+    if perturbations != expected:
+        fail(f"frame-2 Cb one-byte tap threshold perturbations drifted: {perturbations}")
+    print(
+        "[PASS] frame-2 Cb sensitive tap weight trace pinned: row11 x8..x15 "
+        "phase8 products sum to 20924, four units below the 0xA4 threshold; "
+        "only +/-1 changes on the four nonzero taps can cross the local threshold, "
+        "with the full-block scan still selecting x10=-1/x12=+1 as the viable public explanations"
+    )
+
+
 def _check_active_tap_perturbation_space(dec: Path) -> None:
     """Exhaust active phase-8 tap deltas for both frame-2 Cb blocker blocks.
 
@@ -1401,6 +1455,7 @@ def main() -> int:
     _check_halfpel_ref_signature(ff_rtl, recon)
     _check_phase8_rounding_margin(ff_rtl)
     _check_single_tap_equivalent_delta(ff_rtl)
+    _check_sensitive_tap_weight_trace(ff_rtl)
     _check_active_tap_perturbation_space(ff_rtl)
     _check_no_filter_family_explanation(ff_rtl)
     _check_sensitive_producer_interpolation_margins(ff_rtl)
