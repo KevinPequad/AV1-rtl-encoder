@@ -467,6 +467,55 @@ def _check_no_single_coeff_residual_explanation() -> None:
     )
 
 
+def _check_no_small_sparse_coeff_residual_explanation() -> None:
+    """Reject a small multi-symbol Cb residual explanation for the public +1.
+
+    A malformed txb parse could, in theory, hide behind the predictor diagnosis
+    if a tiny set of Cb coefficients reconstructed to a single +1 at sample 13.
+    Keep that residual/syntax escape hatch executable by searching all 2..4
+    coefficient combinations with values in {-2,-1,+1,+2}.  None produce the
+    observed sparse delta; the nearest small sparse candidate still changes eight
+    output samples, so the current blocker remains predictor/reference sampling.
+    """
+    from itertools import combinations, product
+
+    target = [0] * 16
+    target[13] = 1
+    searched = 0
+    best: tuple[int, int, int, tuple[tuple[int, int], ...], list[int]] | None = None
+    for coeff_count in range(2, 5):
+        for idxs in combinations(range(16), coeff_count):
+            for vals in product((-2, -1, 1, 2), repeat=coeff_count):
+                searched += 1
+                qcoeff = [0] * 16
+                for idx, val in zip(idxs, vals):
+                    qcoeff[idx] = val
+                residual = _chroma_inv4x4_residual(qcoeff)
+                if residual == target:
+                    fail(
+                        "unexpected small sparse Cb residual explanation for blk33/34 +1 sample: "
+                        f"coeffs={tuple(zip(idxs, vals))}"
+                    )
+                sad = sum(abs(a - b) for a, b in zip(residual, target))
+                nz = sum(1 for v in residual if v != 0)
+                candidate = (sad, nz, coeff_count, tuple(zip(idxs, vals)), residual)
+                if best is None or candidate < best:
+                    best = candidate
+    expected_best = (
+        79,
+        8,
+        2,
+        ((1, 1), (9, 1)),
+        [14, 6, -6, -14, 0, 0, 0, 0, 0, 0, 0, 0, 14, 6, -6, -14],
+    )
+    if searched != 503680 or best != expected_best:
+        fail(f"small sparse Cb residual search drifted: searched={searched} best={best}")
+    print(
+        "[PASS] no 2..4 coefficient q128 Cb residual with abs(coeff)<=2 explains "
+        "the public +1: searched 503680 candidates; nearest still changes eight samples"
+    )
+
+
 def _check_no_uniform_subpel_candidate(dec: Path) -> None:
     """Reject the next broad workaround: a single nearby base/phase for the whole block.
 
@@ -1075,6 +1124,7 @@ def main() -> int:
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
     _check_public_predictor_inference(ff_rtl, aom_rtl, recon)
     _check_no_single_coeff_residual_explanation()
+    _check_no_small_sparse_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
     _check_single_tap_equivalent_delta(ff_rtl)
     _check_no_filter_family_explanation(ff_rtl)
