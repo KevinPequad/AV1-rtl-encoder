@@ -105,6 +105,58 @@ def _check_expected_decoder_delta(dec: Path, recon: Path, label: str) -> None:
     )
 
 
+def _decode_yuv420_offset(off: int) -> tuple[int, str, int, int, int, int]:
+    """Map a flat 64x64 yuv420p byte offset to frame/plane/block/local sample."""
+    y_size = W * H
+    c_width = W // 2
+    c_height = H // 2
+    c_size = c_width * c_height
+    frame_size = y_size + 2 * c_size
+    frame = off // frame_size
+    in_frame = off % frame_size
+    if in_frame < y_size:
+        x = in_frame % W
+        y = in_frame // W
+        block = (y // 8) * (W // 8) + (x // 8)
+        local = (y % 8) * 8 + (x % 8)
+        return frame, "Y", x, y, block, local
+    if in_frame < y_size + c_size:
+        plane_off = in_frame - y_size
+        plane = "Cb"
+    else:
+        plane_off = in_frame - y_size - c_size
+        plane = "Cr"
+    x = plane_off % c_width
+    y = plane_off // c_width
+    block = ((y * 2) // 8) * (W // 8) + ((x * 2) // 8)
+    local = (y % 4) * 4 + (x % 4)
+    return frame, plane, x, y, block, local
+
+
+def _check_public_delta_coordinates(dec: Path, recon: Path) -> None:
+    """Pin the flat byte mismatches to chroma block-local sample coordinates.
+
+    This keeps the final blocker mapped in both address spaces used by the next
+    trace: public decoders differ from RTL at two flat YUV offsets, and both are
+    the same Cb sample index 13 inside adjacent frame-2 8x8-luma blocks.  Any
+    future fix that moves the mismatch to another local sample is therefore a
+    regression, even if the total mismatch count stays at two.
+    """
+    got = _mismatches(dec, recon)
+    decoded = [(*_decode_yuv420_offset(off), dec_v - recon_v) for off, dec_v, recon_v in got]
+    expected = [
+        (2, "Cb", 5, 19, 33, 13, 1),
+        (2, "Cb", 9, 19, 34, 13, 1),
+    ]
+    if decoded != expected:
+        fail(f"public/RTL Cb mismatch coordinate mapping drifted: {decoded} expected={expected}")
+    print(
+        "[PASS] public/RTL mismatch coordinates pin both frame-2 Cb deltas to "
+        "block-local sample index 13: blk33 chroma(x=5,y=19) and blk34 "
+        "chroma(x=9,y=19), each public decoder sample exactly +1 over RTL"
+    )
+
+
 def _cb_block(data: bytes, frame: int, blk: int) -> list[int]:
     cb0 = _cb_offset(frame)
     bx = (blk % (W // 8)) * 4
@@ -975,6 +1027,7 @@ def main() -> int:
     _check_ffmpeg_skip_loop_filter_not_cause(paths, ff_rtl)
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
+    _check_public_delta_coordinates(ff_rtl, recon)
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
     _check_public_predictor_inference(ff_rtl, aom_rtl, recon)
     _check_no_single_coeff_residual_explanation()
