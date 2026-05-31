@@ -2,8 +2,8 @@
 """64x64 full-coeff low-delay LAST inter proof with capped integer motion.
 
 The 64x64 reduced reference-stack/MV-prediction model is public-decoder exact
-through the first 41 requested non-zero motion blocks: 40 NEWMV payload blocks
-plus one stack-hit NEARESTMV block. Larger explicit requests remain capped in
+through the first 42 requested non-zero motion blocks: 40 NEWMV payload blocks
+plus two stack-hit NEARESTMV blocks. Larger explicit requests remain capped in
 RTL for full-coeff 64x64+ paths until the unrestricted reference-stack model is
 decoder-exact.
 """
@@ -51,14 +51,14 @@ def main() -> int:
     if nonzero_inter <= 0:
         fail("expected nonzero full-coeff inter residual blocks")
     nonzero_motion_modes = newmv + nearestmv + nearmv
-    if nonzero_motion_modes != 41:
+    if nonzero_motion_modes != 42:
         fail(
-            f"expected 64x64 full-coeff motion cap to hold at 41 non-zero blocks, "
+            f"expected 64x64 full-coeff motion cap to hold at 42 non-zero blocks, "
             f"saw new={newmv} nearest={nearestmv} near={nearmv}"
         )
-    if newmv != 40 or nearestmv != 1 or nearmv != 0:
+    if newmv != 40 or nearestmv != 2 or nearmv != 0:
         fail(
-            f"expected reduced stack mix NEWMV=40 NEARESTMV=1 NEARMV=0, "
+            f"expected reduced stack mix NEWMV=40 NEARESTMV=2 NEARMV=0, "
             f"saw new={newmv} nearest={nearestmv} near={nearmv}"
         )
     print(
