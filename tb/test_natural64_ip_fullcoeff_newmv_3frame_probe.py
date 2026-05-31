@@ -35,6 +35,13 @@ def _mismatches(dec: Path, recon: Path) -> list[tuple[int, int, int]]:
     return out
 
 
+def _check_public_decoders_agree(ff_dec: Path, aom_dec: Path) -> None:
+    got = _mismatches(ff_dec, aom_dec)
+    if got:
+        fail(f"FFmpeg/libdav1d and aomdec disagree on 3-frame blocker decode: {got[:8]} count={len(got)}")
+    print("[PASS] FFmpeg/libdav1d and aomdec produce identical YUV for the 3-frame blocker stream")
+
+
 def _check_expected_decoder_delta(dec: Path, recon: Path, label: str) -> None:
     expected = [(16997, 0xA4, 0xA3), (17001, 0xA8, 0xA7)]
     got = _mismatches(dec, recon)
@@ -214,6 +221,7 @@ def main() -> int:
     run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", rtl_ivf,
          "-f", "rawvideo", "-pix_fmt", "yuv420p", ff_rtl])
     run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", aom_rtl, rtl_ivf])
+    _check_public_decoders_agree(ff_rtl, aom_rtl)
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
     _check_halfpel_ref_signature(ff_rtl, recon)
