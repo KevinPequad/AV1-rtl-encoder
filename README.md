@@ -398,7 +398,7 @@ Inventory of the current repo state:
   - the `32x32` `3`-frame `data/natural_motion32_x640_y360_3f.yuv` crop is byte-exact between software-owned and RTL-owned OBU/IVF outputs, and the decoded RTL IVF matches `recon.yuv`
   - `output/natural_motion32_x640_y360_5f_fix1/` and `output/natural_motion64_x640_y360_5f_fix1/` are byte-exact at `5` frames, `output/natural_motion64_x640_y360_6f_fix1/` is byte-exact at `6` frames, `output/natural_motion64_x640_y360_7f_fixmvref64/` is byte-exact at `7` frames, and `output/natural_motion64_x640_y360_10f_progress70m/` is byte-exact at `10` frames
   - `output/natural_motion64_x640_y360_2f_subpel2/`, `output/natural_motion64_x640_y360_7f_subpel2/`, and `output/natural_motion64_x640_y360_10f_subpel2/` now keep that same exactness after the syntax-only subpel header / payload move, and strict `aomdec` output still matches `recon.yuv`
-  - the `64x64` full-coeff low-delay LAST gradient gate is currently public-decoder clean through the first `40` requested non-zero integer motion blocks under the reduced cap (`39` `NEWMV` payload blocks plus one stack-hit `NEARESTMV` block): RTL raw OBU and IVF match the software oracle, and FFmpeg/libdav1d plus `aomdec` decode back to `recon.yuv`
+  - the `64x64` full-coeff low-delay LAST gradient gate is public-decoder clean unrestricted, and the first width-stretched `128x64` full-coeff low-delay LAST gradient gate is also public-decoder clean without the taller-geometry cap (`52` `NEWMV` payload blocks plus `10` stack-hit `NEARESTMV` blocks): RTL raw OBU and IVF match the software oracle, and FFmpeg/libdav1d plus `aomdec` decode back to `recon.yuv`
   - the repaired longer-motion root cause was the reduced ref-MV stack reach, not the MV payload encoder itself: matching AOM's `MVREF_ROW_COLS == 3` scan removed the extra far-neighbor weight that had been flipping later NEWMV references
   - the first strict decoder corruption after enabling subpel syntax was shared writer/RTL syntax, not ownership drift:
     - `mv_hp` was missing after `mv_fr` on reduced `NEWMV` components
@@ -407,7 +407,7 @@ Inventory of the current repo state:
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
-  - unrestricted `64x64+` full-coeff `NEWMV` / reference-stack / MV-prediction parity beyond the current reduced cap; do not treat cap raises as final completion
+  - unrestricted full-coeff `NEWMV` / reference-stack / MV-prediction parity for taller-than-64 geometries beyond the current reduced cap; do not treat cap raises as final completion
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor

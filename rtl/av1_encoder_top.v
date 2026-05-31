@@ -2329,16 +2329,18 @@ module av1_encoder_top #(
     // Default public-clean mode: keep unconstrained runs on GLOBALMV/zero-MV
     // inter unless a test/bring-up path explicitly opts into NEWMV with
     // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
-    // The 64x64 full-coeff reduced reference-stack/MV-prediction path is now
-    // public-clean for the natural unrestricted LAST-frame stress case. Keep the
-    // conservative cap on larger geometries until their unrestricted stack model
-    // is decoder-exact. The disable_fullcoeff_cap_in hook remains testbench-only
-    // for larger-size boundary probes. DC-only tests retain their uncapped
-    // fractional/NEAREST/NEARMV syntax ownership coverage.
+    // The 64x64 and width-stretched <=64-row full-coeff reduced
+    // reference-stack/MV-prediction paths are now public-clean for the natural
+    // unrestricted LAST-frame stress cases. Keep the conservative cap on taller
+    // geometries until their unrestricted stack model is decoder-exact. The
+    // disable_fullcoeff_cap_in hook remains testbench-only for larger-size
+    // boundary probes. DC-only tests retain their uncapped fractional/NEAREST/
+    // NEARMV syntax ownership coverage.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
+    wire        me_fullcoeff_cap_applies = (FRAME_HEIGHT > 64);
     wire [7:0]  me_effective_newmv_limit =
-        (!dc_only_in && !disable_fullcoeff_cap_in && (FRAME_WIDTH > 64) && (me_newmv_limit_in > 8'd44)) ?
+        (!dc_only_in && !disable_fullcoeff_cap_in && me_fullcoeff_cap_applies && (me_newmv_limit_in > 8'd44)) ?
             8'd44 : me_newmv_limit_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_effective_newmv_limit != 8'd0) &&
