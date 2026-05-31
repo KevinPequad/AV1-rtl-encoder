@@ -2522,6 +2522,7 @@ module av1_encoder_top #(
         .is_keyframe(is_keyframe),
         .qindex(qindex),
         .frame_num(frame_num),
+        .dc_only(dc_only_in),
         .refresh_frame_flags_in(refresh_frame_flags_in),
         .ref_frame_idx_map_in(ref_frame_idx_map_in),
         .busy(bs_busy),
@@ -3651,7 +3652,20 @@ module av1_encoder_top #(
 
                 TS_SYNTAX_MVCLASS0W: begin
                     if (ec_done) begin
-                        top_state <= TS_SYNTAX_MVFP;
+                        if (!dc_only_in) begin
+                            if (!mv_comp_axis && cur_mv_joint[0]) begin
+                                mv_comp_axis <= 1'b1;
+                                top_state <= TS_SYNTAX_MVSIGN;
+                            end else if (cur_block_skip) begin
+                                proc_idx  <= 0;
+                                top_state <= TS_IQ_START;
+                            end else begin
+                                proc_idx  <= 0;
+                                top_state <= TS_TXB_SKIP_Y;
+                            end
+                        end else begin
+                            top_state <= TS_SYNTAX_MVFP;
+                        end
                     end
                 end
 
@@ -3668,6 +3682,17 @@ module av1_encoder_top #(
                         if ((mv_bit_idx + 1'b1) < cur_mv_class) begin
                             mv_bit_idx <= mv_bit_idx + 1'b1;
                             top_state <= TS_SYNTAX_MVBIT;
+                        end else if (!dc_only_in) begin
+                            if (!mv_comp_axis && cur_mv_joint[0]) begin
+                                mv_comp_axis <= 1'b1;
+                                top_state <= TS_SYNTAX_MVSIGN;
+                            end else if (cur_block_skip) begin
+                                proc_idx  <= 0;
+                                top_state <= TS_IQ_START;
+                            end else begin
+                                proc_idx  <= 0;
+                                top_state <= TS_TXB_SKIP_Y;
+                            end
                         end else begin
                             top_state <= TS_SYNTAX_MVFP;
                         end

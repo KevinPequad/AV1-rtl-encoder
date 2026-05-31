@@ -28,6 +28,7 @@ module av1_bitstream #(
     input  wire        is_keyframe,
     input  wire [7:0]  qindex,
     input  wire [3:0]  frame_num,
+    input  wire        dc_only,
     input  wire [7:0]  refresh_frame_flags_in,
     input  wire [20:0] ref_frame_idx_map_in,
 
@@ -69,6 +70,7 @@ module av1_bitstream #(
     // Latch frame header inputs
     reg        lat_is_keyframe;
     reg [7:0]  lat_qindex;
+    reg        lat_dc_only;
     reg [7:0]  lat_refresh_frame_flags;
     reg [20:0] lat_ref_frame_idx_map;
     reg        seq_hdr_emitted;
@@ -283,6 +285,7 @@ module av1_bitstream #(
             build_cmd     <= 0;
             lat_is_keyframe <= 0;
             lat_qindex <= 0;
+            lat_dc_only <= 1'b1;
             lat_refresh_frame_flags <= 8'h01;
             lat_ref_frame_idx_map <= 21'd0;
             seq_hdr_emitted <= 1'b0;
@@ -314,6 +317,7 @@ module av1_bitstream #(
                         build_cmd       <= CMD_FRM;
                         lat_is_keyframe <= is_keyframe;
                         lat_qindex      <= qindex;
+                        lat_dc_only     <= dc_only;
                         lat_refresh_frame_flags <= refresh_frame_flags_in;
                         lat_ref_frame_idx_map <= ref_frame_idx_map_in;
                         busy            <= 1;
@@ -422,13 +426,14 @@ module av1_bitstream #(
                             bw_write_bit(1);   // error_resilient_mode
                             bw_write_bit(1);   // disable_cdf_update
                             bw_write_bit(1);   // allow_screen_content_tools
-                            bw_write_bit(0);   // force_integer_mv
+                            bw_write_bit(!lat_dc_only);   // force_integer_mv for full-coeff integer-ME frames
                             bw_write_bit(0);   // frame_size_override_flag
                             bw_write_bits(lat_refresh_frame_flags, 8);   // refresh LAST slot only
                             for (j = 0; j < 7; j = j + 1)
                                 bw_write_bits(ref_map_slot(lat_ref_frame_idx_map, j), 3);   // all refs map to LAST
                             bw_write_bit(0);   // render_and_frame_size_different
-                            bw_write_bit(1);   // allow_high_precision_mv
+                            if (lat_dc_only)
+                                bw_write_bit(1);   // allow_high_precision_mv
                             bw_write_bit(0);   // interpolation_filter == SWITCHABLE
                             bw_write_bits(0, 2);   // interpolation_filter = regular
                             bw_write_bit(0);   // is_motion_mode_switchable

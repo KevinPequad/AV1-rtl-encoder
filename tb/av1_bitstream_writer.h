@@ -1816,13 +1816,15 @@ private:
         hdr_bw.write_bit(1);      // error_resilient_mode = 1
         hdr_bw.write_bit(disable_cdf_update_mode_ ? 1 : 0);
         hdr_bw.write_bit(1);      // allow_screen_content_tools = 1
-        hdr_bw.write_bit(0);      // force_integer_mv = 0
+        const bool force_integer_mv = !dc_only_mode_;
+        hdr_bw.write_bit(force_integer_mv ? 1 : 0); // force_integer_mv for full-coeff integer-ME frames
         hdr_bw.write_bit(0);      // frame_size_override_flag = 0
         hdr_bw.write_bits(refresh_frame_flags_, 8); // refresh LAST slot only
         for (int ref = 0; ref < 7; ++ref)
             hdr_bw.write_bits(ref_frame_idx_map_[ref], 3); // Map every ref type to the valid LAST slot
         hdr_bw.write_bit(0);      // render_and_frame_size_different = 0
-        hdr_bw.write_bit(1);      // allow_high_precision_mv = 1
+        if (!force_integer_mv)
+            hdr_bw.write_bit(1);  // allow_high_precision_mv = 1
         hdr_bw.write_bit(0);      // interpolation_filter == SWITCHABLE = 0
         hdr_bw.write_bits(0, 2);  // interpolation_filter = regular
         hdr_bw.write_bit(0);      // is_motion_mode_switchable = 0
@@ -2160,7 +2162,7 @@ private:
                         encode_symbol_ctx(rc, 0, av1_drl_cdf[drl_ctx], 2); // keep ref_mv_idx = 0
                     }
                     encode_mv(rc, static_cast<int>(block_mvy), static_cast<int>(block_mvx),
-                              nearest_mv.row, nearest_mv.col, /*force_integer_mv=*/false);
+                              nearest_mv.row, nearest_mv.col, /*force_integer_mv=*/!dc_only_mode_);
                 }
             } else {
                 encode_symbol_ctx(rc, y_mode, av1_if_y_mode_cdf[1], 13);
