@@ -2015,10 +2015,15 @@ module av1_encoder_top #(
         cur_mv_best_idx = -1;
         cur_mv_second_idx = -1;
 
+        // Match libaom setup_ref_mv_list() nearest-stack scan order for
+        // single-reference 8x8 blocks: first above row, first left column,
+        // then the top-right probe.  The ordering matters when later outer
+        // scans add equal weight to duplicate MVs; stable ranking keeps the
+        // left-column candidate ahead of top-right in those ties.
         add_cur_mv_candidate(blk_x,     blk_y - 1, REF_LAST, 10'd4);
+        add_cur_mv_candidate(blk_x - 1, blk_y,     REF_LAST, 10'd4);
         if (block_has_top_right_fn(blk_x, blk_y))
             add_cur_mv_candidate(blk_x + 1, blk_y - 1, REF_LAST, 10'd4);
-        add_cur_mv_candidate(blk_x - 1, blk_y,     REF_LAST, 10'd4);
 
         cur_mv_nearest_count = cur_mv_cand_count;
         for (cur_mv_i = 0; cur_mv_i < 10; cur_mv_i = cur_mv_i + 1)
@@ -2324,15 +2329,16 @@ module av1_encoder_top #(
     // Default public-clean mode: keep unconstrained runs on GLOBALMV/zero-MV
     // inter unless a test/bring-up path explicitly opts into NEWMV with
     // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
-    // At 64x64+ the reduced reference-stack/MV-prediction model is proven
-    // public-clean through the first 44 non-zero-MV blocks; cap larger requests
-    // there until the unrestricted stack model is decoder-exact. The
-    // disable_fullcoeff_cap_in hook is testbench-only for boundary probes. DC-only tests
-    // retain their uncapped fractional/NEAREST/NEARMV syntax ownership coverage.
+    // The 64x64 full-coeff reduced reference-stack/MV-prediction path is now
+    // public-clean for the natural unrestricted LAST-frame stress case. Keep the
+    // conservative cap on larger geometries until their unrestricted stack model
+    // is decoder-exact. The disable_fullcoeff_cap_in hook remains testbench-only
+    // for larger-size boundary probes. DC-only tests retain their uncapped
+    // fractional/NEAREST/NEARMV syntax ownership coverage.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
     wire [7:0]  me_effective_newmv_limit =
-        (!dc_only_in && !disable_fullcoeff_cap_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd44)) ?
+        (!dc_only_in && !disable_fullcoeff_cap_in && (FRAME_WIDTH > 64) && (me_newmv_limit_in > 8'd44)) ?
             8'd44 : me_newmv_limit_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_effective_newmv_limit != 8'd0) &&
