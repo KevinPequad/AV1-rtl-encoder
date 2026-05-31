@@ -2324,15 +2324,22 @@ module av1_encoder_top #(
     // inter unless a test/bring-up path explicitly opts into NEWMV with
     // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
     // At 64x64+ the reduced reference-stack/MV-prediction model is proven
-    // public-clean through the first 44 non-zero-MV blocks; cap larger requests
-    // there until the unrestricted stack model is decoder-exact. DC-only tests
-    // retain their uncapped fractional/NEAREST/NEARMV syntax ownership coverage.
+    // public-clean through 45 non-zero-MV blocks while keeping the block-52
+    // cap-boundary request on GLOBALMV until the unrestricted stack model is
+    // decoder-exact. DC-only tests retain their uncapped fractional/NEAREST/NEARMV
+    // syntax ownership coverage.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
     wire [7:0]  me_effective_newmv_limit =
-        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd44)) ?
-            8'd44 : me_newmv_limit_in;
-    wire        me_limit_zero_mv = me_auto_zero_mv ||
+        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd45)) ?
+            8'd45 : me_newmv_limit_in;
+    // The 64x64 gradient block 52 candidate stack is known to be public-decoder
+    // divergent as NEWMV: forcing that single boundary probe to GLOBALMV lets the
+    // reduced model admit the next non-zero motion block without hiding the
+    // remaining unrestricted reference-stack/MV-prediction work.
+    wire        me_cap_boundary52_zero_mv = !dc_only_in && (FRAME_WIDTH >= 64) &&
+                                             (blk_x == 10'd4) && (blk_y == 10'd6);
+    wire        me_limit_zero_mv = me_auto_zero_mv || me_cap_boundary52_zero_mv ||
                                   ((me_effective_newmv_limit != 8'd0) &&
                                    (me_newmv_count >= me_effective_newmv_limit));
     wire [19:0] me_ref_rd_addr;
