@@ -41,13 +41,14 @@ Public-decoder proof gates must come from the RTL raw OBU / IVF bytes with FFmpe
 
 This checkpoint does not freeze the long-term goal; it only records the currently owned LAST-only boundary so the next AV1 inter lane can widen from a verified baseline. See `FULL_RTL_SCOPE.md` for the current program scope and `PRE_ASIC_HANDOFF.md` for the historical freeze package.
 
-## 2026-05-30 cap-46 full-coeff probe
+## 2026-05-30 unrestricted block-52 full-coeff checkpoint
 
-A cron-lane probe tried to move the active 64x64 full-coeff LAST/NEWMV public-clean boundary from the guarded cap-45 path to cap-46 by removing the special block-52 zero-MV guard and allowing one more requested non-zero motion block. The uncommitted exploratory RTL produced frame-1 block 52 as `mv=(64,-128)` with the expected candidate stack prefix `cand0=(64,-128,w=644) cand1=(0,0,w=648) cand2=(128,-128,w=648)`, but public decode did not match RTL reconstruction:
+The earlier cap-46/block-52 exploratory failure is resolved on the cron progress branch by the checked-in reference-stack/MV-selection alignment. The active 64x64 full-coeff LAST/NEWMV public-clean boundary now admits frame-1 block 52 as NEWMV under `+me_newmv_limit=255` with no separate 64x64 hard cap. The current expected summary is `GLOBALMV:18 NEARESTMV:3 NEARMV:0 NEWMV:43`, with block 52 reported as `mv=(64,-128) ref=(128,-128) near=(0,0) mode=NEWMV` and candidate-stack entries including `cand0=(64,-128,w=644)`, `cand1=(128,-128,w=648)`, and `cand2=(0,0,w=648)`.
 
-- RTL/software byte ownership still matched for the exploratory stream (`encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`).
-- FFmpeg/libdav1d decode-to-recon failed with `byte_mismatches=128`, first mismatch at frame 1 Y block 52; affected blocks were `f1:Y:blk52:64`, `f1:Cb:blk52:16`, `f1:Cb:blk60:16`, `f1:Cr:blk52:16`, and `f1:Cr:blk60:16`.
-- A second exploratory attempt that made the RTL primary/secondary MV selector preserve candidate-stack order instead of weight order changed the mode mix to `GLOBALMV:18 NEARESTMV:5 NEARMV:0 NEWMV:41`, but broke RTL/software byte equality (`encoded.obu != encoded_rtl_raw.obu`, first mismatch offset 207), so it is not a valid fix without updating the owned writer model and proving decoder parity.
+Verified gates for this checkpoint:
 
-Keep the checked-in cap-45/block-52 guard until the unrestricted reference-stack/MV-prediction path makes block 52 decoder-to-recon exact. The next useful slice is to align the RTL and software-oracle reference-MV selection model for block 52, then re-run `THREADS=1 BUILD_JOBS=1 make WIDTH=64 HEIGHT=64 natural64-ip-fullcoeff-newmv-syntax-check` and require RTL/software byte equality plus FFmpeg/libdav1d and aomdec decode-to-recon parity before raising the cap.
+- `THREADS=1 BUILD_JOBS=1 make natural64-ip-fullcoeff-newmv-syntax-check`
+- `THREADS=1 BUILD_JOBS=1 make natural64-ip-fullcoeff-newmv-boundary52-probe-check`
+
+Both gates require RTL/software raw OBU and IVF byte equality plus FFmpeg/libdav1d and `aomdec` decode-to-recon parity. This is still only a reduced 64x64 two-frame LAST-only checkpoint; it does not close the broader P7/P8 multi-reference/GOP or P13 ASIC-readiness work.
 
