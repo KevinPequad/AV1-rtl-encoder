@@ -162,6 +162,44 @@ def _check_public_cb_block_signature(ff_dec: Path, aom_dec: Path, recon: Path) -
     )
 
 
+def _check_public_predictor_inference(ff_dec: Path, aom_dec: Path, recon: Path) -> None:
+    """Infer the public-decoder predictor after subtracting known Cb residuals.
+
+    Blk33 has no Cb residual and blk34 carries the reduced q128 DC+1 residual,
+    which is +4 at every Cb sample under the RTL inverse transform.  Subtracting
+    those known residual vectors from the public-decoder recon should therefore
+    expose the actual predictor the public decoders used for both adjacent
+    blocks.  Keeping this executable separates the remaining blocker from both
+    coefficient syntax and transform math: the inferred public predictor is the
+    same for blk33/34 and is exactly current RTL phase-8 predictor plus one local
+    LSB at sample index 13.
+    """
+    ff = ff_dec.read_bytes()
+    aom = aom_dec.read_bytes()
+    rtl = recon.read_bytes()
+    rtl_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 163, 167, 166]
+    public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    residual_by_blk = {33: [0] * 16, 34: [4] * 16}
+    for blk, residual in residual_by_blk.items():
+        rtl_blk = _cb_block(rtl, 2, blk)
+        rtl_inferred = [sample - res for sample, res in zip(rtl_blk, residual)]
+        if rtl_inferred != rtl_predictor:
+            fail(f"frame-2 blk{blk} RTL inferred Cb predictor drifted: {rtl_inferred}")
+        for label, data in (("FFmpeg/libdav1d", ff), ("aomdec", aom)):
+            dec_blk = _cb_block(data, 2, blk)
+            inferred = [sample - res for sample, res in zip(dec_blk, residual)]
+            if inferred != public_predictor:
+                fail(f"frame-2 blk{blk} {label} inferred Cb predictor drifted: {inferred}")
+            deltas = [(idx, dec_v, rtl_v) for idx, (dec_v, rtl_v) in enumerate(zip(inferred, rtl_predictor)) if dec_v != rtl_v]
+            if deltas != [(13, 0xA4, 0xA3)]:
+                fail(f"frame-2 blk{blk} {label} inferred predictor delta drifted: {deltas}")
+    print(
+        "[PASS] inferred public Cb predictor is identical for blk33/34 after known "
+        "residual subtraction and differs from RTL only at sample 13 (+1), keeping "
+        "the blocker isolated to inter predictor/reference sampling"
+    )
+
+
 def _cb_offset(frame: int) -> int:
     return frame * (W * H * 3 // 2) + (W * H)
 
@@ -923,6 +961,7 @@ def main() -> int:
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
+    _check_public_predictor_inference(ff_rtl, aom_rtl, recon)
     _check_no_single_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
     _check_single_tap_equivalent_delta(ff_rtl)
