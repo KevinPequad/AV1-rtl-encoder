@@ -8,8 +8,15 @@
 #include "verilated.h"
 
 namespace {
-constexpr int W = 16;
-constexpr int H = 16;
+#ifndef FRAME_W
+#define FRAME_W 32
+#endif
+#ifndef FRAME_H
+#define FRAME_H 32
+#endif
+constexpr int W = FRAME_W / 2;
+constexpr int H = FRAME_H / 2;
+static_assert(W >= 16 && H >= 16, "chroma inter pred test expects at least a 16x16 chroma plane");
 constexpr int FILTER_BITS = 7;
 constexpr int ROUND_OFFSET = 1 << (FILTER_BITS - 1);
 
@@ -76,6 +83,10 @@ void tick(Vav1_chroma_inter_pred& dut) {
     dut.clk = 1; dut.eval();
 }
 
+uint8_t pred_byte(const Vav1_chroma_inter_pred& dut, int idx) {
+    return static_cast<uint8_t>((dut.pred[idx >> 2] >> ((idx & 3) * 8)) & 0xFF);
+}
+
 bool run_case(const std::string& name, int cur_x, int cur_y, int mv_x_q3, int mv_y_q3,
               const std::vector<uint8_t>& ref) {
     Vav1_chroma_inter_pred dut;
@@ -106,7 +117,7 @@ bool run_case(const std::string& name, int cur_x, int cur_y, int mv_x_q3, int mv
     for (int i = 0; i < 16; ++i) {
         const int px = i & 3;
         const int py = i >> 2;
-        const uint8_t got = dut.pred[i];
+        const uint8_t got = pred_byte(dut, i);
         const uint8_t exp = expected_pred(ref, cur_x, cur_y, mv_x_q3, mv_y_q3, px, py);
         if (got != exp) {
             std::cerr << "[FAIL] " << name << ": pred[" << i << "] got "
@@ -133,5 +144,24 @@ int main(int argc, char** argv) {
     ok = run_case("chroma_quarterpel_y_from_luma_halfpel", 4, 5, 0, 4, ref) && ok;
     ok = run_case("chroma_2d_quarterpel_from_luma_halfpel", 4, 5, 4, 4, ref) && ok;
     ok = run_case("chroma_negative_fractional", 4, 5, -4, -4, ref) && ok;
+
+    // Reproduce the narrow 64x64 3-frame NEWMV Cb blocker reference taps in a
+    // standalone RTL check.  The row values are frame-1 Cb reference samples
+    // x=7..17 for y=8..11; with blk33's mv=(104,-128), output sample
+    // pred[13] must stay at phase-8 value 0xA3.  This keeps the standalone
+    // chroma predictor aligned with the top-level diagnostic while public
+    // decoders still reconstruct that one sample as 0xA4.
+    std::vector<uint8_t> blocker_ref(W * H, 0);
+    const uint8_t blocker_rows[4][11] = {
+        {142, 142, 142, 144, 146, 162, 162, 162, 162, 162, 162},
+        {141, 141, 141, 143, 145, 168, 168, 168, 168, 168, 168},
+        {144, 147, 146, 149, 153, 167, 167, 167, 167, 167, 167},
+        {146, 152, 151, 155, 160, 166, 166, 166, 166, 166, 166},
+    };
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 11; ++x)
+            blocker_ref[(8 + y) * W + 7 + x] = blocker_rows[y][x];
+    ok = run_case("chroma_frame2_cb_blocker_phase8_signature",
+                  4, 16, 104, -128, blocker_ref) && ok;
     return ok ? 0 : 1;
 }
