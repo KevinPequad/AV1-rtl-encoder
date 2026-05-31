@@ -17,6 +17,22 @@ TB = Path(__file__).resolve().parent
 SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "Vav1_encoder_top"
 FRAME_SIZE = W * H * 3 // 2
 FIRST_BLOCK52_Y_OFFSET = FRAME_SIZE + 48 * W + 32
+BLOCK52_X = 32
+BLOCK52_Y = 48
+# The current boundary failure is an AV1 ref-MV stack mismatch, not a first-frame
+# reference-promotion failure.  The requested RTL/software block-52 MV is
+# (64,-128) q3, so the RTL predictor copies frame0 (x=40,y=32).  Public
+# decoders infer a different NEWMV reference for this block and land at the
+# frame0 region consistent with adding ref=(128,-128), i.e. (x=56,y=16).
+BLOCK52_RTL_SRC_X = 40
+BLOCK52_RTL_SRC_Y = 32
+BLOCK52_DECODER_INFERRED_SRC_X = 56
+BLOCK52_DECODER_INFERRED_SRC_Y = 16
+
+
+def y8x8(frame_bytes: bytes, frame: int, x: int, y: int) -> bytes:
+    base = frame * FRAME_SIZE
+    return b"".join(frame_bytes[base + (y + yy) * W + x:base + (y + yy) * W + x + 8] for yy in range(8))
 
 
 def mismatch_summary(left: bytes, right: bytes) -> tuple[int, int | None, int | None, int | None]:
@@ -38,9 +54,26 @@ def assert_decoder_mismatch(decoder_yuv: Path, recon: Path, label: str) -> None:
             f"{label}: expected first mismatch at frame1 Y block52 offset {FIRST_BLOCK52_Y_OFFSET} "
             f"with decoder=0xfe RTL=0xff, saw offset={first} decoder={left_byte!r} rtl={right_byte!r} diff_count={diff_count}"
         )
+    decoder_block = y8x8(left, 1, BLOCK52_X, BLOCK52_Y)
+    rtl_block = y8x8(right, 1, BLOCK52_X, BLOCK52_Y)
+    decoder_inferred_src = y8x8(left, 0, BLOCK52_DECODER_INFERRED_SRC_X, BLOCK52_DECODER_INFERRED_SRC_Y)
+    rtl_requested_src = y8x8(right, 0, BLOCK52_RTL_SRC_X, BLOCK52_RTL_SRC_Y)
+    if decoder_block != decoder_inferred_src:
+        fail(
+            f"{label}: block52 decoder output no longer matches inferred ref-stack source "
+            f"frame0[x={BLOCK52_DECODER_INFERRED_SRC_X},y={BLOCK52_DECODER_INFERRED_SRC_Y}]"
+        )
+    if rtl_block != rtl_requested_src:
+        fail(
+            f"{label}: block52 RTL recon no longer matches requested-MV source "
+            f"frame0[x={BLOCK52_RTL_SRC_X},y={BLOCK52_RTL_SRC_Y}]"
+        )
     print(
         f"[PASS] {label}: pinned expected boundary mismatch diff_count={diff_count} "
-        f"first_offset={first} frame=1 plane=Y x=32 y=48 block8=52 decoder=0x{left_byte:02x} rtl=0x{right_byte:02x}"
+        f"first_offset={first} frame=1 plane=Y x=32 y=48 block8=52 decoder=0x{left_byte:02x} rtl=0x{right_byte:02x}; "
+        f"decoder block matches frame0[x={BLOCK52_DECODER_INFERRED_SRC_X},y={BLOCK52_DECODER_INFERRED_SRC_Y}] "
+        f"first=0x{decoder_inferred_src[0]:02x}, RTL block matches requested frame0[x={BLOCK52_RTL_SRC_X},y={BLOCK52_RTL_SRC_Y}] "
+        f"first=0x{rtl_requested_src[0]:02x}"
     )
 
 
