@@ -63,13 +63,23 @@ def main() -> int:
             f"expected reduced stack mix NEWMV=43 NEARESTMV=2 NEARMV=0, "
             f"saw new={newmv} nearest={nearestmv} near={nearmv}"
         )
-    block52 = re.search(r"inter_summary frame=1 blk=52 [^\n]* mode=([A-Z]+MV) [^\n]*", log)
+    block52 = re.search(
+        r"inter_summary frame=1 blk=52 [^\n]* ref=\((-?\d+),(-?\d+)\) "
+        r"near=\((-?\d+),(-?\d+)\) mode=([A-Z]+MV) [^\n]*",
+        log,
+    )
     if not block52:
         fail("missing cap-boundary block 52 summary")
-    if block52.group(1) != "GLOBALMV":
+    ref_x, ref_y, near_x, near_y = map(int, block52.groups()[:4])
+    if block52.group(5) != "GLOBALMV":
         fail(
             "expected cap-boundary block 52 to stay GLOBALMV; "
             "this guarded candidate-stack probe is still the unrestricted recon-parity blocker"
+        )
+    if (ref_x, ref_y, near_x, near_y) != (0, 0, 128, -128):
+        fail(
+            "cap-boundary block 52 reference-MV selection drifted before the "
+            f"known unrestricted recon fix: ref=({ref_x},{ref_y}) near=({near_x},{near_y})"
         )
     block52_line = block52.group(0)
     for expected in (
@@ -81,6 +91,21 @@ def main() -> int:
             fail(
                 "cap-boundary block 52 candidate stack drifted before the "
                 f"known unrestricted recon fix: missing {expected}; line={block52_line}"
+            )
+
+    for blk, ref_pair in ((58, (0, 0)), (60, (0, 0))):
+        admitted = re.search(
+            rf"inter_summary frame=1 blk={blk} [^\n]* ref=\((-?\d+),(-?\d+)\) "
+            rf"near=\((-?\d+),(-?\d+)\) mode=([A-Z]+MV) [^\n]*",
+            log,
+        )
+        if not admitted:
+            fail(f"missing guarded-cap admitted NEWMV block {blk} summary")
+        blk_ref = tuple(map(int, admitted.groups()[:2]))
+        if admitted.group(5) != "NEWMV" or blk_ref != ref_pair:
+            fail(
+                f"guarded-cap admitted block {blk} drifted: "
+                f"mode={admitted.group(5)} ref={blk_ref} expected NEWMV/ref={ref_pair}"
             )
     print(
         "[PASS] 64x64 full-coeff guarded cap-45 integer motion summary: "
