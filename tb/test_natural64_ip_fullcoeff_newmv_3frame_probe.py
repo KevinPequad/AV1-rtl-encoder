@@ -42,6 +42,54 @@ def _check_public_decoders_agree(ff_dec: Path, aom_dec: Path) -> None:
     print("[PASS] FFmpeg/libdav1d and aomdec produce identical YUV for the 3-frame blocker stream")
 
 
+def _check_reference_frames_clean(ff_dec: Path, aom_dec: Path, recon: Path) -> None:
+    """Prove the public/RTL divergence first appears in frame 2 only.
+
+    The remaining 3-frame blocker feeds frame 2 from frame 1, so the useful
+    invariant is not just the final two-byte delta: frames 0 and 1 must stay
+    public-decoder/recon exact, and the two frame-2 deltas must be identical for
+    FFmpeg/libdav1d and aomdec.  This guards the next source trace against
+    accidentally blaming a broad reference-frame writeback or GOP lifecycle bug.
+    """
+    frame_size = W * H * 3 // 2
+    expected_total = frame_size * 3
+    streams = {
+        "FFmpeg/libdav1d": ff_dec.read_bytes(),
+        "aomdec": aom_dec.read_bytes(),
+    }
+    rtl = recon.read_bytes()
+    for label, data in streams.items():
+        if len(data) != expected_total or len(rtl) != expected_total:
+            fail(
+                f"{label}: expected three 64x64 yuv420p frames of {frame_size} bytes each; "
+                f"decoder_size={len(data)} recon_size={len(rtl)}"
+            )
+        for frame in (0, 1):
+            start = frame * frame_size
+            end = start + frame_size
+            got = [
+                (start + i, dec_v, rtl_v)
+                for i, (dec_v, rtl_v) in enumerate(zip(data[start:end], rtl[start:end]))
+                if dec_v != rtl_v
+            ]
+            if got:
+                fail(f"{label}: reference frame {frame} is not public/recon clean: {got[:8]} count={len(got)}")
+        frame2_start = 2 * frame_size
+        frame2_got = [
+            (frame2_start + i, dec_v, rtl_v)
+            for i, (dec_v, rtl_v) in enumerate(zip(data[frame2_start:frame2_start + frame_size], rtl[frame2_start:frame2_start + frame_size]))
+            if dec_v != rtl_v
+        ]
+        expected_frame2 = [(16997, 0xA4, 0xA3), (17001, 0xA8, 0xA7)]
+        if frame2_got != expected_frame2:
+            fail(f"{label}: frame-2-only public/recon delta drifted: {frame2_got[:8]} count={len(frame2_got)}")
+    print(
+        "[PASS] public/recon reference history clean: frames 0 and 1 are byte-exact "
+        "for FFmpeg/libdav1d and aomdec; the only divergence first appears as the "
+        "known two frame-2 Cb bytes"
+    )
+
+
 def _check_ffmpeg_skip_loop_filter_not_cause(paths: dict[str, str | Path], ff_dec: Path) -> None:
     """Prove the narrow Cb +1 is not hidden in AV1 post-recon filtering.
 
@@ -1444,6 +1492,7 @@ def main() -> int:
          "-f", "rawvideo", "-pix_fmt", "yuv420p", ff_rtl])
     run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", aom_rtl, rtl_ivf])
     _check_public_decoders_agree(ff_rtl, aom_rtl)
+    _check_reference_frames_clean(ff_rtl, aom_rtl, recon)
     _check_ffmpeg_skip_loop_filter_not_cause(paths, ff_rtl)
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
