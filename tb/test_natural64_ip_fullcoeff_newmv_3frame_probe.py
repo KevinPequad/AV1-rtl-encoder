@@ -9,6 +9,7 @@ this test means the known mismatch is still the narrow frame-2 chroma inter
 recon blocker; once fixed, this probe should be flipped to strict decoder parity.
 """
 from pathlib import Path
+import hashlib
 import os
 import re
 
@@ -40,6 +41,46 @@ def _check_public_decoders_agree(ff_dec: Path, aom_dec: Path) -> None:
     if got:
         fail(f"FFmpeg/libdav1d and aomdec disagree on 3-frame blocker decode: {got[:8]} count={len(got)}")
     print("[PASS] FFmpeg/libdav1d and aomdec produce identical YUV for the 3-frame blocker stream")
+
+
+def _frame_md5s(path: Path) -> list[str]:
+    data = path.read_bytes()
+    frame_size = W * H * 3 // 2
+    if len(data) % frame_size:
+        fail(f"{path}: decoded YUV size {len(data)} is not an integer number of 64x64 yuv420p frames")
+    return [hashlib.md5(data[i:i + frame_size]).hexdigest() for i in range(0, len(data), frame_size)]
+
+
+def _check_decoder_frame_md5_scope(ff_dec: Path, aom_dec: Path, recon: Path) -> None:
+    """Record per-frame hashes for the current 3-frame public/recon split.
+
+    The byte-delta checks catch the exact two Cb samples, while these hashes keep
+    the run-level evidence compact: both public decoders produce identical frames,
+    frames 0/1 are byte-identical to RTL recon, and only frame 2 carries the
+    current public-vs-RTL divergence.
+    """
+    expected_public = [
+        "18d641716080f96bc5c780d6cbfecd7a",
+        "418cd2b1d3bf2c1337c2535e02aeb264",
+        "6cbdc2e2d69392a4806c28e65be25d83",
+    ]
+    expected_recon = [
+        "18d641716080f96bc5c780d6cbfecd7a",
+        "418cd2b1d3bf2c1337c2535e02aeb264",
+        "2455efa1b44121263bd2f79c676e438d",
+    ]
+    ff_hashes = _frame_md5s(ff_dec)
+    aom_hashes = _frame_md5s(aom_dec)
+    recon_hashes = _frame_md5s(recon)
+    if ff_hashes != expected_public or aom_hashes != expected_public:
+        fail(f"public decoder frame MD5s drifted: ff={ff_hashes} aom={aom_hashes}")
+    if recon_hashes != expected_recon:
+        fail(f"RTL recon frame MD5s drifted: {recon_hashes}")
+    print(
+        "[PASS] frame MD5 scope pinned: FFmpeg/libdav1d and aomdec match each "
+        "other on all three frames; frames 0/1 match RTL recon and only frame 2 "
+        "has the current two-byte Cb public/recon split"
+    )
 
 
 def _check_reference_frames_clean(ff_dec: Path, aom_dec: Path, recon: Path) -> None:
@@ -1526,6 +1567,7 @@ def main() -> int:
     run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", aom_rtl, rtl_ivf])
     _check_public_decoders_agree(ff_rtl, aom_rtl)
     _check_reference_frames_clean(ff_rtl, aom_rtl, recon)
+    _check_decoder_frame_md5_scope(ff_rtl, aom_rtl, recon)
     _check_ffmpeg_skip_loop_filter_not_cause(paths, ff_rtl)
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
