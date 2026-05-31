@@ -33,6 +33,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 public-decoder block-vector follow-up: the 3-frame probe now pins the full public-decoder Cb 4x4 vectors for frame-2 blk33/34. FFmpeg/libdav1d and `aomdec` agree with RTL on every neighboring Cb sample; the only local delta in each block is sample `(1,3)`, and blk34 still carries the same +4 DC residual as RTL. This moves the next debug step away from Cb residual scan/transform/frame-buffer corruption and toward the single inter predictor input/phase actually used by public decoders at that sample.
 
+2026-05-31 blanket-phase contrast follow-up: the 3-frame probe now computes full blk33/34 Cb predictor vectors from the actual frame-1 reference taps for both phase 8 and the tempting phase 9 contrast. Phase 9 matches the public decoder at the single failing local sample, but it would introduce six other Cb predictor deltas per block, so a blanket phase bump is now executable-rejected; the next step remains extracting the precise public-decoder per-sample/subpel/ref interpretation for blk33/34.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.

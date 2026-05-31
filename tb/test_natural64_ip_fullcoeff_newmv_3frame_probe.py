@@ -145,6 +145,30 @@ def _round_filter(samples: list[int], coeffs: tuple[int, ...]) -> int:
     return max(0, min(255, (sum(c * s for c, s in zip(coeffs, samples)) + 64) >> 7))
 
 
+def _clamp(v: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, v))
+
+
+def _filtered_cb_block_from_frame1(data: bytes, blk: int, mvx_q3: int, mvy_q3: int, coeffs: tuple[int, ...]) -> list[int]:
+    """Return the horizontal-only Cb predictor for a frame-2 block from frame-1 taps."""
+    cb1 = _cb_offset(1)
+    blk_cols = W // 8
+    block_x = (blk % blk_cols) * 4
+    block_y = (blk // blk_cols) * 4
+    base_x = block_x + (mvx_q3 >> 4)
+    base_y = block_y + (mvy_q3 >> 4)
+    out: list[int] = []
+    for y in range(4):
+        for x in range(4):
+            taps = []
+            for tap in range(8):
+                sx = _clamp(base_x + x + tap - 3, 0, W // 2 - 1)
+                sy = _clamp(base_y + y, 0, H // 2 - 1)
+                taps.append(data[cb1 + sy * (W // 2) + sx])
+            out.append(_round_filter(taps, coeffs))
+    return out
+
+
 def _same_size_chroma_origin(blk: int, px: int, py: int, mvx_q3: int, mvy_q3: int) -> tuple[int, int, int, int]:
     """Return the unscaled AV1 4:2:0 chroma base sample and q4 phase.
 
@@ -347,12 +371,33 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
             "unexpected full regular-filter contrast for Cb halfpel blocker: "
             f"phase8={regular8_pred} phase9={regular9_pred}"
         )
+
+    expected_phase8_block = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 163, 167, 166]
+    expected_phase9_block = [144, 155, 163, 162, 142, 158, 170, 168, 150, 161, 168, 167, 158, 164, 166, 166]
+    expected_public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    phase9_deltas = [(1, 155, 154), (2, 163, 164), (5, 158, 157), (9, 161, 160), (12, 158, 157), (14, 166, 167)]
+    for blk, mv in {33: (104, -128), 34: (40, -128)}.items():
+        phase8_block = _filtered_cb_block_from_frame1(dec_bytes, blk, mv[0], mv[1], small_phase8)
+        phase9_block = _filtered_cb_block_from_frame1(dec_bytes, blk, mv[0], mv[1], small_phase9)
+        if phase8_block != expected_phase8_block:
+            fail(f"frame-2 blk{blk} Cb phase8 full-block predictor drifted: {phase8_block}")
+        if phase9_block != expected_phase9_block:
+            fail(f"frame-2 blk{blk} Cb phase9 full-block predictor drifted: {phase9_block}")
+        got_phase9_deltas = [
+            (idx, phase9_v, public_v)
+            for idx, (phase9_v, public_v) in enumerate(zip(phase9_block, expected_public_predictor))
+            if phase9_v != public_v
+        ]
+        if got_phase9_deltas != phase9_deltas:
+            fail(f"frame-2 blk{blk} blanket phase9 contrast drifted: {got_phase9_deltas}")
+
     print(
         "[PASS] frame-2 Cb blocker narrowed: spec and current libaom unscaled "
         "chroma setup keep blk33/34 at base=(11,11) phase=(8,0) and rule out "
         "the scaled-path +8 siting origin base=(12,11) phase=(0,8); frame-1 taps "
         "match public decode; small and full regular phase8 both predict RTL 0xA3 "
-        "while neighboring phase9 predicts decoder 0xA4"
+        "while neighboring phase9 predicts decoder 0xA4, but a blanket phase9 bump "
+        "would introduce six other Cb predictor deltas per block"
     )
 
 
