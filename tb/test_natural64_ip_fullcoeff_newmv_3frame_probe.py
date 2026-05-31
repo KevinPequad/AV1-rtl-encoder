@@ -300,6 +300,39 @@ def _check_public_predictor_inference(ff_dec: Path, aom_dec: Path, recon: Path) 
     )
 
 
+def _check_public_reference_row_parity(ff_dec: Path, aom_dec: Path, recon: Path) -> None:
+    """Pin the displayed frame-1 Cb row consumed by the frame-2 blocker.
+
+    The remaining public/RTL +1 can be reproduced by pretending one of two
+    frame-1 reference taps changed (row11 x10 -1 or row11 x12 +1), but both
+    public decoders display the same frame-1 row as RTL recon.  This keeps that
+    distinction executable: the displayed LAST-frame row is clean, so the next
+    fix has to explain a decoder-private reference-sampling/rounding difference
+    rather than broad displayed-frame or reference-writeback corruption.
+    """
+    expected_row11 = [
+        134, 134, 138, 138, 140, 140, 143, 146,
+        152, 151, 155, 160, 166, 166, 166, 166,
+        166, 166, 166, 166, 170, 170, 170, 170,
+        170, 170, 170, 170, 175, 175, 175, 175,
+    ]
+    expected_sensitive = {10: 155, 12: 166}
+    cb1 = _cb_offset(1)
+    for label, path in (("FFmpeg/libdav1d", ff_dec), ("aomdec", aom_dec), ("RTL recon", recon)):
+        data = path.read_bytes()
+        row = list(data[cb1 + 11 * (W // 2): cb1 + 12 * (W // 2)])
+        if row != expected_row11:
+            fail(f"{label}: displayed frame-1 Cb row11 drifted: {row}")
+        sensitive = {x: row[x] for x in expected_sensitive}
+        if sensitive != expected_sensitive:
+            fail(f"{label}: displayed frame-1 sensitive Cb taps drifted: {sensitive}")
+    print(
+        "[PASS] displayed frame-1 Cb row11 is byte-identical for FFmpeg/libdav1d, "
+        "aomdec, and RTL recon; sensitive taps stay x10=155/x12=166, so the "
+        "frame-2 +1 is not a displayed reference-row writeback mismatch"
+    )
+
+
 def _cb_offset(frame: int) -> int:
     return frame * (W * H * 3 // 2) + (W * H)
 
@@ -1499,6 +1532,7 @@ def main() -> int:
     _check_public_delta_coordinates(ff_rtl, recon)
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
     _check_public_predictor_inference(ff_rtl, aom_rtl, recon)
+    _check_public_reference_row_parity(ff_rtl, aom_rtl, recon)
     _check_no_single_coeff_residual_explanation()
     _check_no_small_sparse_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
