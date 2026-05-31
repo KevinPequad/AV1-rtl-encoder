@@ -23,8 +23,9 @@ static constexpr int FRAME_HEIGHT = FRAME_H;
 
 // P9 disabled-filter policy shared by the RTL header generator and top-level
 // reference-ownership testbench. The standalone bitstream regression parses
-// these fields explicitly so enabling any post-recon filter trips this gate
-// before unfiltered reference promotion can be mistaken for filtered output.
+// these fields explicitly so enabling any post-recon filter or switchable
+// motion mode trips this gate before unfiltered/simple-motion RTL reconstruction
+// can be mistaken for filtered/OBMC public-decoder output.
 static constexpr int P9_ENABLE_CDEF = 0;
 static constexpr int P9_ENABLE_RESTORATION = 0;
 static constexpr int P9_LOOP_FILTER_LEVEL_0 = 0;
@@ -372,7 +373,8 @@ static std::vector<uint8_t> build_expected_key(uint8_t qindex,
 
 static std::vector<uint8_t> build_expected_inter(uint8_t qindex,
                                                  int loop_filter_level0 = P9_LOOP_FILTER_LEVEL_0,
-                                                 int loop_filter_level1 = P9_LOOP_FILTER_LEVEL_1) {
+                                                 int loop_filter_level1 = P9_LOOP_FILTER_LEVEL_1,
+                                                 int is_motion_mode_switchable = 0) {
     BitWriter bw;
     bw.write_bit(0);
     bw.write_bits(1, 2);
@@ -380,15 +382,15 @@ static std::vector<uint8_t> build_expected_inter(uint8_t qindex,
     bw.write_bit(1);
     bw.write_bit(1);
     bw.write_bit(1);
-    bw.write_bit(0);
+    bw.write_bit(1);
     bw.write_bit(0);
     bw.write_bits(0x01, 8);
     for (int ref = 0; ref < 7; ++ref) bw.write_bits(0, 3);
     bw.write_bit(0);
-    bw.write_bit(1);
+    // force_integer_mv=1, so allow_high_precision_mv is not signaled.
     bw.write_bit(0);
     bw.write_bits(0, 2);
-    bw.write_bit(0);
+    bw.write_bit(is_motion_mode_switchable);
     write_tile_info(bw);
     write_quantization_params(bw, qindex);
     bw.write_bit(0);
@@ -510,7 +512,7 @@ static bool parse_frame_disabled_filter_policy(const std::vector<uint8_t>& obu,
         if (!expect_bit(br, 0, "frame_size_override_flag", err)) return false;
     } else {
         if (!expect_bit(br, 1, "allow_screen_content_tools", err)) return false;
-        if (!expect_bit(br, 0, "force_integer_mv", err)) return false;
+        if (!expect_bit(br, 1, "force_integer_mv", err)) return false;
         if (!expect_bit(br, 0, "frame_size_override_flag", err)) return false;
         if (!expect_bits(br, 0x01, 8, "refresh_frame_flags", err)) return false;
         for (int ref = 0; ref < 7; ++ref) {
@@ -519,7 +521,7 @@ static bool parse_frame_disabled_filter_policy(const std::vector<uint8_t>& obu,
     }
     if (!expect_bit(br, 0, "render_and_frame_size_different", err)) return false;
     if (!keyframe) {
-        if (!expect_bit(br, 1, "allow_high_precision_mv", err)) return false;
+        // force_integer_mv=1, so allow_high_precision_mv is not signaled.
         if (!expect_bit(br, 0, "is_filter_switchable", err)) return false;
         if (!expect_bits(br, 0, 2, "interpolation_filter", err)) return false;
         if (!expect_bit(br, 0, "is_motion_mode_switchable", err)) return false;
@@ -636,6 +638,13 @@ int main(int argc, char** argv) {
     ok &= expect_policy_reject("guard_inter_nonzero_loop_filter_parser",
                                parse_frame_disabled_filter_policy(inter_with_filter, false, qindex, &err), err);
     ok &= expect_ne("guard_inter_nonzero_loop_filter_bytes", inter_header, inter_with_filter);
+
+    const auto inter_with_switchable_motion = build_expected_inter(
+        qindex, P9_LOOP_FILTER_LEVEL_0, P9_LOOP_FILTER_LEVEL_1, 1);
+    err.clear();
+    ok &= expect_policy_reject("guard_inter_switchable_motion_mode_parser",
+                               parse_frame_disabled_filter_policy(inter_with_switchable_motion, false, qindex, &err), err);
+    ok &= expect_ne("guard_inter_switchable_motion_mode_bytes", inter_header, inter_with_switchable_motion);
 
     if (ok) {
         std::fprintf(stderr,

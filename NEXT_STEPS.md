@@ -45,6 +45,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 filter-family follow-up: the 3-frame probe now also rejects a broad interpolation-filter-family explanation for the same blk33/34 Cb +1. At the current width<=4 chroma origin, regular/sharp phase 8 remains the nearest one-LSB-low predictor, while smooth4 and bilinear drift multiple neighboring samples; scanning all q4 phases across those families finds no full-block match to the public decoder. The remaining target is still the precise public-decoder per-sample/ref input interpretation, not a switchable-filter-family patch.
 
+2026-05-31 header guard follow-up: `tb/test_rtl_bitstream.cpp` now also has an explicit negative guard for `is_motion_mode_switchable=1` on inter frame headers, beside the disabled loop/CDEF/restoration guards. That keeps the current 3-frame Cb bottom-row delta from being re-attributed to an accidentally signaled OBMC/motion-mode path; the next target remains public-decoder per-sample reference input/rounding for blk33/34.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
