@@ -115,7 +115,10 @@ def _yuv420_mismatch_block_counts(left: bytes, right: bytes, width: int, height:
     if frame_size <= 0:
         return ""
     overlap = min(len(left), len(right))
-    counts: dict[tuple[int, str, int], int] = {}
+    # Per YUV block stats make public-decoder/recon parity failures actionable:
+    # count alone showed the failing block, but not whether the decoder is off by
+    # a uniform residual/MV delta or a scattered coefficient-context error.
+    stats: dict[tuple[int, str, int], dict[str, int]] = {}
     for off in range(overlap):
         if left[off] == right[off]:
             continue
@@ -133,11 +136,27 @@ def _yuv420_mismatch_block_counts(left: bytes, right: bytes, width: int, height:
             chroma_off = in_frame - y_size - c_size
             block = (((chroma_off // cw) * 2) // 8) * (width // 8) + (((chroma_off % cw) * 2) // 8)
         key = (frame, plane, block)
-        counts[key] = counts.get(key, 0) + 1
-    if not counts:
+        delta = int(left[off]) - int(right[off])
+        entry = stats.setdefault(
+            key,
+            {"count": 0, "sad": 0, "min_delta": delta, "max_delta": delta, "max_abs": 0},
+        )
+        entry["count"] += 1
+        entry["sad"] += abs(delta)
+        entry["min_delta"] = min(entry["min_delta"], delta)
+        entry["max_delta"] = max(entry["max_delta"], delta)
+        entry["max_abs"] = max(entry["max_abs"], abs(delta))
+    if not stats:
         return ""
-    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:6]
-    parts = [f"f{frame}:{plane}:blk{block}:{count}" for (frame, plane, block), count in ranked]
+    ranked = sorted(stats.items(), key=lambda item: (-item[1]["count"], item[0]))[:6]
+    parts = [
+        (
+            f"f{frame}:{plane}:blk{block}:n{entry['count']}"
+            f":sad{entry['sad']}:d{entry['min_delta']}..{entry['max_delta']}"
+            f":max{entry['max_abs']}"
+        )
+        for (frame, plane, block), entry in ranked
+    ]
     return " mismatch_blocks=[" + ",".join(parts) + "]"
 
 
