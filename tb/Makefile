@@ -419,6 +419,11 @@ natural64-ip-fullcoeff-newmv-15frame-syntax-check:
 	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural64_ip_fullcoeff_newmv_15frame_syntax.py
 
+natural64-ip-fullcoeff-newmv-16frame-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural64_ip_fullcoeff_newmv_16frame_syntax.py
+
 natural32-ip-fractional-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
