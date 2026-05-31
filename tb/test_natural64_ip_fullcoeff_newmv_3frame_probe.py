@@ -89,18 +89,36 @@ def _round_filter(samples: list[int], coeffs: tuple[int, ...]) -> int:
 
 
 def _same_size_chroma_origin(blk: int, px: int, py: int, mvx_q3: int, mvy_q3: int) -> tuple[int, int, int, int]:
-    """Return AV1 same-size 4:2:0 chroma base sample and q4 phase.
+    """Return the unscaled AV1 4:2:0 chroma base sample and q4 phase.
 
-    The spec motion-vector scaling path reduces to chroma_sample = (blk*4 + p)
-    plus mv_q3/16 for same-size LAST references.  Keeping this derivation in
-    the blocker probe prevents a tempting but wrong RTL-side phase+1 workaround:
-    the current public-decoder +1 has to be explained by decoded MV/ref-stack or
-    syntax/filter-selection behavior, not by changing the RTL chroma phase from 8.
+    This mirrors libaom's unscaled `dec_calc_subpel_params` path: the chroma
+    `pix_col`/`pix_row` are already in plane samples and the clamped MV is used
+    directly as q4 chroma displacement.  The scaled-reference path's chroma
+    siting half-sample offset is not applied for this identity-scale LAST case.
+    Keeping this derivation executable prevents tempting but wrong RTL-side
+    phase+1 or +8 chroma-siting workarounds: the current public-decoder +1 has
+    to be explained by decoded MV/ref-stack or syntax/filter-selection behavior,
+    not by changing the RTL chroma phase from 8.
     """
     blk_cols = W // 8
     cur_x = (blk % blk_cols) * 4 + px
     cur_y = (blk // blk_cols) * 4 + py
     return cur_x + (mvx_q3 >> 4), cur_y + (mvy_q3 >> 4), mvx_q3 & 15, mvy_q3 & 15
+
+
+def _wrong_scaled_siting_origin(blk: int, px: int, py: int, mvx_q3: int, mvy_q3: int) -> tuple[int, int, int, int]:
+    """Return the tempting scaled-path +8 chroma-siting derivation.
+
+    This is intentionally *not* the origin used by the current unscaled LAST
+    fixture; the probe records it only so the next debug pass does not spend
+    another run trying the same incorrect RTL workaround.
+    """
+    blk_cols = W // 8
+    cur_x = (blk % blk_cols) * 4 + px
+    cur_y = (blk // blk_cols) * 4 + py
+    x_q4 = mvx_q3 + 8
+    y_q4 = mvy_q3 + 8
+    return cur_x + (x_q4 >> 4), cur_y + (y_q4 >> 4), x_q4 & 15, y_q4 & 15
 
 
 def _check_expected_inter_stack(log: str) -> None:
@@ -158,6 +176,12 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
     }
     if sample_origins != {33: (11, 11, 8, 0), 34: (11, 11, 8, 0)}:
         fail(f"unexpected AV1 same-size chroma origin derivation: {sample_origins}")
+    wrong_siting_origins = {
+        33: _wrong_scaled_siting_origin(33, 1, 3, 104, -128),
+        34: _wrong_scaled_siting_origin(34, 1, 3, 40, -128),
+    }
+    if wrong_siting_origins != {33: (12, 11, 0, 8), 34: (12, 11, 0, 8)}:
+        fail(f"unexpected scaled-path chroma-siting contrast: {wrong_siting_origins}")
 
     small_phase8 = (0, 0, -12, 76, 76, -12, 0, 0)
     small_phase9 = (0, 0, -10, 66, 84, -12, 0, 0)
@@ -166,8 +190,9 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
     if (phase8_pred, phase9_pred) != (0xA3, 0xA4):
         fail(f"unexpected Cb halfpel predictor signature phase8={phase8_pred} phase9={phase9_pred}")
     print(
-        "[PASS] frame-2 Cb blocker narrowed: AV1 same-size chroma derivation keeps "
-        "blk33/34 at base=(11,11) phase=(8,0); frame-1 taps match public decode; "
+        "[PASS] frame-2 Cb blocker narrowed: unscaled AV1 chroma derivation keeps "
+        "blk33/34 at base=(11,11) phase=(8,0) and rules out the scaled-path +8 "
+        "siting origin base=(12,11) phase=(0,8); frame-1 taps match public decode; "
         "small phase8 predicts RTL 0xA3 while neighboring phase9 predicts decoder 0xA4"
     )
 

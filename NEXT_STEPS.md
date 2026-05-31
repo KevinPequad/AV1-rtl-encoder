@@ -25,6 +25,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-30 cron widening note: the first strict 3-frame version of that same unrestricted 64x64 gradient proof (`+frames=3`, `+dc_only=0`, `+all_key=0`, `+gop_mode=lowdelay_last`, `+key_interval=12`, `+me_newmv_limit=255`, `+dump_inter_summary=1`, `+dump_ref_summary=1`) keeps RTL/software OBU and IVF bytes equal, and frame 1 keeps the known public-clean `GLOBALMV:18 NEARESTMV:3 NEARMV:0 NEWMV:43` mix, but frame 2 currently misses both FFmpeg/libdav1d and `aomdec` decode-to-recon parity by the same two Cb bytes: frame 2 Cb `(x=5,y=19)` and `(x=9,y=19)` are decoder `+1` versus RTL recon, mapping to luma blocks 33 and 34. Frame 2's summary is `GLOBALMV:34 NEARESTMV:3 NEARMV:0 NEWMV:27` with only one nonzero luma-inter block; both failing pixels are in the frame-2 LAST-ref NEWMV region (`blk=33`/`34`). The next technical debug target is the frame-2 chroma inter prediction/reconstruction path for those blocks, not another cap raise.
 
+2026-05-31 follow-up: the 3-frame probe now also pins the unscaled identity-reference chroma origin for `blk=33/34` to base `(11,11)` / phase `(8,0)` and records that the scaled-reference `+8` chroma-siting derivation would instead land at base `(12,11)` / phase `(0,8)`. Do not try to fix this blocker by adding a blanket +8 offset in `rtl/av1_chroma_inter_pred.v`; the remaining delta still needs a decoded-MV/ref-stack or filter-selection explanation.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
