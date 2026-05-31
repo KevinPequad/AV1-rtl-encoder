@@ -182,17 +182,25 @@ def _byte_mismatch_summary(left: bytes, right: bytes, *, yuv420: tuple[int, int]
     )
 
 
-def cmp_file(a: Path, b: Path, label: str, *, yuv420: tuple[int, int] | None = None,
-             context_log: str = "") -> None:
+def _cmp_file_error(a: Path, b: Path, label: str, *, yuv420: tuple[int, int] | None = None,
+                    context_log: str = "") -> Optional[str]:
     if not a.exists():
-        fail(f"{label}: missing {a}")
+        return f"{label}: missing {a}"
     if not b.exists():
-        fail(f"{label}: missing {b}")
+        return f"{label}: missing {b}"
     left = a.read_bytes()
     right = b.read_bytes()
     if left != right:
         detail = _byte_mismatch_summary(left, right, yuv420=yuv420, context_log=context_log)
-        fail(f"{label}: {a} != {b} (sizes {len(left)} vs {len(right)}; {detail})")
+        return f"{label}: {a} != {b} (sizes {len(left)} vs {len(right)}; {detail})"
+    return None
+
+
+def cmp_file(a: Path, b: Path, label: str, *, yuv420: tuple[int, int] | None = None,
+             context_log: str = "") -> None:
+    err = _cmp_file_error(a, b, label, yuv420=yuv420, context_log=context_log)
+    if err is not None:
+        fail(err)
     print(f"[PASS] {label}")
 
 
@@ -297,14 +305,38 @@ def check_public_decoders(paths: Dict[str, object], label: str) -> None:
     yuv420 = None
     if "width" in paths and "height" in paths:
         yuv420 = (int(paths["width"]), int(paths["height"]))
+    context_log = str(paths.get("log", ""))
+    failures: List[str] = []
+
     run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", rtl_ivf,
          "-f", "rawvideo", "-pix_fmt", "yuv420p", ff_rtl])
-    context_log = str(paths.get("log", ""))
-    cmp_file(ff_rtl, recon, f"{label}: FFmpeg/libdav1d RTL IVF decode matches RTL recon",
-             yuv420=yuv420, context_log=context_log)
+    ff_err = _cmp_file_error(
+        ff_rtl,
+        recon,
+        f"{label}: FFmpeg/libdav1d RTL IVF decode matches RTL recon",
+        yuv420=yuv420,
+        context_log=context_log,
+    )
+    if ff_err is None:
+        print(f"[PASS] {label}: FFmpeg/libdav1d RTL IVF decode matches RTL recon")
+    else:
+        failures.append(ff_err)
+
     run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", aom_rtl, rtl_ivf])
-    cmp_file(aom_rtl, recon, f"{label}: aomdec RTL IVF decode matches RTL recon",
-             yuv420=yuv420, context_log=context_log)
+    aom_err = _cmp_file_error(
+        aom_rtl,
+        recon,
+        f"{label}: aomdec RTL IVF decode matches RTL recon",
+        yuv420=yuv420,
+        context_log=context_log,
+    )
+    if aom_err is None:
+        print(f"[PASS] {label}: aomdec RTL IVF decode matches RTL recon")
+    else:
+        failures.append(aom_err)
+
+    if failures:
+        fail("; ".join(failures))
 
 
 def check_public_decoder_case(paths: Dict[str, object], label: str) -> None:
