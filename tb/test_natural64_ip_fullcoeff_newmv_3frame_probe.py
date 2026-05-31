@@ -457,6 +457,35 @@ def _filtered_cb_block_from_frame1(
     return out
 
 
+def _filtered_cb_block_from_frame(
+    data: bytes,
+    frame: int,
+    blk: int,
+    mvx_q3: int,
+    mvy_q3: int,
+    coeffs: tuple[int, ...],
+    *,
+    rounding_offset: int = 64,
+) -> list[int]:
+    """Return a horizontal-only Cb predictor from an arbitrary decoded frame."""
+    cb = _cb_offset(frame)
+    blk_cols = W // 8
+    block_x = (blk % blk_cols) * 4
+    block_y = (blk // blk_cols) * 4
+    base_x = block_x + (mvx_q3 >> 4)
+    base_y = block_y + (mvy_q3 >> 4)
+    out: list[int] = []
+    for y in range(4):
+        for x in range(4):
+            taps = []
+            for tap in range(8):
+                sx = _clamp(base_x + x + tap - 3, 0, W // 2 - 1)
+                sy = _clamp(base_y + y, 0, H // 2 - 1)
+                taps.append(data[cb + sy * (W // 2) + sx])
+            out.append(_round_filter_with_offset(taps, coeffs, rounding_offset))
+    return out
+
+
 def _filtered_cb_block_sums_from_frame1(
     data: bytes,
     blk: int,
@@ -571,6 +600,47 @@ def _predict_cb_candidate(data: bytes, base_x: int, base_y: int, phase_x: int, p
                 vertical_acc += coeffs_y[tap_y] * horizontal
             out.append(max(0, min(255, (vertical_acc + 1024) >> 11)))
     return out
+
+
+def _check_no_wrong_reference_frame_explanation(ff_dec: Path, recon: Path) -> None:
+    """Reject an adjacent decoded-frame reference selection explanation.
+
+    The frame-2 Cb blocker is coded against LAST.  Public decoder output for
+    frame 1 is byte-identical to RTL recon, but this check also proves that the
+    same phase-8 chroma predictor built from frame 0 or frame 2 is not a hidden
+    way to reproduce the public +1.  The best decoded-frame source remains
+    frame 1, one LSB below public at only sample 13, keeping the next trace on
+    private reference sampling/rounding rather than ref-index selection.
+    """
+    public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    expected_by_frame = {
+        0: [138, 140, 142, 142, 138, 140, 142, 142, 138, 140, 142, 142, 138, 140, 142, 142],
+        1: [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 163, 167, 166],
+        2: [145, 155, 163, 162, 154, 162, 169, 168, 166, 166, 167, 167, 168, 167, 166, 166],
+    }
+    blocker_mvs = {33: (104, -128), 34: (40, -128)}
+    for label, path in (("FFmpeg/libdav1d", ff_dec), ("RTL recon", recon)):
+        data = path.read_bytes()
+        best: tuple[int, int, int, list[int]] | None = None
+        for frame, expected in expected_by_frame.items():
+            for blk, (mvx, mvy) in blocker_mvs.items():
+                block = _filtered_cb_block_from_frame(data, frame, blk, mvx, mvy, SMALL_REGULAR_FILTERS[8])
+                if block != expected:
+                    fail(f"{label}: frame-{frame} blk{blk} Cb reference-frame predictor drifted: {block}")
+                if block == public_predictor:
+                    fail(f"{label}: unexpected frame-{frame} blk{blk} Cb predictor exactly matches public +1")
+                sad = sum(abs(got - exp) for got, exp in zip(block, public_predictor))
+                candidate = (sad, frame, blk, block)
+                if best is None or candidate < best:
+                    best = candidate
+        expected_best = (1, 1, 33, expected_by_frame[1])
+        if best != expected_best:
+            fail(f"{label}: decoded-frame source scan drifted: best={best} expected={expected_best}")
+    print(
+        "[PASS] decoded-frame reference scan rejects wrong-frame explanations: "
+        "frame 0 and frame 2 phase8 Cb predictors are far from the public blk33/34 "
+        "+1, while frame 1 remains the nearest one-LSB-low LAST source"
+    )
 
 
 def _check_no_single_coeff_residual_explanation() -> None:
@@ -1575,6 +1645,7 @@ def main() -> int:
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
     _check_public_predictor_inference(ff_rtl, aom_rtl, recon)
     _check_public_reference_row_parity(ff_rtl, aom_rtl, recon)
+    _check_no_wrong_reference_frame_explanation(ff_rtl, recon)
     _check_no_single_coeff_residual_explanation()
     _check_no_small_sparse_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
