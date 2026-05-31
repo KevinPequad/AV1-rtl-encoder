@@ -28,6 +28,7 @@ module av1_encoder_top #(
     input  wire        force_intra_in,
     input  wire        me_zero_mv_only_in,
     input  wire [7:0]  me_newmv_limit_in,
+    input  wire        disable_fullcoeff_cap_in,
     input  wire        dc_only_in,
     input  wire [7:0]  qindex_in,     // Quantization index (0-255)
     input  wire [7:0]  refresh_frame_flags_in,
@@ -2325,12 +2326,13 @@ module av1_encoder_top #(
     // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
     // At 64x64+ the reduced reference-stack/MV-prediction model is proven
     // public-clean through the first 44 non-zero-MV blocks; cap larger requests
-    // there until the unrestricted stack model is decoder-exact. DC-only tests
+    // there until the unrestricted stack model is decoder-exact. The
+    // disable_fullcoeff_cap_in hook is testbench-only for boundary probes. DC-only tests
     // retain their uncapped fractional/NEAREST/NEARMV syntax ownership coverage.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
     wire [7:0]  me_effective_newmv_limit =
-        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd44)) ?
+        (!dc_only_in && !disable_fullcoeff_cap_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd44)) ?
             8'd44 : me_newmv_limit_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_effective_newmv_limit != 8'd0) &&

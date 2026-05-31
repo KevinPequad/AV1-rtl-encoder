@@ -342,6 +342,12 @@ natural64-ip-fullcoeff-newmv-syntax-check:
 	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural64_ip_fullcoeff_newmv_syntax.py
 
+
+natural64-ip-fullcoeff-newmv-boundary45-probe-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural64_ip_fullcoeff_newmv_boundary45_probe.py
+
 natural32-ip-fractional-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
