@@ -1262,6 +1262,102 @@ def _check_no_filter_family_explanation(dec: Path) -> None:
 
 
 
+def _predict_cb_candidate_from_frame(
+    data: bytes,
+    frame: int,
+    base_x: int,
+    base_y: int,
+    phase_x: int,
+    phase_y: int,
+    coeff_table: tuple[tuple[int, ...], ...],
+) -> list[int]:
+    """Predict a 4x4 Cb block from any decoded frame/filter candidate."""
+    out: list[int] = []
+    if phase_x == 0 and phase_y == 0:
+        for y in range(4):
+            for x in range(4):
+                out.append(_cb_ref_sample_frame(data, frame, base_x + x, base_y + y))
+        return out
+    if phase_y == 0:
+        coeffs_x = coeff_table[phase_x]
+        for y in range(4):
+            for x in range(4):
+                taps = [_cb_ref_sample_frame(data, frame, base_x + x + tap - 3, base_y + y) for tap in range(8)]
+                out.append(_round_filter(taps, coeffs_x))
+        return out
+    if phase_x == 0:
+        coeffs_y = coeff_table[phase_y]
+        for y in range(4):
+            for x in range(4):
+                taps = [_cb_ref_sample_frame(data, frame, base_x + x, base_y + y + tap - 3) for tap in range(8)]
+                out.append(_round_filter(taps, coeffs_y))
+        return out
+
+    coeffs_x = coeff_table[phase_x]
+    coeffs_y = coeff_table[phase_y]
+    for y in range(4):
+        for x in range(4):
+            vertical_acc = 0
+            for tap_y in range(8):
+                taps = [
+                    _cb_ref_sample_frame(data, frame, base_x + x + tap_x - 3, base_y + y + tap_y - 3)
+                    for tap_x in range(8)
+                ]
+                horizontal = (sum(coeff * sample for coeff, sample in zip(coeffs_x, taps)) + 4) >> 3
+                vertical_acc += coeffs_y[tap_y] * horizontal
+            out.append(max(0, min(255, (vertical_acc + 1024) >> 11)))
+    return out
+
+
+def _check_no_decoded_frame_filter_search_explanation(dec: Path) -> None:
+    """Reject a broader decoded-frame/base/filter explanation for the Cb +1.
+
+    Earlier probes reject the current LAST frame at nearby base/phases and reject
+    filter-family drift at the exact origin.  This combines those dimensions: all
+    decoded frames 0..2, a +/-3 chroma-origin window around the current block, all
+    q4 phases, and regular/smooth/bilinear width<=4 filter tables are scanned.
+    No exact match means the remaining public-decoder +1 is not recoverable by a
+    legal uniform decoded-frame source choice or switchable-filter selection.
+    """
+    data = dec.read_bytes()
+    public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    rtl_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 163, 167, 166]
+    filter_tables = (
+        ("regular4_or_sharp4", SMALL_REGULAR_FILTERS),
+        ("smooth4", SMOOTH_4TAP_FILTERS),
+        ("bilinear", BILINEAR_FILTERS),
+    )
+    matches: list[tuple[int, int, int, str, int, int]] = []
+    best: tuple[int, int, int, int, int, int, int, str, list[int]] | None = None
+    searched = 0
+    for frame in range(3):
+        for base_x in range(7, 14):
+            for base_y in range(5, 12):
+                for filter_order, (name, table) in enumerate(filter_tables):
+                    for phase_x in range(16):
+                        for phase_y in range(16):
+                            searched += 1
+                            block = _predict_cb_candidate_from_frame(data, frame, base_x, base_y, phase_x, phase_y, table)
+                            if block == public_predictor:
+                                matches.append((frame, base_x, base_y, name, phase_x, phase_y))
+                            sad = sum(abs(got - exp) for got, exp in zip(block, public_predictor))
+                            candidate = (sad, frame, base_x, base_y, filter_order, phase_x, phase_y, name, block)
+                            if best is None or candidate < best:
+                                best = candidate
+    expected_best = (1, 1, 10, 8, 0, 8, 0, "regular4_or_sharp4", rtl_predictor)
+    if searched != 112896 or matches or best != expected_best:
+        fail(
+            "decoded-frame/filter search for public Cb predictor drifted: "
+            f"searched={searched} matches={matches[:8]} best={best} expected={expected_best}"
+        )
+    print(
+        "[PASS] decoded-frame/filter search rejects a uniform public Cb predictor source: "
+        "scanned frames 0..2, base_x=7..13, base_y=5..11, all q4 phases, and "
+        "regular/smooth/bilinear filters; nearest remains frame1 base=(10,8) "
+        "regular phase=(8,0), one LSB low at sample 13"
+    )
+
+
 def _cb_ref_sample_frame(data: bytes, frame: int, x: int, y: int) -> int:
     cb = _cb_offset(frame)
     sx = _clamp(x, 0, W // 2 - 1)
@@ -1654,6 +1750,7 @@ def main() -> int:
     _check_sensitive_tap_weight_trace(ff_rtl)
     _check_active_tap_perturbation_space(ff_rtl)
     _check_no_filter_family_explanation(ff_rtl)
+    _check_no_decoded_frame_filter_search_explanation(ff_rtl)
     _check_sensitive_producer_interpolation_margins(ff_rtl)
     _check_sensitive_tap_producers(log, ff_rtl, recon)
     _check_no_uniform_subpel_candidate(ff_rtl)
