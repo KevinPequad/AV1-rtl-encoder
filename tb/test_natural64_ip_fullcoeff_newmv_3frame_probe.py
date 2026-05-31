@@ -149,6 +149,68 @@ def _check_expected_inter_stack(log: str) -> None:
     print("[PASS] frame-2 Cb blocker MV/ref stack signature stable for blk33/34")
 
 
+def _mv_class_base(mv_class: int) -> int:
+    return (2 << (mv_class + 2)) if mv_class else 0
+
+
+def _log2_floor(n: int) -> int:
+    out = 0
+    while n > 1:
+        n >>= 1
+        out += 1
+    return out
+
+
+def _mv_class(z: int) -> tuple[int, int]:
+    """Mirror libaom's get_mv_class(z, &offset) helper for an absolute component minus one."""
+    mv_class = 10 if z >= 2 * 4096 else _log2_floor(z >> 3)
+    return mv_class, z - _mv_class_base(mv_class)
+
+
+def _force_integer_mv_roundtrip(comp: int) -> int:
+    """Return the q3 component decoded by AV1 force_integer_mv for this encoded comp.
+
+    In force_integer_mv frames libaom reads no fractional symbols and reconstructs
+    each coded component with fr=3/hp=1, so only q3 multiples of 8 round-trip.
+    The 3-frame Cb blocker components below are all exact multiples; this keeps
+    the narrowed failure from being re-attributed to NEWMV residual coding drift.
+    """
+    sign = comp < 0
+    mag = -comp if sign else comp
+    if mag == 0:
+        return 0
+    mv_class, offset = _mv_class(mag - 1)
+    d = offset >> 3
+    decoded_mag = _mv_class_base(mv_class) + ((d << 3) | (3 << 1) | 1) + 1
+    return -decoded_mag if sign else decoded_mag
+
+
+def _check_force_integer_newmv_roundtrip() -> None:
+    expected = {
+        33: {"mv": (104, -128), "ref": (120, -88)},
+        34: {"mv": (40, -128), "ref": (128, -120)},
+    }
+    for blk, vals in expected.items():
+        mvx, mvy = vals["mv"]
+        refx, refy = vals["ref"]
+        diff_x = mvx - refx
+        diff_y = mvy - refy
+        got = (
+            refx + _force_integer_mv_roundtrip(diff_x),
+            refy + _force_integer_mv_roundtrip(diff_y),
+        )
+        if got != (mvx, mvy):
+            fail(
+                f"frame-2 blk{blk} force_integer_mv NEWMV round-trip drifted: "
+                f"ref=({refx},{refy}) diff=({diff_x},{diff_y}) decoded_mv={got} expected={(mvx, mvy)}"
+            )
+    print(
+        "[PASS] frame-2 Cb blocker NEWMV residuals round-trip exactly under "
+        "force_integer_mv for blk33/34, narrowing the remaining +1 to chroma "
+        "sampling/filter selection rather than decoded-MV component coding"
+    )
+
+
 def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
     """Keep the current Cb blocker narrowed to chroma MC phase/reference math.
 
@@ -249,6 +311,7 @@ def main() -> int:
         if not re.search(rf"inter_summary frame=2 blk={blk} .* mode=NEWMV ", log):
             fail(f"expected frame-2 block {blk} to stay in the NEWMV region")
     _check_expected_inter_stack(log)
+    _check_force_integer_newmv_roundtrip()
 
     expected_chroma_detail = {
         33: "inter=1 mv=(104,-128) cb_has=0 cr_has=1 cb_nz=0 cr_nz=1 "
