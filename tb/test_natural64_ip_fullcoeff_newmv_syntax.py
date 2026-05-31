@@ -21,7 +21,8 @@ SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "
 def main() -> int:
     if not SIM.exists():
         fail(f"missing simulator {SIM}; run make WIDTH=64 HEIGHT=64 all first")
-    out = TB / "artifacts" / "natural64_ip_fullcoeff_newmv"
+    artifact_root = Path(os.environ.get("AV1_ARTIFACT_ROOT", TB / "artifacts"))
+    out = artifact_root / "natural64_ip_fullcoeff_newmv"
     paths = run_encoder_case(
         out,
         W,
