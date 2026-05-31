@@ -689,6 +689,68 @@ def _check_single_tap_equivalent_delta(dec: Path) -> None:
     )
 
 
+
+def _check_sensitive_tap_producers(log: str, dec: Path, recon: Path) -> None:
+    """Map the two sensitive frame-1 Cb taps back to their producer blocks.
+
+    The single-tap equivalence scan leaves only row11/x10 and row11/x12 as
+    possible local explanations for the public +1.  This check pins those two
+    samples to the frame-1 NEWMV producer blocks and proves their public-decoder
+    output still matches RTL recon byte-for-byte, so the next investigation can
+    trace public-decoder internal reference sampling rather than broad frame-1
+    reconstruction drift.
+    """
+    expected_lines = {
+        18: "[TB] inter_summary frame=1 blk=18 mv=(88,24) ref=(0,32) near=(-40,88) "
+            "mode=NEWMV mode_ctx=84 ctx(new=4 zero=0 ref=5) dc=0 nz=1 cand_count=6 "
+            "cand0=(0,32,w=644) cand1=(-40,88,w=644) cand2=(32,24,w=644) "
+            "cand3=(-64,96,w=4) cand4=(-16,40,w=4) cand5=(96,-48,w=4)",
+        19: "[TB] inter_summary frame=1 blk=19 mv=(128,56) ref=(32,24) near=(88,24) "
+            "mode=NEWMV mode_ctx=84 ctx(new=4 zero=0 ref=5) dc=0 nz=0 cand_count=6 "
+            "cand0=(32,24,w=644) cand1=(88,24,w=644) cand2=(0,32,w=4) "
+            "cand3=(-64,72,w=4) cand4=(-40,88,w=4) cand5=(96,-48,w=4)",
+    }
+    for blk, expected in expected_lines.items():
+        line = re.search(rf"\[TB\] inter_summary frame=1 blk={blk} [^\n]+", log)
+        if not line:
+            fail(f"missing frame-1 sensitive Cb producer block {blk} inter summary")
+        if line.group(0) != expected:
+            fail(f"frame-1 sensitive Cb producer block {blk} summary drifted: {line.group(0)}")
+
+    dec_bytes = dec.read_bytes()
+    recon_bytes = recon.read_bytes()
+    expected_blocks = {
+        18: [142, 142, 144, 146, 141, 141, 143, 145, 147, 146, 149, 153, 152, 151, 155, 160],
+        19: [162, 162, 162, 162, 168, 168, 168, 168, 167, 167, 167, 167, 166, 166, 166, 166],
+    }
+    for blk, expected in expected_blocks.items():
+        dec_block = _cb_block(dec_bytes, 1, blk)
+        recon_block = _cb_block(recon_bytes, 1, blk)
+        if dec_block != expected or recon_block != expected:
+            fail(f"frame-1 sensitive Cb producer block {blk} drifted: decoder={dec_block} recon={recon_block}")
+
+    cb1 = _cb_offset(1)
+    sensitive = {
+        (10, 11): (18, 14, 155),
+        (12, 11): (19, 12, 166),
+    }
+    for (x, y), (blk, idx, expected_value) in sensitive.items():
+        off = cb1 + y * (W // 2) + x
+        if dec_bytes[off] != expected_value or recon_bytes[off] != expected_value:
+            fail(
+                f"sensitive frame-1 Cb tap x{x}/y{y} drifted: "
+                f"decoder={dec_bytes[off]} recon={recon_bytes[off]} expected={expected_value}"
+            )
+        if expected_blocks[blk][idx] != expected_value:
+            fail(f"sensitive tap-to-block mapping drifted for x{x}/y{y}: blk={blk} idx={idx}")
+    print(
+        "[PASS] sensitive frame-1 Cb taps are pinned to decoder/recon-equal NEWMV "
+        "producer blocks: row11 x10=155 from blk18 sample14 and row11 x12=166 "
+        "from blk19 sample12; next trace should inspect public decoder internal "
+        "reference sampling at these two taps"
+    )
+
+
 def main() -> int:
     if not SIM.exists():
         fail(f"missing simulator {SIM}; run make WIDTH=64 HEIGHT=64 all first")
@@ -791,6 +853,7 @@ def main() -> int:
     _check_no_single_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
     _check_single_tap_equivalent_delta(ff_rtl)
+    _check_sensitive_tap_producers(log, ff_rtl, recon)
     _check_no_uniform_subpel_candidate(ff_rtl)
     print(
         "[PASS] 3-frame 64x64 full-coeff NEWMV widening probe: bytes match, "
