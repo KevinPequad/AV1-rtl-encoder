@@ -117,6 +117,44 @@ def _yuv420_mismatch_location(offset: int, width: int, height: int) -> str:
     return f" yuv420=frame:{frame} plane:{plane} x:{x} y:{y} luma_block8:{luma_block}"
 
 
+
+def _yuv420_mismatch_block_counts(left: bytes, right: bytes, width: int, height: int) -> str:
+    if width <= 0 or height <= 0 or (width % 2) or (height % 2):
+        return ""
+    y_size = width * height
+    cw = width // 2
+    ch = height // 2
+    c_size = cw * ch
+    frame_size = y_size + 2 * c_size
+    if frame_size <= 0:
+        return ""
+    overlap = min(len(left), len(right))
+    counts: dict[tuple[int, str, int], int] = {}
+    for off in range(overlap):
+        if left[off] == right[off]:
+            continue
+        frame = off // frame_size
+        in_frame = off % frame_size
+        if in_frame < y_size:
+            plane = "Y"
+            block = ((in_frame // width) // 8) * (width // 8) + ((in_frame % width) // 8)
+        elif in_frame < y_size + c_size:
+            plane = "Cb"
+            chroma_off = in_frame - y_size
+            block = (((chroma_off // cw) * 2) // 8) * (width // 8) + (((chroma_off % cw) * 2) // 8)
+        else:
+            plane = "Cr"
+            chroma_off = in_frame - y_size - c_size
+            block = (((chroma_off // cw) * 2) // 8) * (width // 8) + (((chroma_off % cw) * 2) // 8)
+        key = (frame, plane, block)
+        counts[key] = counts.get(key, 0) + 1
+    if not counts:
+        return ""
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:6]
+    parts = [f"f{frame}:{plane}:blk{block}:{count}" for (frame, plane, block), count in ranked]
+    return " mismatch_blocks=[" + ",".join(parts) + "]"
+
+
 def _byte_mismatch_summary(left: bytes, right: bytes, *, yuv420: tuple[int, int] | None = None) -> str:
     first = next((i for i, pair in enumerate(zip(left, right)) if pair[0] != pair[1]), None)
     overlap = min(len(left), len(right))
@@ -124,11 +162,14 @@ def _byte_mismatch_summary(left: bytes, right: bytes, *, yuv420: tuple[int, int]
     if first is None:
         return f"byte_mismatches={diff_count} first_mismatch=EOF"
     location = ""
+    block_counts = ""
     if yuv420 is not None:
-        location = _yuv420_mismatch_location(first, int(yuv420[0]), int(yuv420[1]))
+        width, height = int(yuv420[0]), int(yuv420[1])
+        location = _yuv420_mismatch_location(first, width, height)
+        block_counts = _yuv420_mismatch_block_counts(left, right, width, height)
     return (
         f"byte_mismatches={diff_count} first_mismatch_offset={first} "
-        f"left=0x{left[first]:02x} right=0x{right[first]:02x}{location}"
+        f"left=0x{left[first]:02x} right=0x{right[first]:02x}{location}{block_counts}"
     )
 
 
