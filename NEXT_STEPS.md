@@ -41,6 +41,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 residual-symbol anti-workaround note: the 3-frame probe now also runs a qindex-128 4x4 chroma inverse-transform search for the public-decoder +1 Cb sample shape. No single nonzero Cb qcoeff in `[-8,8]` can synthesize only sample `(1,3)`; every one-symbol residual affects all 16 pixels, with the closest case being DC+1 adding +4 everywhere. This makes a one-symbol Cb residual coding drift an unlikely fix path and keeps the next target on public-decoder per-sample inter predictor/ref interpretation.
 
+2026-05-31 single-tap sensitivity follow-up: the 3-frame probe now also proves the public-decoder +1 at blk33/34 sample `(1,3)` is equivalent, under the current phase-8 predictor math, to exactly two one-byte frame-1 Cb tap interpretations on row 11: x=10 being 154 instead of 155, or x=12 being 167 instead of 166. Frame-1 decoder/recon bytes are still equal, so this is not broad reference corruption; the next source trace should identify the exact public-decoder per-sample input/rounding path that selects one of those effective tap values.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.

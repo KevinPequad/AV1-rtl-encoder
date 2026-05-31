@@ -652,6 +652,43 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
     )
 
 
+def _check_single_tap_equivalent_delta(dec: Path) -> None:
+    """Pin the exact reference-tap perturbations that would explain the +1.
+
+    The public-decoder Cb predictor for blk33/34 differs from the current phase-8
+    RTL predictor by only local sample index 13.  Keeping the reference-tap
+    sensitivity executable narrows the next source trace: if the public decoder
+    is still using the current base=(10,8), phase=(8,0), the observed +1 is
+    equivalent to exactly one of two single-byte tap interpretations on frame-1
+    Cb row 11: sample x=10 one lower, or sample x=12 one higher.  Broader
+    reference corruption is already rejected by frame-1 decoder/recon equality.
+    """
+    data = dec.read_bytes()
+    public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    matches: list[tuple[int, int, int, int]] = []
+    cb1 = _cb_offset(1)
+    row_y = 11
+    for x in range(7, 18):
+        off = cb1 + row_y * (W // 2) + x
+        orig = data[off]
+        for delta in range(-8, 9):
+            if delta == 0:
+                continue
+            patched = bytearray(data)
+            patched[off] = _clamp(orig + delta, 0, 255)
+            block = _filtered_cb_block_from_frame1(bytes(patched), 33, 104, -128, SMALL_REGULAR_FILTERS[8])
+            if block == public_predictor:
+                matches.append((x, row_y, orig, delta))
+    expected = [(10, 11, 155, -1), (12, 11, 166, 1)]
+    if matches != expected:
+        fail(f"frame-2 Cb single-tap equivalent scan drifted: {matches} expected={expected}")
+    print(
+        "[PASS] frame-2 Cb +1 is equivalent under current phase8 math to exactly "
+        "two single frame-1 Cb tap interpretations: row11 x10=154 or x12=167; "
+        "the next source trace should explain which public-decoder sample input differs"
+    )
+
+
 def main() -> int:
     if not SIM.exists():
         fail(f"missing simulator {SIM}; run make WIDTH=64 HEIGHT=64 all first")
@@ -753,6 +790,7 @@ def main() -> int:
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
     _check_no_single_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
+    _check_single_tap_equivalent_delta(ff_rtl)
     _check_no_uniform_subpel_candidate(ff_rtl)
     print(
         "[PASS] 3-frame 64x64 full-coeff NEWMV widening probe: bytes match, "
