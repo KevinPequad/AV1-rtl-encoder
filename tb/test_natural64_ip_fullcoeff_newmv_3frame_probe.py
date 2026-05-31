@@ -42,6 +42,31 @@ def _check_public_decoders_agree(ff_dec: Path, aom_dec: Path) -> None:
     print("[PASS] FFmpeg/libdav1d and aomdec produce identical YUV for the 3-frame blocker stream")
 
 
+def _check_ffmpeg_skip_loop_filter_not_cause(paths: dict[str, str | Path], ff_dec: Path) -> None:
+    """Prove the narrow Cb +1 is not hidden in AV1 post-recon filtering.
+
+    The bitstream already signals loop-filter level zero, CDEF disabled, and
+    restoration disabled, but this keeps that assumption executable against a
+    public decoder: forcing FFmpeg/libdav1d to skip loop filters must produce
+    byte-identical output to the normal public decode and preserve the same two
+    Cb deltas versus RTL recon.
+    """
+    out = ff_dec.with_name("ff_rtl_skip_loop_filter_all.yuv")
+    run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-skip_loop_filter", "all", "-i", Path(paths["rtl_ivf"]),
+        "-f", "rawvideo", "-pix_fmt", "yuv420p", out,
+    ])
+    got = _mismatches(out, ff_dec)
+    if got:
+        fail(f"FFmpeg skip_loop_filter=all decode drifted from normal decode: {got[:8]} count={len(got)}")
+    _check_expected_decoder_delta(out, Path(paths["recon"]), "FFmpeg/libdav1d skip_loop_filter=all")
+    print(
+        "[PASS] FFmpeg skip_loop_filter=all is byte-identical to normal decode; "
+        "the frame-2 Cb +1 remains, ruling out post-recon loop filtering/CDEF/restoration"
+    )
+
+
 def _mismatch_scope(mismatches: list[tuple[int, int, int]]) -> dict[tuple[int, str, int], int]:
     counts: dict[tuple[int, str, int], int] = {}
     y_size = W * H
@@ -722,6 +747,7 @@ def main() -> int:
          "-f", "rawvideo", "-pix_fmt", "yuv420p", ff_rtl])
     run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", aom_rtl, rtl_ivf])
     _check_public_decoders_agree(ff_rtl, aom_rtl)
+    _check_ffmpeg_skip_loop_filter_not_cause(paths, ff_rtl)
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
