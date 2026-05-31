@@ -46,19 +46,53 @@ def require_sim() -> None:
         fail(f"missing simulator {SIM}; run make WIDTH=<w> HEIGHT=<h> all first")
 
 
-def _byte_mismatch_summary(left: bytes, right: bytes) -> str:
+def _yuv420_mismatch_location(offset: int, width: int, height: int) -> str:
+    if width <= 0 or height <= 0 or (width % 2) or (height % 2):
+        return ""
+    y_size = width * height
+    cw = width // 2
+    ch = height // 2
+    c_size = cw * ch
+    frame_size = y_size + 2 * c_size
+    if frame_size <= 0:
+        return ""
+    frame = offset // frame_size
+    in_frame = offset % frame_size
+    if in_frame < y_size:
+        plane = "Y"
+        plane_off = in_frame
+        x = plane_off % width
+        y = plane_off // width
+        block = (y // 8) * (width // 8) + (x // 8)
+        return f" yuv420=frame:{frame} plane:{plane} x:{x} y:{y} block8:{block}"
+    if in_frame < y_size + c_size:
+        plane = "Cb"
+        plane_off = in_frame - y_size
+    else:
+        plane = "Cr"
+        plane_off = in_frame - y_size - c_size
+    x = plane_off % cw
+    y = plane_off // cw
+    luma_block = ((y * 2) // 8) * (width // 8) + ((x * 2) // 8)
+    return f" yuv420=frame:{frame} plane:{plane} x:{x} y:{y} luma_block8:{luma_block}"
+
+
+def _byte_mismatch_summary(left: bytes, right: bytes, *, yuv420: tuple[int, int] | None = None) -> str:
     first = next((i for i, pair in enumerate(zip(left, right)) if pair[0] != pair[1]), None)
     overlap = min(len(left), len(right))
     diff_count = sum(1 for i in range(overlap) if left[i] != right[i]) + abs(len(left) - len(right))
     if first is None:
         return f"byte_mismatches={diff_count} first_mismatch=EOF"
+    location = ""
+    if yuv420 is not None:
+        location = _yuv420_mismatch_location(first, int(yuv420[0]), int(yuv420[1]))
     return (
         f"byte_mismatches={diff_count} first_mismatch_offset={first} "
-        f"left=0x{left[first]:02x} right=0x{right[first]:02x}"
+        f"left=0x{left[first]:02x} right=0x{right[first]:02x}{location}"
     )
 
 
-def cmp_file(a: Path, b: Path, label: str) -> None:
+def cmp_file(a: Path, b: Path, label: str, *, yuv420: tuple[int, int] | None = None) -> None:
     if not a.exists():
         fail(f"{label}: missing {a}")
     if not b.exists():
@@ -66,7 +100,7 @@ def cmp_file(a: Path, b: Path, label: str) -> None:
     left = a.read_bytes()
     right = b.read_bytes()
     if left != right:
-        detail = _byte_mismatch_summary(left, right)
+        detail = _byte_mismatch_summary(left, right, yuv420=yuv420)
         fail(f"{label}: {a} != {b} (sizes {len(left)} vs {len(right)}; {detail})")
     print(f"[PASS] {label}")
 
@@ -151,6 +185,9 @@ def run_encoder_case(out_dir: Path, width: int, height: int, *, frames: int, qin
         "recon": out_dir / "recon.yuv",
         "rtl_frames_dir": out_dir / "rtl_frames",
         "still_frames_dir": out_dir / "still_frames",
+        "width": width,
+        "height": height,
+        "frames": frames,
     }
 
 
@@ -166,11 +203,14 @@ def check_public_decoders(paths: Dict[str, object], label: str) -> None:
     base = rtl_ivf.parent
     ff_rtl = base / "ff_rtl.yuv"
     aom_rtl = base / "aom_rtl.yuv"
+    yuv420 = None
+    if "width" in paths and "height" in paths:
+        yuv420 = (int(paths["width"]), int(paths["height"]))
     run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", rtl_ivf,
          "-f", "rawvideo", "-pix_fmt", "yuv420p", ff_rtl])
-    cmp_file(ff_rtl, recon, f"{label}: FFmpeg/libdav1d RTL IVF decode matches RTL recon")
+    cmp_file(ff_rtl, recon, f"{label}: FFmpeg/libdav1d RTL IVF decode matches RTL recon", yuv420=yuv420)
     run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", aom_rtl, rtl_ivf])
-    cmp_file(aom_rtl, recon, f"{label}: aomdec RTL IVF decode matches RTL recon")
+    cmp_file(aom_rtl, recon, f"{label}: aomdec RTL IVF decode matches RTL recon", yuv420=yuv420)
 
 
 def check_public_decoder_case(paths: Dict[str, object], label: str) -> None:
