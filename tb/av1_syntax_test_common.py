@@ -46,13 +46,28 @@ def require_sim() -> None:
         fail(f"missing simulator {SIM}; run make WIDTH=<w> HEIGHT=<h> all first")
 
 
+def _byte_mismatch_summary(left: bytes, right: bytes) -> str:
+    first = next((i for i, pair in enumerate(zip(left, right)) if pair[0] != pair[1]), None)
+    overlap = min(len(left), len(right))
+    diff_count = sum(1 for i in range(overlap) if left[i] != right[i]) + abs(len(left) - len(right))
+    if first is None:
+        return f"byte_mismatches={diff_count} first_mismatch=EOF"
+    return (
+        f"byte_mismatches={diff_count} first_mismatch_offset={first} "
+        f"left=0x{left[first]:02x} right=0x{right[first]:02x}"
+    )
+
+
 def cmp_file(a: Path, b: Path, label: str) -> None:
     if not a.exists():
         fail(f"{label}: missing {a}")
     if not b.exists():
         fail(f"{label}: missing {b}")
-    if a.read_bytes() != b.read_bytes():
-        fail(f"{label}: {a} != {b} (sizes {a.stat().st_size} vs {b.stat().st_size})")
+    left = a.read_bytes()
+    right = b.read_bytes()
+    if left != right:
+        detail = _byte_mismatch_summary(left, right)
+        fail(f"{label}: {a} != {b} (sizes {len(left)} vs {len(right)}; {detail})")
     print(f"[PASS] {label}")
 
 
