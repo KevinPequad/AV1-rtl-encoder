@@ -918,19 +918,21 @@ def _check_single_tap_equivalent_delta(dec: Path) -> None:
 
 
 def _check_active_tap_perturbation_space(dec: Path) -> None:
-    """Exhaust the active phase-8 tap deltas that can reproduce public +1.
+    """Exhaust active phase-8 tap deltas for both frame-2 Cb blocker blocks.
 
     The previous single-tap scan leaves row11/x10 -1 and row11/x12 +1 as
     equivalent explanations under current phase-8 math.  This wider active-tap
-    search rules out a hidden combination across the nonzero phase-8 taps: even
-    allowing +/-8 on x10..x13, the only full-block matches are x10 -1, x12 +1,
-    or both together.  That keeps the next source trace focused on the two
-    center-weighted reference taps rather than a diffuse four-tap perturbation.
+    search rules out a hidden combination across the nonzero phase-8 taps for
+    both adjacent blocker blocks at once: even allowing +/-8 on x10..x13, the
+    only full-block matches are x10 -1, x12 +1, or both together.  That keeps
+    the next source trace focused on the two center-weighted reference taps
+    rather than a diffuse four-tap perturbation or a blk33-only accident.
     """
     from itertools import product
 
     data = dec.read_bytes()
     public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    blocker_mvs = {33: (104, -128), 34: (40, -128)}
     cb1 = _cb_offset(1)
     row_y = 11
     active_x = (10, 11, 12, 13)
@@ -943,9 +945,12 @@ def _check_active_tap_perturbation_space(dec: Path) -> None:
         for x, delta in zip(active_x, deltas):
             off = cb1 + row_y * (W // 2) + x
             patched[off] = _clamp(patched[off] + delta, 0, 255)
+        patched_bytes = bytes(patched)
         searched += 1
-        block = _filtered_cb_block_from_frame1(bytes(patched), 33, 104, -128, SMALL_REGULAR_FILTERS[8])
-        if block == public_predictor:
+        if all(
+            _filtered_cb_block_from_frame1(patched_bytes, blk, mvx, mvy, SMALL_REGULAR_FILTERS[8]) == public_predictor
+            for blk, (mvx, mvy) in blocker_mvs.items()
+        ):
             matches.append(tuple((x, delta) for x, delta in zip(active_x, deltas) if delta))
     expected = [
         ((10, -1),),
@@ -956,8 +961,8 @@ def _check_active_tap_perturbation_space(dec: Path) -> None:
         fail(f"frame-2 Cb active-tap perturbation scan drifted: searched={searched} matches={matches}")
     print(
         "[PASS] frame-2 Cb active-tap perturbation scan: across x10..x13 with +/-8, "
-        "only row11 x10=-1, x12=+1, or both reproduce the public predictor; "
-        "no diffuse four-tap explanation remains"
+        "only row11 x10=-1, x12=+1, or both reproduce both blk33/34 public predictors; "
+        "no diffuse four-tap or single-block-only explanation remains"
     )
 
 

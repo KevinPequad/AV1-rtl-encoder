@@ -49,6 +49,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 zero-residual producer trace: the 3-frame probe now has a `+dump_chroma_detail_all=1` harness mode so it can log chroma predictor/recon vectors even for blocks with no chroma residual. That pins the two sensitive frame-1 Cb taps feeding the frame-2 blk33/34 failure to zero-chroma-residual NEWMV producer blocks 18 and 19: their Cb predictor equals recon byte-for-byte, and the sensitive samples are blk18 sample14=155 and blk19 sample12=166. This further rejects a hidden frame-1 chroma residual/transform explanation and leaves the remaining target at the public decoder's frame-2 per-sample reference input/rounding interpretation.
 
+2026-05-31 dual-block active-tap trace: the active-tap perturbation scan now has to reproduce both frame-2 Cb blocker blocks simultaneously, not just blk33. The only effective row-11 frame-1 tap interpretations are still x10=-1, x12=+1, or both; there is no diffuse four-tap or single-block-only perturbation that explains the paired public-decoder +1s. Next source trace remains public decoder per-sample reference input/rounding for those two center taps.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
