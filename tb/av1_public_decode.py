@@ -86,11 +86,26 @@ def assert_present_nonempty(path: Path, label: str) -> None:
         fail(f"{label} is empty: {path}")
 
 
+def _byte_mismatch_summary(left: bytes, right: bytes) -> str:
+    first = next((i for i, pair in enumerate(zip(left, right)) if pair[0] != pair[1]), None)
+    overlap = min(len(left), len(right))
+    diff_count = sum(1 for i in range(overlap) if left[i] != right[i]) + abs(len(left) - len(right))
+    if first is None:
+        return f"byte_mismatches={diff_count} first_mismatch=EOF"
+    return (
+        f"byte_mismatches={diff_count} first_mismatch_offset={first} "
+        f"left=0x{left[first]:02x} right=0x{right[first]:02x}"
+    )
+
+
 def cmp_file(a: Path, b: Path, label: str) -> None:
     assert_present_nonempty(a, f"{label} left input")
     assert_present_nonempty(b, f"{label} right input")
-    if a.read_bytes() != b.read_bytes():
-        fail(f"{label}: {a} != {b} (sizes {a.stat().st_size} vs {b.stat().st_size})")
+    left = a.read_bytes()
+    right = b.read_bytes()
+    if left != right:
+        detail = _byte_mismatch_summary(left, right)
+        fail(f"{label}: {a} != {b} (sizes {len(left)} vs {len(right)}; {detail})")
     print(f"[PASS] {label}")
 
 
