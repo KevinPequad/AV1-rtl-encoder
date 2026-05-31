@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""64x64 full-coeff low-delay LAST inter proof with capped integer NEWMV.
+"""64x64 full-coeff low-delay LAST inter proof with capped integer motion.
 
 The 64x64 reduced reference-stack/MV-prediction model is public-decoder exact
-through the first 38 requested NEWMV blocks. Larger explicit NEWMV requests are
-capped in RTL for full-coeff 64x64+ paths until the unrestricted reference-stack
-model is decoder-exact.
+through the first 40 requested non-zero motion blocks: 39 NEWMV payload blocks
+plus one stack-hit NEARESTMV block. Larger explicit requests remain capped in
+RTL for full-coeff 64x64+ paths until the unrestricted reference-stack model is
+decoder-exact.
 """
 from pathlib import Path
 import os
@@ -49,17 +50,24 @@ def main() -> int:
         fail(f"expected all blocks inter in frame 1, saw {total_inter}")
     if nonzero_inter <= 0:
         fail("expected nonzero full-coeff inter residual blocks")
-    if newmv != 38:
-        fail(f"expected 64x64 full-coeff NEWMV cap to hold at 38 blocks, saw {newmv}")
-    if nearestmv != 0 or nearmv != 0:
-        fail(f"capped full-coeff path should avoid NEAREST/NEARMV stack parity risk, saw nearest={nearestmv} near={nearmv}")
+    nonzero_motion_modes = newmv + nearestmv + nearmv
+    if nonzero_motion_modes != 40:
+        fail(
+            f"expected 64x64 full-coeff motion cap to hold at 40 non-zero blocks, "
+            f"saw new={newmv} nearest={nearestmv} near={nearmv}"
+        )
+    if newmv != 39 or nearestmv != 1 or nearmv != 0:
+        fail(
+            f"expected reduced stack mix NEWMV=39 NEARESTMV=1 NEARMV=0, "
+            f"saw new={newmv} nearest={nearestmv} near={nearmv}"
+        )
     print(
-        "[PASS] 64x64 full-coeff capped integer NEWMV summary: "
+        "[PASS] 64x64 full-coeff capped integer motion summary: "
         f"total_inter={total_inter} nonzero_inter={nonzero_inter} "
         f"mode_counts={{GLOBALMV:{globalmv} NEARESTMV:{nearestmv} NEARMV:{nearmv} NEWMV:{newmv}}}"
     )
-    check_public_decoder_case(paths, "64x64 full-coeff capped integer NEWMV")
-    print("[PASS] 64x64 full-coeff capped integer NEWMV public-decoder proof")
+    check_public_decoder_case(paths, "64x64 full-coeff capped integer motion")
+    print("[PASS] 64x64 full-coeff capped integer motion public-decoder proof")
     return 0
 
 

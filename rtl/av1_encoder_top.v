@@ -2324,14 +2324,14 @@ module av1_encoder_top #(
     // inter unless a test/bring-up path explicitly opts into NEWMV with
     // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
     // At 64x64+ the reduced reference-stack/MV-prediction model is proven
-    // public-clean through the first 38 non-zero-MV blocks; cap larger requests
+    // public-clean through the first 40 non-zero-MV blocks; cap larger requests
     // there until the unrestricted stack model is decoder-exact. DC-only tests
     // retain their uncapped fractional/NEAREST/NEARMV syntax ownership coverage.
     wire        me_auto_zero_mv = (me_newmv_limit_in == 8'd0) && !dc_only_in;
     wire        me_integer_mv_only = !dc_only_in;
     wire [7:0]  me_effective_newmv_limit =
-        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd38)) ?
-            8'd38 : me_newmv_limit_in;
+        (!dc_only_in && (FRAME_WIDTH >= 64) && (me_newmv_limit_in > 8'd40)) ?
+            8'd40 : me_newmv_limit_in;
     wire        me_limit_zero_mv = me_auto_zero_mv ||
                                   ((me_effective_newmv_limit != 8'd0) &&
                                    (me_newmv_count >= me_effective_newmv_limit));
