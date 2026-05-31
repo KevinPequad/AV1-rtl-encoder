@@ -3,6 +3,7 @@
 #include "Vav1_encoder_top___024root.h"  // Access to internal signals
 #include "av1_bitstream_writer.h"
 #include <algorithm>
+#include <array>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -396,6 +397,10 @@ int main(int argc, char** argv) {
     std::vector<EncodedTemporalUnit> temporal_units;
     std::vector<EncodedTemporalUnit> rtl_temporal_units;
     std::vector<uint8_t> rtl_byte_stream;
+    std::vector<std::array<uint8_t, 16>> frame_cb_pred_dbg;
+    std::vector<std::array<uint8_t, 16>> frame_cr_pred_dbg;
+    std::vector<std::array<uint8_t, 16>> frame_cb_recon_dbg;
+    std::vector<std::array<uint8_t, 16>> frame_cr_recon_dbg;
     std::vector<PendingEntropyOp> entropy_req_log;
     std::vector<PendingEntropyOp> entropy_accept_log;
     std::vector<uint8_t> entropy_byte_log;
@@ -444,6 +449,10 @@ int main(int argc, char** argv) {
             frame_active = true;
             frame_blocks.clear();
             frame_blocks.resize(BLK_COLS * BLK_ROWS);
+            frame_cb_pred_dbg.assign(BLK_COLS * BLK_ROWS, {});
+            frame_cr_pred_dbg.assign(BLK_COLS * BLK_ROWS, {});
+            frame_cb_recon_dbg.assign(BLK_COLS * BLK_ROWS, {});
+            frame_cr_recon_dbg.assign(BLK_COLS * BLK_ROWS, {});
             last_captured_blk = -1;
             rtl_byte_stream.clear();
             entropy_req_log.clear();
@@ -790,6 +799,12 @@ int main(int argc, char** argv) {
                 }
                 bi.cb_has_coeff = root->av1_encoder_top__DOT__chr_cb_has_coeff;
                 bi.cr_has_coeff = root->av1_encoder_top__DOT__chr_cr_has_coeff;
+                for (int i = 0; i < 16; i++) {
+                    frame_cb_pred_dbg[blk_idx][i] = root->av1_encoder_top__DOT__chr_cb_pred_dbg[i];
+                    frame_cr_pred_dbg[blk_idx][i] = root->av1_encoder_top__DOT__chr_cr_pred_dbg[i];
+                    frame_cb_recon_dbg[blk_idx][i] = root->av1_encoder_top__DOT__chr_cb_recon_dbg[i];
+                    frame_cr_recon_dbg[blk_idx][i] = root->av1_encoder_top__DOT__chr_cr_recon_dbg[i];
+                }
             }
 
             if (trace_block >= 0 && blk_idx == trace_block &&
@@ -1290,6 +1305,25 @@ int main(int argc, char** argv) {
                         fprintf(stderr, " cr_qcoeff=");
                         for (int qi = 0; qi < 16; ++qi) {
                             fprintf(stderr, "%s%d", qi ? "," : "", bi.cr_qcoeff[qi]);
+                        }
+                        fprintf(stderr, "\n");
+                        fprintf(stderr,
+                                "[TB] chroma_pixel_detail frame=%d blk=%zu cb_pred=",
+                                frame_idx, bi_idx);
+                        for (int qi = 0; qi < 16; ++qi) {
+                            fprintf(stderr, "%s%u", qi ? "," : "", frame_cb_pred_dbg[bi_idx][qi]);
+                        }
+                        fprintf(stderr, " cb_recon=");
+                        for (int qi = 0; qi < 16; ++qi) {
+                            fprintf(stderr, "%s%u", qi ? "," : "", frame_cb_recon_dbg[bi_idx][qi]);
+                        }
+                        fprintf(stderr, " cr_pred=");
+                        for (int qi = 0; qi < 16; ++qi) {
+                            fprintf(stderr, "%s%u", qi ? "," : "", frame_cr_pred_dbg[bi_idx][qi]);
+                        }
+                        fprintf(stderr, " cr_recon=");
+                        for (int qi = 0; qi < 16; ++qi) {
+                            fprintf(stderr, "%s%u", qi ? "," : "", frame_cr_recon_dbg[bi_idx][qi]);
                         }
                         fprintf(stderr, "\n");
                     }

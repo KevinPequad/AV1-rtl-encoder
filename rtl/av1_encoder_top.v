@@ -2170,6 +2170,10 @@ module av1_encoder_top #(
     reg [7:0]  chr_cur_blk [0:15];
     reg [7:0]  chr_pred_blk [0:15];
     reg [7:0]  chr_blk [0:15]; // 4x4 reconstructed chroma block buffer
+    reg [7:0]  chr_cb_pred_dbg [0:15] /* verilator public_flat */;
+    reg [7:0]  chr_cr_pred_dbg [0:15] /* verilator public_flat */;
+    reg [7:0]  chr_cb_recon_dbg [0:15] /* verilator public_flat */;
+    reg [7:0]  chr_cr_recon_dbg [0:15] /* verilator public_flat */;
     reg signed [15:0] chr_qcoeff [0:15] /* verilator public_flat */;
     reg signed [15:0] chr_cb_qcoeff [0:15] /* verilator public_flat */;
     reg signed [15:0] chr_cr_qcoeff [0:15] /* verilator public_flat */;
@@ -4890,6 +4894,10 @@ module av1_encoder_top #(
                         for (i = 0; i < 16; i = i + 1) begin
                             chr_cb_qcoeff[i] <= 16'sd0;
                             chr_cr_qcoeff[i] <= 16'sd0;
+                            chr_cb_pred_dbg[i] <= 8'd0;
+                            chr_cr_pred_dbg[i] <= 8'd0;
+                            chr_cb_recon_dbg[i] <= 8'd0;
+                            chr_cr_recon_dbg[i] <= 8'd0;
                         end
                         top_state <= TS_CHR_FETCH;
                     end
@@ -5009,10 +5017,15 @@ module av1_encoder_top #(
                         for (i = 0; i < 16; i = i + 1) begin
                             chr_blk[i] <= chroma_res_recon[i*8 +: 8];
                             chr_qcoeff[i] <= $signed(chroma_res_qcoeff[i*16 +: 16]);
-                            if (!chr_plane)
+                            if (!chr_plane) begin
                                 chr_cb_qcoeff[i] <= $signed(chroma_res_qcoeff[i*16 +: 16]);
-                            else
+                                chr_cb_pred_dbg[i] <= chr_pred_blk[i];
+                                chr_cb_recon_dbg[i] <= chroma_res_recon[i*8 +: 8];
+                            end else begin
                                 chr_cr_qcoeff[i] <= $signed(chroma_res_qcoeff[i*16 +: 16]);
+                                chr_cr_pred_dbg[i] <= chr_pred_blk[i];
+                                chr_cr_recon_dbg[i] <= chroma_res_recon[i*8 +: 8];
+                            end
                         end
                         chr_block_has_coeff <= chroma_res_has_coeff;
                         if (!chr_plane)

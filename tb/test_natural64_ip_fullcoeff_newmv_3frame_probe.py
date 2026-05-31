@@ -338,7 +338,24 @@ def main() -> int:
             fail(f"missing frame-2 block {blk} chroma detail")
         if detail.group(1) != expected:
             fail(f"unexpected frame-2 block {blk} chroma detail: {detail.group(1)}")
-    print("[PASS] frame-2 Cb blocker blocks have stable chroma coeff/prediction signature")
+
+    expected_pixel_detail = {
+        33: "cb_pred=144,154,164,162,142,157,170,168,150,160,168,167,157,163,167,166 "
+            "cb_recon=144,154,164,162,142,157,170,168,150,160,168,167,157,163,167,166 "
+            "cr_pred=141,140,140,140,140,141,141,141,142,141,141,141,144,142,141,141 "
+            "cr_recon=145,144,144,144,144,145,145,145,146,145,145,145,148,146,145,145",
+        34: "cb_pred=144,154,164,162,142,157,170,168,150,160,168,167,157,163,167,166 "
+            "cb_recon=148,158,168,166,146,161,174,172,154,164,172,171,161,167,171,170 "
+            "cr_pred=141,140,140,140,140,141,141,141,142,141,141,141,144,142,141,141 "
+            "cr_recon=145,144,144,144,144,145,145,145,146,145,145,145,148,146,145,145",
+    }
+    for blk, expected in expected_pixel_detail.items():
+        detail = re.search(rf"\[TB\] chroma_pixel_detail frame=2 blk={blk} ([^\n]+)", log)
+        if not detail:
+            fail(f"missing frame-2 block {blk} chroma pixel detail")
+        if detail.group(1) != expected:
+            fail(f"unexpected frame-2 block {blk} chroma pixel detail: {detail.group(1)}")
+    print("[PASS] frame-2 Cb blocker blocks have stable chroma coeff/pixel prediction signature")
 
     rtl_ivf = Path(paths["rtl_ivf"])
     recon = Path(paths["recon"])
