@@ -231,6 +231,24 @@ module av1_inter_pred #(
         end
     endfunction
 
+    // AV1 inter prediction always performs horizontal rounding first, then
+    // vertical rounding. In horizontal-only mode the vertical phase-0 pass is
+    // not algebraically equivalent to a single (sum + 64) >> 7 round because
+    // the horizontal intermediate is rounded by InterRound0=3 first.
+    function [7:0] clip_round_filter_h_only;
+        input signed [31:0] sum;
+        reg signed [31:0] rounded;
+        begin
+            rounded = (round_hv_horizontal(sum) + 32'sd8) >>> 4;
+            if (rounded < 0)
+                clip_round_filter_h_only = 8'd0;
+            else if (rounded > 255)
+                clip_round_filter_h_only = 8'd255;
+            else
+                clip_round_filter_h_only = rounded[7:0];
+        end
+    endfunction
+
     function signed [31:0] round_filter_signed;
         input signed [31:0] sum;
         begin
@@ -356,7 +374,7 @@ module av1_inter_pred #(
                         MODE_H: begin
                             acc_next = h_acc + regular_coeff(phase_x, tap_idx) * $signed({1'b0, ref_mem_data});
                             if (tap_idx == 3'd7) begin
-                                pred[out_idx] <= clip_round_filter(acc_next);
+                                pred[out_idx] <= clip_round_filter_h_only(acc_next);
                                 h_acc <= 32'sd0;
                                 advance_pixel();
                             end else begin

@@ -13,6 +13,8 @@ constexpr int W = 32;
 constexpr int H = 32;
 constexpr int FILTER_BITS = 7;
 constexpr int ROUND_OFFSET = 1 << (FILTER_BITS - 1);
+constexpr int INTER_ROUND0_OFFSET = 1 << (3 - 1);
+constexpr int INTER_ROUND1_IDENTITY_OFFSET = 1 << (4 - 1);
 
 const int kRegularSubpel[16][8] = {
     { 0,  0,   0, 128,   0,   0,  0, 0},
@@ -64,7 +66,7 @@ uint8_t expected_pred(const std::vector<uint8_t>& ref, int base_x, int base_y,
         for (int k = 0; k < 8; ++k) {
             sum += kRegularSubpel[phase][k] * sample_ref(ref, int_x + k - 3, int_y);
         }
-        return static_cast<uint8_t>(clip8((sum + ROUND_OFFSET) >> FILTER_BITS));
+        return static_cast<uint8_t>(clip8((((sum + INTER_ROUND0_OFFSET) >> 3) + INTER_ROUND1_IDENTITY_OFFSET) >> 4));
     }
     if (frac_x == 0 && frac_y != 0) {
         const int phase = frac_y << 1;

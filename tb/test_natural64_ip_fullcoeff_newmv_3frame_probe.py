@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Expected-fail diagnostic for the 3-frame 64x64 full-coeff NEWMV widening.
+"""Strict parity diagnostic for 3-frame 64x64 full-coeff NEWMV widening.
 
 The 2-frame unrestricted 64x64 full-coeff NEWMV proof is public-decoder clean.
 This probe widens the same fixture to 3 low-delay-LAST frames and keeps the
-current blocker executable: RTL/software bytes still match, while both public
-decoders reconstruct frame-2 Cb two samples one LSB above RTL recon. Passing
-this test means the known mismatch is still the narrow frame-2 chroma inter
-recon blocker; once fixed, this probe should be flipped to strict decoder parity.
+former frame-2 Cb blocker covered after the horizontal-only inter-rounding fix:
+RTL/software bytes match, FFmpeg/libdav1d and aomdec decode the stream, and both
+public decoders are byte-identical to RTL recon across all three frames.
 """
 from pathlib import Path
 import hashlib
@@ -39,8 +38,16 @@ def _mismatches(dec: Path, recon: Path) -> list[tuple[int, int, int]]:
 def _check_public_decoders_agree(ff_dec: Path, aom_dec: Path) -> None:
     got = _mismatches(ff_dec, aom_dec)
     if got:
-        fail(f"FFmpeg/libdav1d and aomdec disagree on 3-frame blocker decode: {got[:8]} count={len(got)}")
-    print("[PASS] FFmpeg/libdav1d and aomdec produce identical YUV for the 3-frame blocker stream")
+        fail(f"FFmpeg/libdav1d and aomdec disagree on 3-frame strict decode: {got[:8]} count={len(got)}")
+    print("[PASS] FFmpeg/libdav1d and aomdec produce identical YUV for the 3-frame strict stream")
+
+
+def _check_strict_decoder_recon_parity(ff_dec: Path, aom_dec: Path, recon: Path) -> None:
+    for label, dec in (("FFmpeg/libdav1d", ff_dec), ("aomdec", aom_dec)):
+        got = _mismatches(dec, recon)
+        if got:
+            fail(f"{label} decode is not byte-identical to RTL recon after inter-rounding fix: {got[:8]} count={len(got)}")
+    print("[PASS] FFmpeg/libdav1d and aomdec are byte-identical to RTL recon across all three frames")
 
 
 def _frame_md5s(path: Path) -> list[str]:
@@ -64,22 +71,16 @@ def _check_decoder_frame_md5_scope(ff_dec: Path, aom_dec: Path, recon: Path) -> 
         "418cd2b1d3bf2c1337c2535e02aeb264",
         "6cbdc2e2d69392a4806c28e65be25d83",
     ]
-    expected_recon = [
-        "18d641716080f96bc5c780d6cbfecd7a",
-        "418cd2b1d3bf2c1337c2535e02aeb264",
-        "2455efa1b44121263bd2f79c676e438d",
-    ]
     ff_hashes = _frame_md5s(ff_dec)
     aom_hashes = _frame_md5s(aom_dec)
     recon_hashes = _frame_md5s(recon)
     if ff_hashes != expected_public or aom_hashes != expected_public:
         fail(f"public decoder frame MD5s drifted: ff={ff_hashes} aom={aom_hashes}")
-    if recon_hashes != expected_recon:
-        fail(f"RTL recon frame MD5s drifted: {recon_hashes}")
+    if recon_hashes != expected_public:
+        fail(f"RTL recon frame MD5s drifted from strict public parity: {recon_hashes}")
     print(
-        "[PASS] frame MD5 scope pinned: FFmpeg/libdav1d and aomdec match each "
-        "other on all three frames; frames 0/1 match RTL recon and only frame 2 "
-        "has the current two-byte Cb public/recon split"
+        "[PASS] strict frame MD5 scope pinned: FFmpeg/libdav1d, aomdec, and RTL "
+        "recon match on all three frames"
     )
 
 
@@ -910,9 +911,9 @@ def _check_force_integer_newmv_roundtrip() -> None:
                 f"ref=({refx},{refy}) diff=({diff_x},{diff_y}) decoded_mv={got} expected={(mvx, mvy)}"
             )
     print(
-        "[PASS] frame-2 Cb blocker NEWMV residuals round-trip exactly under "
-        "force_integer_mv for blk33/34, narrowing the remaining +1 to chroma "
-        "sampling/filter selection rather than decoded-MV component coding"
+        "[PASS] frame-2 former Cb blocker NEWMV residuals round-trip exactly "
+        "under force_integer_mv for blk33/34, keeping decoded-MV component "
+        "coding separated from the inter-rounding parity fix"
     )
 
 
@@ -1692,12 +1693,12 @@ def main() -> int:
             fail(f"unexpected frame-2 block {blk} chroma detail: {detail.group(1)}")
 
     expected_pixel_detail = {
-        33: "cb_pred=144,154,164,162,142,157,170,168,150,160,168,167,157,163,167,166 "
-            "cb_recon=144,154,164,162,142,157,170,168,150,160,168,167,157,163,167,166 "
+        33: "cb_pred=144,154,164,162,142,157,170,168,150,160,168,167,157,164,167,166 "
+            "cb_recon=144,154,164,162,142,157,170,168,150,160,168,167,157,164,167,166 "
             "cr_pred=141,140,140,140,140,141,141,141,142,141,141,141,144,142,141,141 "
             "cr_recon=145,144,144,144,144,145,145,145,146,145,145,145,148,146,145,145",
-        34: "cb_pred=144,154,164,162,142,157,170,168,150,160,168,167,157,163,167,166 "
-            "cb_recon=148,158,168,166,146,161,174,172,154,164,172,171,161,167,171,170 "
+        34: "cb_pred=144,154,164,162,142,157,170,168,150,160,168,167,157,164,167,166 "
+            "cb_recon=148,158,168,166,146,161,174,172,154,164,172,171,161,168,171,170 "
             "cr_pred=141,140,140,140,140,141,141,141,142,141,141,141,144,142,141,141 "
             "cr_recon=145,144,144,144,144,145,145,145,146,145,145,145,148,146,145,145",
     }
@@ -1722,7 +1723,7 @@ def main() -> int:
             fail(f"missing frame-2 block {blk} chroma tap detail")
         if detail.group(1) != expected:
             fail(f"unexpected frame-2 block {blk} chroma tap detail: {detail.group(1)}")
-    print("[PASS] frame-2 Cb blocker blocks have stable chroma coeff/pixel prediction and RTL previous-reference tap signatures")
+    print("[PASS] frame-2 former Cb blocker blocks use spec horizontal-only inter rounding and stable tap signatures")
 
     rtl_ivf = Path(paths["rtl_ivf"])
     recon = Path(paths["recon"])
@@ -1732,31 +1733,12 @@ def main() -> int:
          "-f", "rawvideo", "-pix_fmt", "yuv420p", ff_rtl])
     run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", aom_rtl, rtl_ivf])
     _check_public_decoders_agree(ff_rtl, aom_rtl)
-    _check_reference_frames_clean(ff_rtl, aom_rtl, recon)
+    _check_strict_decoder_recon_parity(ff_rtl, aom_rtl, recon)
     _check_decoder_frame_md5_scope(ff_rtl, aom_rtl, recon)
-    _check_ffmpeg_skip_loop_filter_not_cause(paths, ff_rtl)
-    _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
-    _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
-    _check_public_delta_coordinates(ff_rtl, recon)
-    _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
-    _check_public_predictor_inference(ff_rtl, aom_rtl, recon)
-    _check_public_reference_row_parity(ff_rtl, aom_rtl, recon)
-    _check_no_wrong_reference_frame_explanation(ff_rtl, recon)
-    _check_no_single_coeff_residual_explanation()
-    _check_no_small_sparse_coeff_residual_explanation()
-    _check_halfpel_ref_signature(ff_rtl, recon)
-    _check_phase8_rounding_margin(ff_rtl)
-    _check_single_tap_equivalent_delta(ff_rtl)
-    _check_sensitive_tap_weight_trace(ff_rtl)
-    _check_active_tap_perturbation_space(ff_rtl)
-    _check_no_filter_family_explanation(ff_rtl)
-    _check_no_decoded_frame_filter_search_explanation(ff_rtl)
-    _check_sensitive_producer_interpolation_margins(ff_rtl)
-    _check_sensitive_tap_producers(log, ff_rtl, recon)
-    _check_no_uniform_subpel_candidate(ff_rtl)
     print(
         "[PASS] 3-frame 64x64 full-coeff NEWMV widening probe: bytes match, "
-        "public decoders agree on the same narrow frame-2 Cb recon blocker"
+        "FFmpeg/libdav1d and aomdec decode cleanly, and decoder output is "
+        "byte-identical to RTL recon after the horizontal-only inter-rounding fix"
     )
     return 0
 

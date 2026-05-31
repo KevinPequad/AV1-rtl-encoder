@@ -19,6 +19,8 @@ constexpr int H = FRAME_H / 2;
 static_assert(W >= 16 && H >= 16, "chroma inter pred test expects at least a 16x16 chroma plane");
 constexpr int FILTER_BITS = 7;
 constexpr int ROUND_OFFSET = 1 << (FILTER_BITS - 1);
+constexpr int INTER_ROUND0_OFFSET = 1 << (3 - 1);
+constexpr int INTER_ROUND1_IDENTITY_OFFSET = 1 << (4 - 1);
 
 // Small-block AV1 regular filters for width/height <= 4, scaled to sum 128.
 const int kSmallRegularSubpel[16][8] = {
@@ -59,7 +61,7 @@ uint8_t expected_pred(const std::vector<uint8_t>& ref, int cur_x, int cur_y,
         int sum = 0;
         for (int k = 0; k < 8; ++k)
             sum += kSmallRegularSubpel[frac_x][k] * sample(ref, int_x + k - 3, int_y);
-        return static_cast<uint8_t>(clip8((sum + ROUND_OFFSET) >> FILTER_BITS));
+        return static_cast<uint8_t>(clip8((((sum + INTER_ROUND0_OFFSET) >> 3) + INTER_ROUND1_IDENTITY_OFFSET) >> 4));
     }
     if (frac_x == 0 && frac_y != 0) {
         int sum = 0;
@@ -160,9 +162,8 @@ int main(int argc, char** argv) {
     // Reproduce the narrow 64x64 3-frame NEWMV Cb blocker reference taps in a
     // standalone RTL check.  The row values are frame-1 Cb reference samples
     // x=7..17 for y=8..11; with blk33's mv=(104,-128), output sample
-    // pred[13] must stay at phase-8 value 0xA3.  This keeps the standalone
-    // chroma predictor aligned with the top-level diagnostic while public
-    // decoders still reconstruct that one sample as 0xA4.
+    // pred[13] must round through the spec's horizontal InterRound0 stage
+    // before the vertical phase-0 pass, yielding the public-decoder 0xA4.
     std::vector<uint8_t> blocker_ref(W * H, 0);
     const uint8_t blocker_rows[4][11] = {
         {142, 142, 142, 144, 146, 162, 162, 162, 162, 162, 162},
@@ -177,7 +178,7 @@ int main(int argc, char** argv) {
         144, 154, 164, 162,
         142, 157, 170, 168,
         150, 160, 168, 167,
-        157, 163, 167, 166,
+        157, 164, 167, 166,
     };
     ok = run_case("chroma_frame2_cb_blocker_phase8_signature",
                   4, 16, 104, -128, blocker_ref, &blocker_expected) && ok;
