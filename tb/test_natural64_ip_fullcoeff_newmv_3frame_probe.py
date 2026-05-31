@@ -42,14 +42,41 @@ def _check_public_decoders_agree(ff_dec: Path, aom_dec: Path) -> None:
     print("[PASS] FFmpeg/libdav1d and aomdec produce identical YUV for the 3-frame blocker stream")
 
 
+def _mismatch_scope(mismatches: list[tuple[int, int, int]]) -> dict[tuple[int, str, int], int]:
+    counts: dict[tuple[int, str, int], int] = {}
+    y_size = W * H
+    c_size = (W // 2) * (H // 2)
+    frame_size = y_size + 2 * c_size
+    for off, _dec_v, _recon_v in mismatches:
+        frame = off // frame_size
+        in_frame = off % frame_size
+        if in_frame < y_size:
+            block = ((in_frame // W) // 8) * (W // 8) + ((in_frame % W) // 8)
+            key = (frame, "Y", block)
+        elif in_frame < y_size + c_size:
+            plane_off = in_frame - y_size
+            block = (((plane_off // (W // 2)) * 2) // 8) * (W // 8) + (((plane_off % (W // 2)) * 2) // 8)
+            key = (frame, "Cb", block)
+        else:
+            plane_off = in_frame - y_size - c_size
+            block = (((plane_off // (W // 2)) * 2) // 8) * (W // 8) + (((plane_off % (W // 2)) * 2) // 8)
+            key = (frame, "Cr", block)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def _check_expected_decoder_delta(dec: Path, recon: Path, label: str) -> None:
     expected = [(16997, 0xA4, 0xA3), (17001, 0xA8, 0xA7)]
     got = _mismatches(dec, recon)
     if got != expected:
         fail(f"{label}: expected current 3-frame Cb mismatch {expected}, saw {got[:8]} count={len(got)}")
+    expected_scope = {(2, "Cb", 33): 1, (2, "Cb", 34): 1}
+    scope = _mismatch_scope(got)
+    if scope != expected_scope:
+        fail(f"{label}: expected mismatch scope {expected_scope}, saw {scope}")
     print(
         f"[PASS] {label}: reproduced current frame-2 Cb +1 public-decoder delta "
-        "at (x=5,y=19)/blk33 and (x=9,y=19)/blk34"
+        "at (x=5,y=19)/blk33 and (x=9,y=19)/blk34; Y and Cr remain decoder/recon exact"
     )
 
 
