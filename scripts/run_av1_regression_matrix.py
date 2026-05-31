@@ -107,6 +107,7 @@ CURRENT_GATES: list[Gate] = [
     Gate("T9", "natural64-ip-fractional-syntax-check", make_cmd("natural64-ip-fractional-syntax-check"), TB, True, "64x64 fractional q3 NEWMV public decoder proof"),
     Gate("T10", "p5-highdc-q1-public-check", make_cmd("p5-highdc-q1-public-check"), TB, True, "16x16 qindex=1 high-DC / non-zero AC public decoder proof"),
     Gate("T11", "natural64-ip-fullcoeff-newmv-4frame-syntax-check", make_cmd("natural64-ip-fullcoeff-newmv-4frame-syntax-check"), TB, True, "64x64 4-frame full-coeff unrestricted NEWMV LAST-chain public decoder/recon parity proof"),
+    Gate("T12", "natural64-ip-fullcoeff-newmv-5frame-syntax-check", make_cmd("natural64-ip-fullcoeff-newmv-5frame-syntax-check"), TB, True, "64x64 5-frame full-coeff unrestricted NEWMV LAST-chain public decoder/recon parity proof"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [

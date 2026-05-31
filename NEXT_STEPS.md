@@ -55,3 +55,5 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
 - For historical freeze reruns, keep the single-threaded matrix invocation used by `PRE_ASIC_HANDOFF.md`.
+
+2026-05-31 cron 5-frame LAST-chain follow-up: `tb/test_natural64_ip_fullcoeff_newmv_5frame_syntax.py` widens the unrestricted 64x64 full-coeff NEWMV public-decoder/recon checkpoint from 4 to 5 low-delay LAST frames without raising caps. The new gate keeps RTL/software byte equality, FFmpeg/libdav1d decode-to-recon parity, aomdec decode-to-recon parity, and pins frame 4 at `GLOBALMV=51 NEARESTMV=0 NEARMV=0 NEWMV=13`. Next target remains source-level reference-stack/MV-prediction cleanup for broader unrestricted 64x64+ parity, not treating the 5-frame gate as feature completion.

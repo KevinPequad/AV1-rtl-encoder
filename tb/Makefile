@@ -103,7 +103,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fullcoeff-newmv-syntax-check natural64-ip-fullcoeff-newmv-syntax-check natural64-ip-fullcoeff-newmv-boundary52-probe-check natural64-ip-fullcoeff-newmv-3frame-probe-check natural64-ip-fullcoeff-newmv-4frame-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check gop-lifecycle-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check p5-highdc-q1-public-check clean help
+.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fullcoeff-newmv-syntax-check natural64-ip-fullcoeff-newmv-syntax-check natural64-ip-fullcoeff-newmv-boundary52-probe-check natural64-ip-fullcoeff-newmv-3frame-probe-check natural64-ip-fullcoeff-newmv-4frame-syntax-check natural64-ip-fullcoeff-newmv-5frame-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check gop-lifecycle-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check p5-highdc-q1-public-check clean help
 
 all: $(SIM_BIN)
 
@@ -364,6 +364,11 @@ natural64-ip-fullcoeff-newmv-4frame-syntax-check:
 	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural64_ip_fullcoeff_newmv_4frame_syntax.py
 
+natural64-ip-fullcoeff-newmv-5frame-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=64 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural64_ip_fullcoeff_newmv_5frame_syntax.py
+
 natural32-ip-fractional-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=32 HEIGHT=32 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
@@ -451,6 +456,7 @@ top-public-matrix-check:
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-fullcoeff-newmv-boundary52-probe-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-fullcoeff-newmv-3frame-probe-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-fullcoeff-newmv-4frame-syntax-check
+	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-fullcoeff-newmv-5frame-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural32-ip-fractional-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) gop-lifecycle-syntax-check
 	$(MAKE) THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) natural64-ip-mode-context-syntax-check
@@ -505,6 +511,7 @@ help:
 	@echo "  natural64-ip-fullcoeff-newmv-boundary52-probe-check 64x64 legacy block52 NEWMV compatibility public-decoder proof"
 	@echo "  natural64-ip-fullcoeff-newmv-3frame-probe-check 64x64 3-frame full-coeff NEWMV public-decoder proof"
 	@echo "  natural64-ip-fullcoeff-newmv-4frame-syntax-check 64x64 4-frame full-coeff NEWMV LAST-chain public-decoder proof"
+	@echo "  natural64-ip-fullcoeff-newmv-5frame-syntax-check 64x64 5-frame full-coeff NEWMV LAST-chain public-decoder proof"
 	@echo "  natural32-ip-fractional-syntax-check 32x32 half-pel two-frame NEWMV public-decoder proof"
 	@echo "  gop-lifecycle-syntax-check 64x64 13-frame lowdelay_last GOP lifecycle public-decoder proof"
 	@echo "  natural64-ip-mode-context-syntax-check 64x64 LAST-path GLOBALMV/NEARESTMV/NEARMV/NEWMV syntax gate"
