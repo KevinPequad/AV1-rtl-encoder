@@ -62,6 +62,14 @@ def main() -> int:
             f"expected reduced stack mix NEWMV=42 NEARESTMV=2 NEARMV=0, "
             f"saw new={newmv} nearest={nearestmv} near={nearmv}"
         )
+    block52 = re.search(r"inter_summary frame=1 blk=52 [^\n]* mode=([A-Z]+MV) [^\n]*", log)
+    if not block52:
+        fail("missing cap-boundary block 52 summary")
+    if block52.group(1) != "GLOBALMV":
+        fail(
+            "expected cap-boundary block 52 to stay GLOBALMV; "
+            "the experimental cap-45 NEWMV block is the current recon-parity blocker"
+        )
     print(
         "[PASS] 64x64 full-coeff capped integer motion summary: "
         f"total_inter={total_inter} nonzero_inter={nonzero_inter} "
