@@ -70,6 +70,9 @@ def main() -> int:
             "+dump_inter_summary=1",
             "+dump_ref_summary=1",
             "+dump_chroma_summary=1",
+            "+dump_chroma_detail=1",
+            "+dump_chroma_detail_start=33",
+            "+dump_chroma_detail_end=34",
         ],
     )
     log = paths["log"]
@@ -94,6 +97,22 @@ def main() -> int:
     for blk in (33, 34):
         if not re.search(rf"inter_summary frame=2 blk={blk} .* mode=NEWMV ", log):
             fail(f"expected frame-2 block {blk} to stay in the NEWMV region")
+
+    expected_chroma_detail = {
+        33: "inter=1 mv=(104,-128) cb_has=0 cr_has=1 cb_nz=0 cr_nz=1 "
+            "cb_qcoeff=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 "
+            "cr_qcoeff=1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        34: "inter=1 mv=(40,-128) cb_has=1 cr_has=1 cb_nz=1 cr_nz=1 "
+            "cb_qcoeff=1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 "
+            "cr_qcoeff=1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+    }
+    for blk, expected in expected_chroma_detail.items():
+        detail = re.search(rf"\[TB\] chroma_detail frame=2 blk={blk} ([^\n]+)", log)
+        if not detail:
+            fail(f"missing frame-2 block {blk} chroma detail")
+        if detail.group(1) != expected:
+            fail(f"unexpected frame-2 block {blk} chroma detail: {detail.group(1)}")
+    print("[PASS] frame-2 Cb blocker blocks have stable chroma coeff/prediction signature")
 
     rtl_ivf = Path(paths["rtl_ivf"])
     recon = Path(paths["recon"])

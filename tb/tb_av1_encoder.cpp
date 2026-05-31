@@ -143,6 +143,9 @@ int main(int argc, char** argv) {
     int trace_entropy_shadow = 0;
     int trace_writer_entropy = 0;
     int dump_chroma_summary = 0;
+    int dump_chroma_detail = 0;
+    int dump_chroma_detail_start = -1;
+    int dump_chroma_detail_end = -1;
     int ownership_strict = 0;
     uint64_t progress_every = 0;
     std::string input_file = "data/raw_frames.yuv";
@@ -228,6 +231,12 @@ int main(int argc, char** argv) {
             trace_writer_entropy = std::atoi(arg.c_str() + 22);
         } else if (arg.rfind("+dump_chroma_summary=", 0) == 0) {
             dump_chroma_summary = std::atoi(arg.c_str() + 21);
+        } else if (arg.rfind("+dump_chroma_detail=", 0) == 0) {
+            dump_chroma_detail = std::atoi(arg.c_str() + std::strlen("+dump_chroma_detail="));
+        } else if (arg.rfind("+dump_chroma_detail_start=", 0) == 0) {
+            dump_chroma_detail_start = std::atoi(arg.c_str() + std::strlen("+dump_chroma_detail_start="));
+        } else if (arg.rfind("+dump_chroma_detail_end=", 0) == 0) {
+            dump_chroma_detail_end = std::atoi(arg.c_str() + std::strlen("+dump_chroma_detail_end="));
         } else if (arg.rfind("+ownership_strict=", 0) == 0) {
             ownership_strict = std::atoi(arg.c_str() + 18);
         } else if (arg.rfind("+progress_every=", 0) == 0) {
@@ -1265,6 +1274,25 @@ int main(int argc, char** argv) {
                     }
                     if (luma_nz == 0 && (cb_nz || cr_nz))
                         ++chroma_only_blocks;
+                    const bool chroma_detail_in_range =
+                        (dump_chroma_detail_start < 0 || static_cast<int>(bi_idx) >= dump_chroma_detail_start) &&
+                        (dump_chroma_detail_end < 0 || static_cast<int>(bi_idx) <= dump_chroma_detail_end);
+                    if (dump_chroma_detail && chroma_detail_in_range &&
+                        (cb_nz || cr_nz || bi.cb_has_coeff || bi.cr_has_coeff)) {
+                        fprintf(stderr,
+                                "[TB] chroma_detail frame=%d blk=%zu inter=%d mv=(%d,%d) cb_has=%d cr_has=%d cb_nz=%d cr_nz=%d cb_qcoeff=",
+                                frame_idx, bi_idx, bi.is_inter ? 1 : 0, bi.mvx, bi.mvy,
+                                bi.cb_has_coeff ? 1 : 0, bi.cr_has_coeff ? 1 : 0,
+                                cb_nz, cr_nz);
+                        for (int qi = 0; qi < 16; ++qi) {
+                            fprintf(stderr, "%s%d", qi ? "," : "", bi.cb_qcoeff[qi]);
+                        }
+                        fprintf(stderr, " cr_qcoeff=");
+                        for (int qi = 0; qi < 16; ++qi) {
+                            fprintf(stderr, "%s%d", qi ? "," : "", bi.cr_qcoeff[qi]);
+                        }
+                        fprintf(stderr, "\n");
+                    }
                 }
                 fprintf(stderr,
                         "[TB] chroma_summary frame=%d cb_nonzero_blocks=%d cr_nonzero_blocks=%d "
