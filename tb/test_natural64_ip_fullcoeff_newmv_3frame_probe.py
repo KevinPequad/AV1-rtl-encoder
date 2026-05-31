@@ -335,6 +335,32 @@ def _filtered_cb_block_from_frame1(
     return out
 
 
+def _filtered_cb_block_sums_from_frame1(
+    data: bytes,
+    blk: int,
+    mvx_q3: int,
+    mvy_q3: int,
+    coeffs: tuple[int, ...],
+) -> list[int]:
+    """Return raw horizontal filter sums for a frame-2 Cb block from frame-1 taps."""
+    cb1 = _cb_offset(1)
+    blk_cols = W // 8
+    block_x = (blk % blk_cols) * 4
+    block_y = (blk // blk_cols) * 4
+    base_x = block_x + (mvx_q3 >> 4)
+    base_y = block_y + (mvy_q3 >> 4)
+    out: list[int] = []
+    for y in range(4):
+        for x in range(4):
+            taps = []
+            for tap in range(8):
+                sx = _clamp(base_x + x + tap - 3, 0, W // 2 - 1)
+                sy = _clamp(base_y + y, 0, H // 2 - 1)
+                taps.append(data[cb1 + sy * (W // 2) + sx])
+            out.append(sum(coeff * sample for coeff, sample in zip(coeffs, taps)))
+    return out
+
+
 SMALL_REGULAR_FILTERS: tuple[tuple[int, ...], ...] = (
     (0, 0, 0, 128, 0, 0, 0, 0),
     (0, 0, -4, 126, 8, -2, 0, 0),
@@ -815,6 +841,44 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
     )
 
 
+def _check_phase8_rounding_margin(dec: Path) -> None:
+    """Pin why the public +1 survives as a one-sample Cb delta.
+
+    The current RTL/reference predictor is not broadly off: every sample in the
+    blk33/34 Cb block uses the same legal phase-8 filter path, but only local
+    sample 13 sits within four raw filter-sum units of the next rounded output.
+    That makes the remaining public-decoder +1 a rounding-boundary/tap-input
+    problem, not a block-wide phase or coefficient issue.
+    """
+    data = dec.read_bytes()
+    coeffs = SMALL_REGULAR_FILTERS[8]
+    expected_sums = [
+        18392, 19736, 20928, 20736,
+        18180, 20056, 21780, 21504,
+        19196, 20528, 21544, 21376,
+        20136, 20924, 21320, 21248,
+    ]
+    expected_pred = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 163, 167, 166]
+    expected_margins = [104, 40, 128, 64, 60, 104, 44, 64, 68, 16, 24, 64, 24, 4, 120, 64]
+    for blk, mv in {33: (104, -128), 34: (40, -128)}.items():
+        sums = _filtered_cb_block_sums_from_frame1(data, blk, mv[0], mv[1], coeffs)
+        pred = [(sample_sum + 64) >> 7 for sample_sum in sums]
+        margins = [(((out + 1) << 7) - 64) - sample_sum for out, sample_sum in zip(pred, sums)]
+        if sums != expected_sums or pred != expected_pred or margins != expected_margins:
+            fail(
+                f"frame-2 blk{blk} Cb phase8 rounding-margin signature drifted: "
+                f"sums={sums} pred={pred} margins={margins}"
+            )
+        closest = min((margin, idx) for idx, margin in enumerate(margins))
+        if closest != (4, 13) or any(m <= 4 for idx, m in enumerate(margins) if idx != 13):
+            fail(f"frame-2 blk{blk} Cb phase8 nearest-rounding sample drifted: closest={closest} margins={margins}")
+    print(
+        "[PASS] frame-2 blk33/34 Cb phase8 rounding margins pinned: only local "
+        "sample 13 is within four raw filter-sum units of rounding up, matching "
+        "the isolated public-decoder +1 and rejecting a block-wide phase/rounding fix"
+    )
+
+
 def _check_single_tap_equivalent_delta(dec: Path) -> None:
     """Pin the exact reference-tap perturbations that would explain the +1.
 
@@ -1126,6 +1190,7 @@ def main() -> int:
     _check_no_single_coeff_residual_explanation()
     _check_no_small_sparse_coeff_residual_explanation()
     _check_halfpel_ref_signature(ff_rtl, recon)
+    _check_phase8_rounding_margin(ff_rtl)
     _check_single_tap_equivalent_delta(ff_rtl)
     _check_no_filter_family_explanation(ff_rtl)
     _check_sensitive_tap_producers(log, ff_rtl, recon)
