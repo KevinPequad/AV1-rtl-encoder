@@ -46,6 +46,47 @@ def _check_expected_decoder_delta(dec: Path, recon: Path, label: str) -> None:
     )
 
 
+def _cb_offset(frame: int) -> int:
+    return frame * (W * H * 3 // 2) + (W * H)
+
+
+def _round_filter(samples: list[int], coeffs: tuple[int, ...]) -> int:
+    return max(0, min(255, (sum(c * s for c, s in zip(coeffs, samples)) + 64) >> 7))
+
+
+def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
+    """Keep the current Cb blocker narrowed to chroma MC phase/reference math.
+
+    Both failing frame-2 pixels are the row-3/col-1 Cb sample of adjacent
+    8x8 luma blocks.  Their MVs are luma-integer but chroma half-sample, so
+    they share the same frame-1 Cb reference taps.  This diagnostic proves the
+    LAST reference bytes are already decoder/recon equal and records the exact
+    small-filter sums that leave RTL recon one LSB below public decoders.
+    """
+    dec_bytes = dec.read_bytes()
+    recon_bytes = recon.read_bytes()
+    cb1 = _cb_offset(1)
+    row11_x8_15_dec = list(dec_bytes[cb1 + 11 * 32 + 8: cb1 + 11 * 32 + 16])
+    row11_x8_15_recon = list(recon_bytes[cb1 + 11 * 32 + 8: cb1 + 11 * 32 + 16])
+    expected_ref = [152, 151, 155, 160, 166, 166, 166, 166]
+    if row11_x8_15_dec != expected_ref or row11_x8_15_recon != expected_ref:
+        fail(
+            "frame-1 Cb reference taps drifted for frame-2 blk33/34 halfpel probe: "
+            f"decoder={row11_x8_15_dec} recon={row11_x8_15_recon}"
+        )
+
+    small_phase8 = (0, 0, -12, 76, 76, -12, 0, 0)
+    small_phase9 = (0, 0, -10, 66, 84, -12, 0, 0)
+    phase8_pred = _round_filter(expected_ref, small_phase8)
+    phase9_pred = _round_filter(expected_ref, small_phase9)
+    if (phase8_pred, phase9_pred) != (0xA3, 0xA4):
+        fail(f"unexpected Cb halfpel predictor signature phase8={phase8_pred} phase9={phase9_pred}")
+    print(
+        "[PASS] frame-2 Cb blocker narrowed: frame-1 reference taps match public decode; "
+        "small phase8 predicts RTL 0xA3 while neighboring phase9 predicts decoder 0xA4"
+    )
+
+
 def main() -> int:
     if not SIM.exists():
         fail(f"missing simulator {SIM}; run make WIDTH=64 HEIGHT=64 all first")
@@ -123,6 +164,7 @@ def main() -> int:
     run(["aomdec", "--codec=av1", "--rawvideo", "--i420", "-o", aom_rtl, rtl_ivf])
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
+    _check_halfpel_ref_signature(ff_rtl, recon)
     print(
         "[PASS] 3-frame 64x64 full-coeff NEWMV widening probe: bytes match, "
         "public decoders agree on the same narrow frame-2 Cb recon blocker"
