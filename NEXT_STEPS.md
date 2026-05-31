@@ -37,6 +37,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 round-offset anti-workaround note: a temporary rebuilt RTL probe changing `rtl/av1_chroma_inter_pred.v` horizontal filter rounding from `+64` to `+68` did flip the local blk33/34 sample from RTL 0xA3/0xA7 to the public 0xA4/0xA8 values, but it did not solve the 3-frame stream. FFmpeg/libdav1d and `aomdec` still agreed with each other and then mismatched RTL recon at 13 bytes (first offsets 10476..10479 and later frame-2 Cb/Cr samples), so round-offset bias is now explicitly rejected as another blanket workaround. Keep pursuing the actual public-decoder per-sample/subpel/ref interpretation.
 
+2026-05-31 uniform-subpel scan follow-up: the 3-frame probe now exhaustively checks nearby frame-1 Cb base positions `x=7..13`, `y=5..11` across all q4 horizontal/vertical phases for a single uniform 4x4 chroma predictor matching public decoders on blk33/34. No candidate matches; the nearest legal uniform candidate is still the current RTL base `(10,8)` / phase `(8,0)`, one LSB low only at sample 13. That rejects another broad origin/phase workaround and keeps the next target at the exact public-decoder per-sample/ref interpretation.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.

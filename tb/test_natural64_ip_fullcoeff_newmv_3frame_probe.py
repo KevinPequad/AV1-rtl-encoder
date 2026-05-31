@@ -181,6 +181,111 @@ def _filtered_cb_block_from_frame1(
     return out
 
 
+SMALL_REGULAR_FILTERS: tuple[tuple[int, ...], ...] = (
+    (0, 0, 0, 128, 0, 0, 0, 0),
+    (0, 0, -4, 126, 8, -2, 0, 0),
+    (0, 0, -8, 122, 18, -4, 0, 0),
+    (0, 0, -10, 116, 28, -6, 0, 0),
+    (0, 0, -12, 110, 38, -8, 0, 0),
+    (0, 0, -12, 102, 48, -10, 0, 0),
+    (0, 0, -14, 94, 58, -10, 0, 0),
+    (0, 0, -12, 84, 66, -10, 0, 0),
+    (0, 0, -12, 76, 76, -12, 0, 0),
+    (0, 0, -10, 66, 84, -12, 0, 0),
+    (0, 0, -10, 58, 94, -14, 0, 0),
+    (0, 0, -10, 48, 102, -12, 0, 0),
+    (0, 0, -8, 38, 110, -12, 0, 0),
+    (0, 0, -6, 28, 116, -10, 0, 0),
+    (0, 0, -4, 18, 122, -8, 0, 0),
+    (0, 0, -2, 8, 126, -4, 0, 0),
+)
+
+
+def _cb_ref_sample(data: bytes, x: int, y: int) -> int:
+    cb1 = _cb_offset(1)
+    sx = _clamp(x, 0, W // 2 - 1)
+    sy = _clamp(y, 0, H // 2 - 1)
+    return data[cb1 + sy * (W // 2) + sx]
+
+
+def _predict_cb_candidate(data: bytes, base_x: int, base_y: int, phase_x: int, phase_y: int) -> list[int]:
+    """Predict a 4x4 Cb block from frame 1 for one uniform base/phase candidate."""
+    out: list[int] = []
+    if phase_x == 0 and phase_y == 0:
+        for y in range(4):
+            for x in range(4):
+                out.append(_cb_ref_sample(data, base_x + x, base_y + y))
+        return out
+    if phase_y == 0:
+        coeffs_x = SMALL_REGULAR_FILTERS[phase_x]
+        for y in range(4):
+            for x in range(4):
+                taps = [_cb_ref_sample(data, base_x + x + tap - 3, base_y + y) for tap in range(8)]
+                out.append(_round_filter(taps, coeffs_x))
+        return out
+    if phase_x == 0:
+        coeffs_y = SMALL_REGULAR_FILTERS[phase_y]
+        for y in range(4):
+            for x in range(4):
+                taps = [_cb_ref_sample(data, base_x + x, base_y + y + tap - 3) for tap in range(8)]
+                out.append(_round_filter(taps, coeffs_y))
+        return out
+
+    coeffs_x = SMALL_REGULAR_FILTERS[phase_x]
+    coeffs_y = SMALL_REGULAR_FILTERS[phase_y]
+    for y in range(4):
+        for x in range(4):
+            vertical_acc = 0
+            for tap_y in range(8):
+                taps = [
+                    _cb_ref_sample(data, base_x + x + tap_x - 3, base_y + y + tap_y - 3)
+                    for tap_x in range(8)
+                ]
+                horizontal = (sum(coeff * sample for coeff, sample in zip(coeffs_x, taps)) + 4) >> 3
+                vertical_acc += coeffs_y[tap_y] * horizontal
+            out.append(max(0, min(255, (vertical_acc + 1024) >> 11)))
+    return out
+
+
+def _check_no_uniform_subpel_candidate(dec: Path) -> None:
+    """Reject the next broad workaround: a single nearby base/phase for the whole block.
+
+    The public Cb predictor vector is current RTL phase-8 output plus one local
+    LSB at sample 13.  If a nearby legal AV1 chroma origin/phase could produce
+    the full public 4x4 vector, the fix would likely be decoded-MV phase/origin
+    selection.  This exhaustive local scan keeps that hypothesis executable:
+    all q4 phases and a generous +/-3 base window around the current origin are
+    tried, and none reproduces the full public block.  The nearest uniform
+    candidate remains the current RTL base=(10,8), phase=(8,0), one LSB low at
+    only sample 13.
+    """
+    data = dec.read_bytes()
+    public_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166]
+    rtl_predictor = [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 163, 167, 166]
+    matches: list[tuple[int, int, int, int]] = []
+    best: tuple[int, int, int, int, int, list[int]] | None = None
+    for base_x in range(7, 14):
+        for base_y in range(5, 12):
+            for phase_x in range(16):
+                for phase_y in range(16):
+                    block = _predict_cb_candidate(data, base_x, base_y, phase_x, phase_y)
+                    sad = sum(abs(got - exp) for got, exp in zip(block, public_predictor))
+                    if block == public_predictor:
+                        matches.append((base_x, base_y, phase_x, phase_y))
+                    if best is None or (sad, base_x, base_y, phase_x, phase_y) < best[:5]:
+                        best = (sad, base_x, base_y, phase_x, phase_y, block)
+    if matches:
+        fail(f'unexpected uniform Cb base/phase candidate matches public predictor: {matches[:8]}')
+    expected_best = (1, 10, 8, 8, 0, rtl_predictor)
+    if best != expected_best:
+        fail(f'uniform Cb base/phase scan drifted: best={best} expected={expected_best}')
+    print(
+        '[PASS] no nearby uniform Cb base/phase candidate reproduces the public '
+        'blk33/34 predictor: scanned base_x=7..13 base_y=5..11 and all q4 phases; '
+        'best remains current base=(10,8) phase=(8,0), one LSB low only at sample 13'
+    )
+
+
 def _same_size_chroma_origin(blk: int, px: int, py: int, mvx_q3: int, mvy_q3: int) -> tuple[int, int, int, int]:
     """Return the unscaled AV1 4:2:0 chroma base sample and q4 phase.
 
@@ -527,6 +632,7 @@ def main() -> int:
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
     _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
     _check_halfpel_ref_signature(ff_rtl, recon)
+    _check_no_uniform_subpel_candidate(ff_rtl)
     print(
         "[PASS] 3-frame 64x64 full-coeff NEWMV widening probe: bytes match, "
         "public decoders agree on the same narrow frame-2 Cb recon blocker"
