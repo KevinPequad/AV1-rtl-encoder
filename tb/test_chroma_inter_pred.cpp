@@ -88,7 +88,8 @@ uint8_t pred_byte(const Vav1_chroma_inter_pred& dut, int idx) {
 }
 
 bool run_case(const std::string& name, int cur_x, int cur_y, int mv_x_q3, int mv_y_q3,
-              const std::vector<uint8_t>& ref) {
+              const std::vector<uint8_t>& ref,
+              const std::vector<uint8_t>* expected_block = nullptr) {
     Vav1_chroma_inter_pred dut;
     dut.rst_n = 0;
     dut.start = 0;
@@ -114,6 +115,10 @@ bool run_case(const std::string& name, int cur_x, int cur_y, int mv_x_q3, int mv
         return false;
     }
     bool ok = true;
+    if (expected_block && expected_block->size() != 16) {
+        std::cerr << "[FAIL] " << name << ": expected signature must have 16 samples\n";
+        ok = false;
+    }
     for (int i = 0; i < 16; ++i) {
         const int px = i & 3;
         const int py = i >> 2;
@@ -122,6 +127,13 @@ bool run_case(const std::string& name, int cur_x, int cur_y, int mv_x_q3, int mv
         if (got != exp) {
             std::cerr << "[FAIL] " << name << ": pred[" << i << "] got "
                       << static_cast<int>(got) << " expected " << static_cast<int>(exp) << "\n";
+            ok = false;
+        }
+        if (expected_block && expected_block->size() == 16 &&
+            (got != (*expected_block)[i] || exp != (*expected_block)[i])) {
+            std::cerr << "[FAIL] " << name << ": pred[" << i << "] signature got "
+                      << static_cast<int>(got) << " model " << static_cast<int>(exp)
+                      << " expected_signature " << static_cast<int>((*expected_block)[i]) << "\n";
             ok = false;
         }
     }
@@ -161,7 +173,13 @@ int main(int argc, char** argv) {
     for (int y = 0; y < 4; ++y)
         for (int x = 0; x < 11; ++x)
             blocker_ref[(8 + y) * W + 7 + x] = blocker_rows[y][x];
+    const std::vector<uint8_t> blocker_expected = {
+        144, 154, 164, 162,
+        142, 157, 170, 168,
+        150, 160, 168, 167,
+        157, 163, 167, 166,
+    };
     ok = run_case("chroma_frame2_cb_blocker_phase8_signature",
-                  4, 16, 104, -128, blocker_ref) && ok;
+                  4, 16, 104, -128, blocker_ref, &blocker_expected) && ok;
     return ok ? 0 : 1;
 }
