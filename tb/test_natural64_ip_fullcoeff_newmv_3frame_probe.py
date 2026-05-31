@@ -474,10 +474,23 @@ def _check_halfpel_ref_signature(dec: Path, recon: Path) -> None:
 
     small_phase8 = (0, 0, -12, 76, 76, -12, 0, 0)
     small_phase9 = (0, 0, -10, 66, 84, -12, 0, 0)
+    phase8_sum = sum(coeff * sample for coeff, sample in zip(small_phase8, expected_ref))
+    phase9_sum = sum(coeff * sample for coeff, sample in zip(small_phase9, expected_ref))
     phase8_pred = _round_filter(expected_ref, small_phase8)
     phase9_pred = _round_filter(expected_ref, small_phase9)
-    if (phase8_pred, phase9_pred) != (0xA3, 0xA4):
-        fail(f"unexpected Cb halfpel predictor signature phase8={phase8_pred} phase9={phase9_pred}")
+    if (phase8_sum, phase9_sum, phase8_pred, phase9_pred) != (20924, 20962, 0xA3, 0xA4):
+        fail(
+            "unexpected Cb halfpel predictor threshold signature: "
+            f"phase8_sum={phase8_sum} phase9_sum={phase9_sum} "
+            f"phase8={phase8_pred} phase9={phase9_pred}"
+        )
+    phase8_round_up_threshold = (0xA4 << 7) - 64
+    if phase8_round_up_threshold - phase8_sum != 4:
+        fail(
+            "frame-2 Cb phase8 sample is no longer exactly four filter-sum units "
+            f"below the public 0xA4 round-up threshold: sum={phase8_sum} "
+            f"threshold={phase8_round_up_threshold}"
+        )
 
     regular8_phase8 = (0, 2, -14, 76, 76, -14, 2, 0)
     regular8_phase9 = (0, 2, -12, 66, 84, -14, 2, 0)
