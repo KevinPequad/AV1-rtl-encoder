@@ -80,6 +80,63 @@ def _check_expected_decoder_delta(dec: Path, recon: Path, label: str) -> None:
     )
 
 
+def _cb_block(data: bytes, frame: int, blk: int) -> list[int]:
+    cb0 = _cb_offset(frame)
+    bx = (blk % (W // 8)) * 4
+    by = (blk // (W // 8)) * 4
+    vals: list[int] = []
+    for y in range(4):
+        vals.extend(data[cb0 + (by + y) * (W // 2) + bx: cb0 + (by + y) * (W // 2) + bx + 4])
+    return vals
+
+
+def _check_public_cb_block_signature(ff_dec: Path, aom_dec: Path, recon: Path) -> None:
+    """Pin the public-decoder Cb block vectors around the 3-frame blocker.
+
+    The scalar mismatch check proves there are only two bad bytes, but keeping
+    the full 4x4 public-decoder blocks executable is a stronger diagnostic for
+    the next step: the decoders agree with RTL on every neighboring Cb sample,
+    and blk34 carries the same +4 DC residual as RTL.  The remaining +1 is
+    therefore the local inter predictor sample before residual addition, not a
+    wider Cb residual scan, transform, or frame-buffer corruption.
+    """
+    ff = ff_dec.read_bytes()
+    aom = aom_dec.read_bytes()
+    rtl = recon.read_bytes()
+    expected = {
+        33: {
+            "public": [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 164, 167, 166],
+            "rtl":    [144, 154, 164, 162, 142, 157, 170, 168, 150, 160, 168, 167, 157, 163, 167, 166],
+            "delta": [(1, 3, 0xA4, 0xA3)],
+        },
+        34: {
+            "public": [148, 158, 168, 166, 146, 161, 174, 172, 154, 164, 172, 171, 161, 168, 171, 170],
+            "rtl":    [148, 158, 168, 166, 146, 161, 174, 172, 154, 164, 172, 171, 161, 167, 171, 170],
+            "delta": [(1, 3, 0xA8, 0xA7)],
+        },
+    }
+    for blk, exp in expected.items():
+        ff_blk = _cb_block(ff, 2, blk)
+        aom_blk = _cb_block(aom, 2, blk)
+        rtl_blk = _cb_block(rtl, 2, blk)
+        if ff_blk != exp["public"] or aom_blk != exp["public"] or rtl_blk != exp["rtl"]:
+            fail(
+                f"frame-2 blk{blk} Cb block signature drifted: "
+                f"ff={ff_blk} aom={aom_blk} rtl={rtl_blk}"
+            )
+        delta = []
+        for idx, (dec_v, rtl_v) in enumerate(zip(ff_blk, rtl_blk)):
+            if dec_v != rtl_v:
+                delta.append((idx % 4, idx // 4, dec_v, rtl_v))
+        if delta != exp["delta"]:
+            fail(f"frame-2 blk{blk} Cb local delta drifted: {delta}")
+    print(
+        "[PASS] public decoders agree with RTL on the full blk33/34 Cb 4x4 "
+        "neighborhoods except local sample (1,3); blk34 preserves the same +4 "
+        "DC residual, narrowing the +1 to inter predictor input/phase"
+    )
+
+
 def _cb_offset(frame: int) -> int:
     return frame * (W * H * 3 // 2) + (W * H)
 
@@ -396,6 +453,7 @@ def main() -> int:
     _check_public_decoders_agree(ff_rtl, aom_rtl)
     _check_expected_decoder_delta(ff_rtl, recon, "FFmpeg/libdav1d")
     _check_expected_decoder_delta(aom_rtl, recon, "aomdec")
+    _check_public_cb_block_signature(ff_rtl, aom_rtl, recon)
     _check_halfpel_ref_signature(ff_rtl, recon)
     print(
         "[PASS] 3-frame 64x64 full-coeff NEWMV widening probe: bytes match, "

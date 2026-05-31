@@ -31,6 +31,8 @@ The next unrestricted 64x64+ work is to widen beyond the two-frame 64x64 gradien
 
 2026-05-31 source-backed chroma-origin follow-up: `tb/test_natural64_ip_fullcoeff_newmv_3frame_probe.py` now also mirrors current libaom `reconinter.h:init_subpel_params()` q10 unscaled chroma setup against the reduced spec derivation. Both keep the failing frame-2 Cb samples at base `(11,11)` / phase `(8,0)`, while the scaled-path/phase-9 alternatives only remain contrasts. The next debug step should extract the public decoder's actual decoded MV/ref-sample inputs for blk33/34 rather than patching `rtl/av1_chroma_inter_pred.v` with an unsupported phase offset.
 
+2026-05-31 public-decoder block-vector follow-up: the 3-frame probe now pins the full public-decoder Cb 4x4 vectors for frame-2 blk33/34. FFmpeg/libdav1d and `aomdec` agree with RTL on every neighboring Cb sample; the only local delta in each block is sample `(1,3)`, and blk34 still carries the same +4 DC residual as RTL. This moves the next debug step away from Cb residual scan/transform/frame-buffer corruption and toward the single inter predictor input/phase actually used by public decoders at that sample.
+
 ## Validation Entry Points
 
 - Use the row-specific gates listed in `FULL_RTL_SCOPE.md`.
