@@ -102,7 +102,7 @@ EXTRA_PLUSARGS   ?=
 # Targets
 # ---------------------------------------------------------------------------
 
-.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fullcoeff-newmv-syntax-check natural64-ip-fullcoeff-newmv-syntax-check natural128x64-ip-fullcoeff-newmv-syntax-check natural192x64-ip-fullcoeff-newmv-syntax-check natural256x64-ip-fullcoeff-newmv-syntax-check natural320x64-ip-fullcoeff-newmv-syntax-check natural384x64-ip-fullcoeff-newmv-syntax-check natural448x64-ip-fullcoeff-newmv-syntax-check natural512x64-ip-fullcoeff-newmv-syntax-check natural576x64-ip-fullcoeff-newmv-syntax-check natural640x64-ip-fullcoeff-newmv-syntax-check natural704x64-ip-fullcoeff-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check gop-lifecycle-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check p5-highdc-q1-public-check clean help
+.PHONY: all run wave entropy-check bitstream-check header-qindex-sweep-check deterministic-packaging-check superblock-geometry-syntax-check qindex-edge-syntax-check inv-xform-check inter-pred-check me-check chroma-inter-pred-check chroma-residual-check chroma-coeff-table-check top-chroma-integration-check nonzero-chroma-syntax-check nonzero-chroma16-syntax-check natural32-chroma-syntax-check natural64-chroma-syntax-check natural32-ip-syntax-check natural32-ip-newmv-syntax-check natural32-ip-fullcoeff-newmv-syntax-check natural64-ip-fullcoeff-newmv-syntax-check natural128x64-ip-fullcoeff-newmv-syntax-check natural192x64-ip-fullcoeff-newmv-syntax-check natural256x64-ip-fullcoeff-newmv-syntax-check natural320x64-ip-fullcoeff-newmv-syntax-check natural384x64-ip-fullcoeff-newmv-syntax-check natural448x64-ip-fullcoeff-newmv-syntax-check natural512x64-ip-fullcoeff-newmv-syntax-check natural576x64-ip-fullcoeff-newmv-syntax-check natural640x64-ip-fullcoeff-newmv-syntax-check natural704x64-ip-fullcoeff-newmv-syntax-check natural768x64-ip-fullcoeff-newmv-syntax-check natural32-ip-fractional-syntax-check natural32-ip-chroma-delta-syntax-check natural64-ip-fractional-syntax-check natural64-ip-mode-context-syntax-check gop-lifecycle-syntax-check rtl-byte-owner-check negative-missing-rtl-raw-check negative-testbench-repair-check negative-decoder-source-check negative-invalid-shared-oracle-check negative-obu-length-repair-check standalone-matrix-check top-public-matrix-check av1-current-matrix-check av1-regression-matrix partition-tree-current8x8-check qindex-sweep-lossy-check skip-txb-cbp-matrix-check quant-header-disabled-check p5-highdc-q1-public-check clean help
 
 all: $(SIM_BIN)
 
@@ -392,6 +392,11 @@ natural704x64-ip-fullcoeff-newmv-syntax-check:
 	$(MAKE) WIDTH=704 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural704x64_ip_fullcoeff_newmv_syntax.py
 
+natural768x64-ip-fullcoeff-newmv-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=768 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural768x64_ip_fullcoeff_newmv_syntax.py
+
 
 natural64-ip-fullcoeff-newmv-boundary45-probe-check:
 	$(MAKE) clean
@@ -540,6 +545,7 @@ help:
 	@echo "  natural256x64-ip-fullcoeff-newmv-syntax-check 256x64 full-coeff unrestricted integer NEWMV public-decoder proof"
 	@echo "  natural320x64-ip-fullcoeff-newmv-syntax-check 320x64 full-coeff unrestricted integer NEWMV public-decoder proof"
 	@echo "  natural384x64-ip-fullcoeff-newmv-syntax-check 384x64 full-coeff unrestricted integer NEWMV public-decoder proof"
+	@echo "  natural448x64..natural768x64-ip-fullcoeff-newmv-syntax-check wider 64-high full-coeff unrestricted integer NEWMV proofs"
 	@echo "  natural32-ip-fractional-syntax-check 32x32 half-pel two-frame NEWMV public-decoder proof"
 	@echo "  gop-lifecycle-syntax-check 64x64 13-frame lowdelay_last GOP lifecycle public-decoder proof"
 	@echo "  natural64-ip-mode-context-syntax-check 64x64 LAST-path GLOBALMV/NEARESTMV/NEARMV/NEWMV syntax gate"
