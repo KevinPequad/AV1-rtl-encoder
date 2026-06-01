@@ -152,6 +152,7 @@ CURRENT_GATES: list[Gate] = [
     Gate("T54", "natural768x128-ip-fullcoeff-newmv-syntax-check", make_cmd("natural768x128-ip-fullcoeff-newmv-syntax-check"), TB, True, "768x128 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
     Gate("T55", "natural832x128-ip-fullcoeff-newmv-syntax-check", make_cmd("natural832x128-ip-fullcoeff-newmv-syntax-check"), TB, True, "832x128 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
     Gate("T56", "natural896x128-ip-fullcoeff-newmv-syntax-check", make_cmd("natural896x128-ip-fullcoeff-newmv-syntax-check"), TB, True, "896x128 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T57", "natural960x128-ip-fullcoeff-newmv-syntax-check", make_cmd("natural960x128-ip-fullcoeff-newmv-syntax-check"), TB, True, "960x128 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
