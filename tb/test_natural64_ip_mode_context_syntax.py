@@ -35,6 +35,10 @@ EXPECTED_BLOCKS = {
     6: ("GLOBALMV", 0, 0),
     7: ("GLOBALMV", 0, 0),
 }
+EXPECTED_TOTAL_INTER = (W // BLOCK) * (H // BLOCK)
+EXPECTED_NONZERO_INTER = 0
+EXPECTED_FIRST_INTER_BLK = 0
+EXPECTED_MODE_COUNTS = {"GLOBALMV": 54, "NEARESTMV": 1, "NEARMV": 3, "NEWMV": 6}
 
 
 def clip8(v: int) -> int:
@@ -154,9 +158,14 @@ def verify_mode_context_log(log: str) -> None:
         fail("frame 1 was not encoded as INTER")
     parsed = parse_inter_summary(log)
     counts = parsed["mode_counts"]
-    for mode in ("GLOBALMV", "NEARESTMV", "NEARMV", "NEWMV"):
-        if counts[mode] <= 0:
-            fail(f"expected at least one {mode} block in frame 1, saw {counts[mode]}")
+    if parsed["total_inter"] != EXPECTED_TOTAL_INTER:
+        fail(f"expected {EXPECTED_TOTAL_INTER} inter blocks in frame 1, saw {parsed['total_inter']}")
+    if parsed["nonzero_inter"] != EXPECTED_NONZERO_INTER:
+        fail(f"expected zero-residual mode-context frame, saw nonzero_inter={parsed['nonzero_inter']}")
+    if parsed["first_inter_blk"] != EXPECTED_FIRST_INTER_BLK:
+        fail(f"expected first inter block {EXPECTED_FIRST_INTER_BLK}, saw {parsed['first_inter_blk']}")
+    if counts != EXPECTED_MODE_COUNTS:
+        fail(f"expected exact mode distribution {EXPECTED_MODE_COUNTS}, saw {counts}")
     for blk, expected in EXPECTED_BLOCKS.items():
         got = parsed["blocks"].get(blk)
         if got is None:
