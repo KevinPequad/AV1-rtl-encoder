@@ -2330,7 +2330,7 @@ module av1_encoder_top #(
     // inter unless a test/bring-up path explicitly opts into NEWMV with
     // +me_newmv_limit=N. Full-coeff NEWMV now stays on integer-pel MVs.
     // The 64x64, width-stretched <=64-row, 64x128, selected smaller
-    // 128-high checkpoints, and now the 1664x128 full-coeff reduced
+    // 128-high checkpoints, and now the 1728x128 full-coeff reduced
     // reference-stack/MV-prediction path are public-clean for the natural
     // unrestricted LAST-frame stress cases. Keep the conservative cap on other taller geometries until their unrestricted
     // stack model is decoder-exact. The disable_fullcoeff_cap_in hook remains
@@ -2345,7 +2345,8 @@ module av1_encoder_top #(
         ((FRAME_WIDTH == 256) && (FRAME_HEIGHT == 128)) ||
         ((FRAME_WIDTH == 320) && (FRAME_HEIGHT == 128)) ||
         ((FRAME_WIDTH == 1600) && (FRAME_HEIGHT == 128)) ||
-        ((FRAME_WIDTH == 1664) && (FRAME_HEIGHT == 128));
+        ((FRAME_WIDTH == 1664) && (FRAME_HEIGHT == 128)) ||
+        ((FRAME_WIDTH == 1728) && (FRAME_HEIGHT == 128));
     wire        me_fullcoeff_cap_applies = (FRAME_HEIGHT > 64) && !me_fullcoeff_tall_public_clean;
     wire [7:0]  me_effective_newmv_limit =
         (!dc_only_in && !disable_fullcoeff_cap_in && me_fullcoeff_cap_applies && (me_newmv_limit_in > 8'd44)) ?
