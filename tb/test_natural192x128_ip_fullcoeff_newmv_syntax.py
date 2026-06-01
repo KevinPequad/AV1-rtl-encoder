@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""192x128 capped full-coeff low-delay LAST inter proof.
+"""192x128 unrestricted full-coeff low-delay LAST inter proof.
 
-This extends the capped taller-than-64 full-coeff NEWMV/reference-stack
-checkpoint to a wider 192x128 geometry. It proves the deterministic 192x128
-gradient stress path is RTL/software byte-identical and decoder-to-recon exact
-while the unrestricted taller-stack work remains pending.
+This graduates the wider 192x128 taller-than-64 full-coeff NEWMV/reference-stack
+checkpoint out from the conservative tall-geometry cap. It proves the
+deterministic 192x128 gradient stress path is RTL/software byte-identical and
+decoder-to-recon exact without using the testbench-only cap-disable hook.
 """
 from pathlib import Path
 import os
@@ -51,18 +51,18 @@ def main() -> int:
         fail(f"expected all blocks inter in frame 1, saw {total_inter}")
     if nonzero_inter <= 0:
         fail("expected nonzero full-coeff inter residual blocks")
-    if globalmv != 340 or newmv != 42 or nearestmv != 2 or nearmv != 0:
+    if globalmv != 282 or newmv != 57 or nearestmv != 45 or nearmv != 0:
         fail(
-            f"expected capped taller-geometry mix GLOBALMV=340 NEWMV=42 NEARESTMV=2 NEARMV=0, "
+            f"expected unrestricted taller-geometry mix GLOBALMV=282 NEWMV=57 NEARESTMV=45 NEARMV=0, "
             f"saw global={globalmv} new={newmv} nearest={nearestmv} near={nearmv}"
         )
     print(
-        "[PASS] 192x128 capped full-coeff integer motion summary: "
+        "[PASS] 192x128 unrestricted full-coeff integer motion summary: "
         f"total_inter={total_inter} nonzero_inter={nonzero_inter} "
         f"mode_counts={{GLOBALMV:{globalmv} NEARESTMV:{nearestmv} NEARMV:{nearmv} NEWMV:{newmv}}}"
     )
-    check_public_decoder_case(paths, "192x128 capped full-coeff integer motion")
-    print("[PASS] 192x128 capped full-coeff integer motion public-decoder proof")
+    check_public_decoder_case(paths, "192x128 unrestricted full-coeff integer motion")
+    print("[PASS] 192x128 unrestricted full-coeff integer motion public-decoder proof")
     return 0
 
 

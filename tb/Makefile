@@ -673,7 +673,7 @@ help:
 	@echo "  natural64x128-ip-fullcoeff-newmv-syntax-check 64x128 full-coeff unrestricted integer NEWMV public-decoder proof"
 	@echo "  natural128x64-ip-fullcoeff-newmv-syntax-check 128x64 full-coeff unrestricted integer NEWMV public-decoder proof"
 	@echo "  natural128x128-ip-fullcoeff-newmv-syntax-check 128x128 unrestricted full-coeff NEWMV public-decoder proof"
-	@echo "  natural192x128-ip-fullcoeff-newmv-syntax-check 192x128 capped full-coeff NEWMV public-decoder proof"
+	@echo "  natural192x128-ip-fullcoeff-newmv-syntax-check 192x128 unrestricted full-coeff NEWMV public-decoder proof"
 	@echo "  natural192x64-ip-fullcoeff-newmv-syntax-check 192x64 full-coeff unrestricted integer NEWMV public-decoder proof"
 	@echo "  natural256x64-ip-fullcoeff-newmv-syntax-check 256x64 full-coeff unrestricted integer NEWMV public-decoder proof"
 	@echo "  natural320x64-ip-fullcoeff-newmv-syntax-check 320x64 full-coeff unrestricted integer NEWMV public-decoder proof"
