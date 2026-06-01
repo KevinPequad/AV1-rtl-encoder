@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""128x128 capped full-coeff low-delay LAST inter proof.
+"""128x128 unrestricted full-coeff low-delay LAST inter proof.
 
-This locks the first taller-than-64 square full-coeff NEWMV/reference-stack
-checkpoint without relaxing the conservative tall-geometry cap.  It proves the
+This graduates the first taller-than-64 square full-coeff NEWMV/reference-stack
+checkpoint out from the conservative tall-geometry cap. It proves the
 deterministic 128x128 gradient stress path is RTL/software byte-identical and
-decoder-to-recon exact while the unrestricted taller-stack work remains pending.
+decoder-to-recon exact without using the testbench-only cap-disable hook.
 """
 from pathlib import Path
 import os
@@ -50,18 +50,18 @@ def main() -> int:
         fail(f"expected all blocks inter in frame 1, saw {total_inter}")
     if nonzero_inter <= 0:
         fail("expected nonzero full-coeff inter residual blocks")
-    if globalmv != 212 or newmv != 42 or nearestmv != 2 or nearmv != 0:
+    if globalmv != 170 or newmv != 53 or nearestmv != 33 or nearmv != 0:
         fail(
-            f"expected capped taller-geometry mix GLOBALMV=212 NEWMV=42 NEARESTMV=2 NEARMV=0, "
+            f"expected unrestricted taller-geometry mix GLOBALMV=170 NEWMV=53 NEARESTMV=33 NEARMV=0, "
             f"saw global={globalmv} new={newmv} nearest={nearestmv} near={nearmv}"
         )
     print(
-        "[PASS] 128x128 capped full-coeff integer motion summary: "
+        "[PASS] 128x128 unrestricted full-coeff integer motion summary: "
         f"total_inter={total_inter} nonzero_inter={nonzero_inter} "
         f"mode_counts={{GLOBALMV:{globalmv} NEARESTMV:{nearestmv} NEARMV:{nearmv} NEWMV:{newmv}}}"
     )
-    check_public_decoder_case(paths, "128x128 capped full-coeff integer motion")
-    print("[PASS] 128x128 capped full-coeff integer motion public-decoder proof")
+    check_public_decoder_case(paths, "128x128 unrestricted full-coeff integer motion")
+    print("[PASS] 128x128 unrestricted full-coeff integer motion public-decoder proof")
     return 0
 
 
