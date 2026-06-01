@@ -2,7 +2,7 @@
 """512x128 unrestricted full-coeff low-delay LAST inter proof.
 
 This graduates the next wider 128-high full-coeff NEWMV/reference-stack
-checkpoint beyond 448x128. It proves the deterministic 448x128 gradient stress
+checkpoint beyond 448x128. It proves the deterministic 512x128 gradient stress
 path is RTL/software byte-identical and decoder-to-recon exact without using the
 testbench-only cap-disable hook.
 """
