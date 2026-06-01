@@ -3,9 +3,9 @@
 
 The gate is real: it first encodes a 1-frame preparatory clip to capture the
 actual reconstructed LAST frame, then synthesizes frame 1 from that recon so the
-top-row 8x8 blocks exercise the claimed mode chain. The testbench still checks
-RTL raw OBU / IVF byte ownership plus the mode-context summary, but it does not
-claim public-decoder parity for this gate.
+top-row 8x8 blocks exercise the claimed mode chain. The testbench checks the
+mode-context summary, RTL raw OBU / IVF byte ownership, and public decoder to
+RTL recon parity for the reduced reference-stack/MV-prediction path.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import os
 import re
 
 from av1_public_decode import artifact_dir, fail, run
+from av1_syntax_test_common import check_public_decoders
 
 TB = Path(__file__).resolve().parent
 SIM = Path(os.environ["AV1_TOP_SIM"]) if "AV1_TOP_SIM" in os.environ else TB / "Vav1_encoder_top"
@@ -209,8 +210,18 @@ def main() -> int:
             fail(f"recon missing: {recon_yuv}")
         cmp_file(out_obu, rtl_raw_obu, "RTL raw OBU matches software oracle OBU")
         cmp_file(sw_ivf, rtl_ivf, "RTL IVF matches software oracle IVF packaging")
+        check_public_decoders(
+            {
+                "rtl_ivf": rtl_ivf,
+                "recon": recon_yuv,
+                "width": W,
+                "height": H,
+                "log": log,
+            },
+            "64x64 LAST-path mode-context",
+        )
 
-    print("[PASS] 64x64 LAST-path mode-context syntax gate")
+    print("[PASS] 64x64 LAST-path mode-context public-decoder syntax gate")
     return 0
 
 
