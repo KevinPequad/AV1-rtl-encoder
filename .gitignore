@@ -20,7 +20,9 @@ htmlcov/
 
 # Verilator / build artifacts
 tb/obj_dir/
+tb/obj_dir_*/
 tb/Vav1_encoder_top
+tb/Vav1_encoder_top_*
 tb/test_bitstream
 tb/test_entropy
 tb/*.o
