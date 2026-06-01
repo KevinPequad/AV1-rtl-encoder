@@ -379,6 +379,12 @@ natural384x128-ip-fullcoeff-newmv-syntax-check:
 	python3 test_natural384x128_ip_fullcoeff_newmv_syntax.py
 
 
+natural448x128-ip-fullcoeff-newmv-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=448 HEIGHT=128 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural448x128_ip_fullcoeff_newmv_syntax.py
+
+
 natural192x64-ip-fullcoeff-newmv-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=192 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
