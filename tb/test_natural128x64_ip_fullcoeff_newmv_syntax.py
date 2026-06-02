@@ -36,9 +36,13 @@ def main() -> int:
         repeat=False,
         dc_only=0,
         timeout=800_000_000,
-        extra_plusargs=["+me_newmv_limit=255", "+dump_inter_summary=1"],
+        # Aggregate-only inter summary keeps the proof signal for this wider
+        # unrestricted NEWMV gate without emitting per-block log spam.
+        extra_plusargs=["+me_newmv_limit=255", "+dump_inter_summary=2"],
     )
     log = paths["log"]
+    if re.search(r"inter_summary frame=1 blk=", log):
+        fail("aggregate-only inter summary unexpectedly emitted per-block lines")
     summary = re.search(
         r"inter_summary frame=1 total_inter=(\d+) nonzero_inter=(\d+) first_inter_blk=(-?\d+) "
         r"mode_counts=\{GLOBALMV:(\d+) NEARESTMV:(\d+) NEARMV:(\d+) NEWMV:(\d+)\}",
