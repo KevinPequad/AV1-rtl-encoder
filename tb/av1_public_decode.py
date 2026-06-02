@@ -210,6 +210,15 @@ def public_decode_proof(
 
     started = time.time()
     yuv420 = (int(width), int(height)) if width is not None and height is not None else None
+    geometry = None
+    if yuv420 is not None:
+        w, h = yuv420
+        geometry = {
+            "width": w,
+            "height": h,
+            "pixel_format": "yuv420p",
+            "frame_size_bytes": w * h * 3 // 2,
+        }
     for path, desc in [
         (oracle_obu, "software/oracle raw OBU"),
         (rtl_raw_obu, "RTL raw OBU"),
@@ -258,6 +267,7 @@ def public_decode_proof(
         "label": label,
         "status": "pass",
         "compare_ivf": compare_ivf,
+        "geometry": geometry,
         "elapsed_seconds": round(time.time() - started, 3),
         "decoder_tools": decoder_tools,
         "proof_steps": [

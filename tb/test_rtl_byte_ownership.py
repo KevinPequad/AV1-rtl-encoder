@@ -68,6 +68,8 @@ def prove(t: Path, label: str, *, compare_ivf: bool = True) -> None:
         recon_yuv=p["recon"],
         label=label,
         compare_ivf=compare_ivf,
+        width=W,
+        height=H,
     )
     written = json.loads((t / "public_decode_proof.json").read_text())
     required_decoders = {"ffmpeg/libdav1d", "aomdec"}
@@ -77,6 +79,16 @@ def prove(t: Path, label: str, *, compare_ivf: bool = True) -> None:
         fail(f"{label}: missing decoder tool-version manifest entries")
     if written.get("proof_steps") != manifest.get("proof_steps"):
         fail(f"{label}: persisted proof manifest lost decoder proof steps")
+    expected_geometry = {
+        "width": W,
+        "height": H,
+        "pixel_format": "yuv420p",
+        "frame_size_bytes": W * H * 3 // 2,
+    }
+    if manifest.get("geometry") != expected_geometry:
+        fail(f"{label}: proof manifest missing geometry {expected_geometry}, saw {manifest.get('geometry')}")
+    if written.get("geometry") != expected_geometry:
+        fail(f"{label}: persisted proof manifest lost geometry metadata")
 
 
 def clone_fixture(src: Path, dst: Path) -> None:
