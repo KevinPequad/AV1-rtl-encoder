@@ -1310,12 +1310,14 @@ int main(int argc, char** argv) {
                         (mode_ctx >> AV1_GLOBALMV_OFFSET) & AV1_GLOBALMV_CTX_MASK;
                     const unsigned refmv_ctx =
                         (mode_ctx >> AV1_REFMV_OFFSET) & AV1_REFMV_CTX_MASK;
-                    fprintf(stderr,
-                            "[TB] inter_summary frame=%d blk=%zu mv=(%d,%d) ref=(%d,%d) near=(%d,%d) mode=%s mode_ctx=%u ctx(new=%u zero=%u ref=%u) dc=%d nz=%d\n",
-                            frame_idx, bi_idx, bi.mvx, bi.mvy,
-                            bi.ref_mvx, bi.ref_mvy, bi.near_mvx, bi.near_mvy,
-                            reduced_inter_mode_name(bi.inter_mode), mode_ctx,
-                            newmv_ctx, zeromv_ctx, refmv_ctx, bi.qcoeff[0], nonzero);
+                    if (dump_inter_summary == 1) {
+                        fprintf(stderr,
+                                "[TB] inter_summary frame=%d blk=%zu mv=(%d,%d) ref=(%d,%d) near=(%d,%d) mode=%s mode_ctx=%u ctx(new=%u zero=%u ref=%u) dc=%d nz=%d\n",
+                                frame_idx, bi_idx, bi.mvx, bi.mvy,
+                                bi.ref_mvx, bi.ref_mvy, bi.near_mvx, bi.near_mvy,
+                                reduced_inter_mode_name(bi.inter_mode), mode_ctx,
+                                newmv_ctx, zeromv_ctx, refmv_ctx, bi.qcoeff[0], nonzero);
+                    }
                 }
                 fprintf(stderr,
                         "[TB] inter_summary frame=%d total_inter=%d nonzero_inter=%d first_inter_blk=%d mode_counts={GLOBALMV:%d NEARESTMV:%d NEARMV:%d NEWMV:%d}\n",

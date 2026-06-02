@@ -35,7 +35,9 @@ def main() -> int:
         repeat=False,
         dc_only=0,
         timeout=300_000_000,
-        extra_plusargs=["+me_newmv_limit=255", "+dump_inter_summary=1"],
+        # Aggregate-only inter summary keeps the full public decode proof
+        # signal while avoiding per-block log spam for wider follow-on gates.
+        extra_plusargs=["+me_newmv_limit=255", "+dump_inter_summary=2"],
     )
     log = paths["log"]
     summary = re.search(
