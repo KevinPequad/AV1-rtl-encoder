@@ -177,6 +177,12 @@ CURRENT_GATES: list[Gate] = [
     Gate("T79", "natural384x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural384x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "384x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
     Gate("T80", "natural448x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural448x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "448x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
     Gate("T81", "natural512x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural512x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "512x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T82", "natural576x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural576x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "576x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T83", "natural640x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural640x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "640x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T84", "natural704x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural704x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "704x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T85", "natural768x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural768x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "768x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T86", "natural832x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural832x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "832x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T87", "natural896x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural896x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "896x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
