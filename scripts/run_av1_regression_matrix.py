@@ -183,6 +183,12 @@ CURRENT_GATES: list[Gate] = [
     Gate("T85", "natural768x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural768x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "768x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
     Gate("T86", "natural832x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural832x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "832x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
     Gate("T87", "natural896x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural896x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "896x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T88", "natural960x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural960x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "960x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T89", "natural1024x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural1024x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "1024x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T90", "natural1088x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural1088x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "1088x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T91", "natural1152x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural1152x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "1152x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T92", "natural1216x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural1216x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "1216x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T93", "natural1280x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural1280x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "1280x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
