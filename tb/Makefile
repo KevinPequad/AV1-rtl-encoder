@@ -477,6 +477,11 @@ natural1664x192-ip-fullcoeff-newmv-syntax-check:
 	$(MAKE) WIDTH=1664 HEIGHT=192 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural1664x192_ip_fullcoeff_newmv_syntax.py
 
+natural1728x192-ip-fullcoeff-newmv-syntax-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=1728 HEIGHT=192 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural1728x192_ip_fullcoeff_newmv_syntax.py
+
 natural128x64-ip-fullcoeff-newmv-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=128 HEIGHT=64 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
@@ -955,7 +960,7 @@ help:
 	@echo "  natural32-ip-fullcoeff-newmv-syntax-check 32x32 full-coeff integer NEWMV public-decoder proof"
 	@echo "  natural64-ip-fullcoeff-newmv-syntax-check 64x64 full-coeff unrestricted integer NEWMV public-decoder proof"
 	@echo "  natural64x128-ip-fullcoeff-newmv-syntax-check 64x128 full-coeff unrestricted integer NEWMV public-decoder proof"
-	@echo "  natural64x192..natural1600x192-ip-fullcoeff-newmv-syntax-check tall unrestricted full-coeff NEWMV proofs"
+	@echo "  natural64x192..natural1728x192-ip-fullcoeff-newmv-syntax-check tall unrestricted full-coeff NEWMV proofs"
 	@echo "  natural128x64-ip-fullcoeff-newmv-syntax-check 128x64 full-coeff unrestricted integer NEWMV public-decoder proof"
 	@echo "  natural128x128-ip-fullcoeff-newmv-syntax-check 128x128 unrestricted full-coeff NEWMV public-decoder proof"
 	@echo "  natural192x128-ip-fullcoeff-newmv-syntax-check 192x128 unrestricted full-coeff NEWMV public-decoder proof"
