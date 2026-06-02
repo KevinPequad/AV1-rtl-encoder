@@ -248,8 +248,28 @@ def check_public_decoders(paths: Dict[str, object], label: str) -> None:
 
 
 def check_public_decoder_case(paths: Dict[str, object], label: str) -> None:
-    check_rtl_ownership(paths, label)
-    check_public_decoders(paths, label)
+    """Run the full RTL-byte/public-decoder proof and persist its manifest.
+
+    The syntax gates use this common entry point, so keep it fail-closed: the
+    bytes emitted by the RTL raw OBU and RTL IVF must be present, must match
+    the software packaging oracle, and must be the bytes decoded by both
+    FFmpeg/libdav1d and aomdec.  The shared proof helper also records tool
+    versions, hashes, and the decoder/recon comparisons for cron evidence.
+    """
+    from av1_public_decode import public_decode_proof
+
+    public_decode_proof(
+        output_dir=Path(paths["rtl_ivf"]).parent,
+        oracle_obu=Path(paths["out_obu"]),
+        rtl_raw_obu=Path(paths["rtl_raw"]),
+        sw_ivf=Path(paths["sw_ivf"]),
+        rtl_ivf=Path(paths["rtl_ivf"]),
+        recon_yuv=Path(paths["recon"]),
+        label=label,
+        compare_ivf=True,
+        width=int(paths["width"]) if "width" in paths else None,
+        height=int(paths["height"]) if "height" in paths else None,
+    )
 
 
 def assert_ip_summary(log: str, width: int, height: int, label: str) -> None:
