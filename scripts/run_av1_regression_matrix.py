@@ -174,6 +174,9 @@ CURRENT_GATES: list[Gate] = [
     Gate("T76", "natural192x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural192x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "192x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
     Gate("T77", "natural256x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural256x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "256x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
     Gate("T78", "natural320x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural320x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "320x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T79", "natural384x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural384x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "384x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T80", "natural448x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural448x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "448x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
+    Gate("T81", "natural512x192-ip-fullcoeff-newmv-syntax-check", make_cmd("natural512x192-ip-fullcoeff-newmv-syntax-check"), TB, True, "512x192 unrestricted full-coeff LAST reference-stack/NEWMV public decoder proof"),
 ]
 
 FUTURE_GATES: list[dict[str, str]] = [
