@@ -151,6 +151,24 @@ def _file_record(path: Path) -> dict[str, object]:
     }
 
 
+def _tool_version(argv: Iterable[object]) -> dict[str, object]:
+    cmd = [str(x) for x in argv]
+    res = subprocess.run(
+        cmd,
+        cwd=str(TB),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    lines = [line.strip() for line in (res.stdout or "").splitlines() if line.strip()]
+    return {
+        "command": cmd,
+        "returncode": res.returncode,
+        "summary": lines[0] if lines else "",
+    }
+
+
 def write_json(path: Path, data: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
@@ -185,6 +203,10 @@ def public_decode_proof(
 
     require("ffmpeg")
     require("aomdec")
+    decoder_tools = {
+        "ffmpeg": _tool_version(["ffmpeg", "-version"]),
+        "aomdec": _tool_version(["aomdec", "--help"]),
+    }
 
     started = time.time()
     yuv420 = (int(width), int(height)) if width is not None and height is not None else None
@@ -237,6 +259,27 @@ def public_decode_proof(
         "status": "pass",
         "compare_ivf": compare_ivf,
         "elapsed_seconds": round(time.time() - started, 3),
+        "decoder_tools": decoder_tools,
+        "proof_steps": [
+            {
+                "decoder": "ffmpeg/libdav1d",
+                "input": "sw_ivf",
+                "output": "ffmpeg_sw_yuv",
+                "comparison": "FFmpeg software IVF decode matches RTL recon",
+            },
+            {
+                "decoder": "ffmpeg/libdav1d",
+                "input": "rtl_ivf",
+                "output": "ffmpeg_rtl_yuv",
+                "comparison": "FFmpeg RTL IVF decode matches RTL recon",
+            },
+            {
+                "decoder": "aomdec",
+                "input": "rtl_ivf",
+                "output": "aomdec_rtl_yuv",
+                "comparison": "aomdec RTL IVF decode matches RTL recon",
+            },
+        ],
         "files": {name: _file_record(path) for name, path in files.items()},
     }
     write_json(output_dir / "public_decode_proof.json", manifest)

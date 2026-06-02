@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 import os
 import argparse
+import json
 import shutil
 import struct
 
@@ -58,7 +59,7 @@ def produce_fixture(t: Path) -> dict[str, Path]:
 
 def prove(t: Path, label: str, *, compare_ivf: bool = True) -> None:
     p = fixture_paths(t)
-    public_decode_proof(
+    manifest = public_decode_proof(
         output_dir=t,
         oracle_obu=p["oracle_obu"],
         rtl_raw_obu=p["rtl_raw"],
@@ -68,6 +69,14 @@ def prove(t: Path, label: str, *, compare_ivf: bool = True) -> None:
         label=label,
         compare_ivf=compare_ivf,
     )
+    written = json.loads((t / "public_decode_proof.json").read_text())
+    required_decoders = {"ffmpeg/libdav1d", "aomdec"}
+    if {step.get("decoder") for step in manifest.get("proof_steps", [])} != required_decoders:
+        fail(f"{label}: missing decoder proof-step manifest entries")
+    if set(manifest.get("decoder_tools", {})) != {"ffmpeg", "aomdec"}:
+        fail(f"{label}: missing decoder tool-version manifest entries")
+    if written.get("proof_steps") != manifest.get("proof_steps"):
+        fail(f"{label}: persisted proof manifest lost decoder proof steps")
 
 
 def clone_fixture(src: Path, dst: Path) -> None:
