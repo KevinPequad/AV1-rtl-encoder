@@ -32,16 +32,35 @@ def require(tool: str) -> None:
         fail(f"missing required tool: {tool}")
 
 
+def _subprocess_timeout_seconds() -> float | None:
+    raw = os.environ.get("AV1_SUBPROCESS_TIMEOUT_SECONDS")
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        timeout = float(raw)
+    except ValueError:
+        fail(f"invalid AV1_SUBPROCESS_TIMEOUT_SECONDS={raw!r}")
+    if timeout <= 0:
+        return None
+    return timeout
+
+
 def run(cmd: Iterable[object], *, cwd: Path | str = TB, check: bool = True) -> subprocess.CompletedProcess:
     argv = [str(x) for x in cmd]
     print("[RUN]", " ".join(argv))
-    res = subprocess.run(
-        argv,
-        cwd=str(cwd),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    try:
+        res = subprocess.run(
+            argv,
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=_subprocess_timeout_seconds(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        if exc.stdout:
+            print(exc.stdout, end="" if str(exc.stdout).endswith("\n") else "\n")
+        fail(f"command timed out after {exc.timeout}s: {' '.join(argv)}")
     if res.stdout:
         print(res.stdout, end="")
     if check and res.returncode != 0:

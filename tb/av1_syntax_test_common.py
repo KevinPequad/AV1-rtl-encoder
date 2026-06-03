@@ -19,10 +19,37 @@ else:
     SIM = TB / "Vav1_encoder_top"
 
 
+def _subprocess_timeout_seconds() -> float | None:
+    raw = os.environ.get("AV1_SUBPROCESS_TIMEOUT_SECONDS")
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        timeout = float(raw)
+    except ValueError:
+        print(f"[FAIL] invalid AV1_SUBPROCESS_TIMEOUT_SECONDS={raw!r}")
+        raise SystemExit(1)
+    if timeout <= 0:
+        return None
+    return timeout
+
+
 def run(cmd: Iterable[object], *, cwd: Path = TB, check: bool = True) -> subprocess.CompletedProcess[str]:
     cmd_list = [str(c) for c in cmd]
     print("[RUN]", " ".join(cmd_list))
-    res = subprocess.run(cmd_list, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        res = subprocess.run(
+            cmd_list,
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=_subprocess_timeout_seconds(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        if exc.stdout:
+            print(exc.stdout, end="" if str(exc.stdout).endswith("\n") else "\n")
+        print(f"[FAIL] command timed out after {exc.timeout}s: {' '.join(cmd_list)}")
+        raise SystemExit(124)
     if res.stdout:
         print(res.stdout, end="")
     if check and res.returncode != 0:
