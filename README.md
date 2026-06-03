@@ -298,6 +298,10 @@ Inventory of the current repo state:
   - `make THREADS=1 BUILD_JOBS=1 natural32-chroma-syntax-check nonzero-chroma16-syntax-check nonzero-chroma-syntax-check` passes with the same raw-byte and public-decoder parity on the named chroma fixtures
   - `make THREADS=1 BUILD_JOBS=1 natural64-ip-fractional-syntax-check` passes with `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and FFmpeg/libdav1d plus `aomdec` parity on the 64x64 natural-motion guard
   - this is the first real non-zero fractional-pel translational motion on the reduced single-reference LAST path; it does not yet prove full AV1, multi-reference inter, arbitrary natural-motion coverage, or final 1280x720@24fps Big Buck Bunny validation, and the software writer/testbench still serves as the oracle where applicable
+  - Chud PC 2 now has a single-threaded public-clean 1472x192 unrestricted full-coeff NEWMV/reference-stack proof:
+    - `make -C tb THREADS=1 BUILD_JOBS=1 natural1472x192-ip-fullcoeff-newmv-syntax-check` passed with `AV1_ARTIFACT_ROOT=/tmp/av1-cron-1472x192-20260602_181633`.
+    - The frame-1 summary was `total_inter=4416`, `nonzero_inter=13`, `GLOBALMV=4372`, `NEARESTMV=2`, `NEARMV=0`, `NEWMV=42`.
+    - `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and FFmpeg/libdav1d plus `aomdec` decoded the RTL IVF back to `recon.yuv`; this is scale/parity evidence, not feature-complete or ASIC-ready closure.
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
 - Placeholder or debug-only:
