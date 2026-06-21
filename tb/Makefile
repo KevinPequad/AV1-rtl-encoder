@@ -664,6 +664,11 @@ natural1856x128-ip-fullcoeff-newmv-syntax-check:
 	$(MAKE) WIDTH=1856 HEIGHT=128 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
 	python3 test_natural1856x128_ip_fullcoeff_newmv_syntax.py
 
+natural1856x128-ip-fullcoeff-newmv-uncapped-check:
+	$(MAKE) clean
+	$(MAKE) WIDTH=1856 HEIGHT=128 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
+	python3 test_natural1856x128_ip_fullcoeff_newmv_uncapped_probe.py
+
 natural1920x128-ip-fullcoeff-newmv-syntax-check:
 	$(MAKE) clean
 	$(MAKE) WIDTH=1920 HEIGHT=128 THREADS=$(THREADS) BUILD_JOBS=$(BUILD_JOBS) all
