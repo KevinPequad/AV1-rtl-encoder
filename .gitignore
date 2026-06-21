@@ -43,6 +43,7 @@ tb/*.gcda
 # Generated outputs
 output/
 tb/output/
+tb/artifacts/
 tb/_tmp_*
 /_tmp_*
 rtl_frames/

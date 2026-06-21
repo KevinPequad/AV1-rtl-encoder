@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""1792x128 unrestricted full-coeff low-delay LAST inter proof.
+"""1792x128 explicit cap-disable full-coeff low-delay LAST proof.
 
-This graduates the next wider 128-high full-coeff NEWMV/reference-stack
-checkpoint beyond 1728x128. It proves the deterministic 1792x128 gradient stress
-path is RTL/software byte-identical and decoder-to-recon exact without using the
-testbench-only cap-disable hook. A separate uncapped probe keeps the cap-disable
-comparison executable; this strict gate proves the production whitelist path.
+This pins the uncapped behavior for the next 128-high full-coeff
+NEWMV/reference-stack checkpoint. It intentionally uses the testbench-only
++disable_fullcoeff_cap=1 probe plus +me_newmv_limit=255 so future cap-hidden
+passes cannot masquerade as unrestricted 1792x128 behavior.
 """
 from pathlib import Path
 import os
@@ -23,7 +22,7 @@ def main() -> int:
     if not SIM.exists():
         fail(f"missing simulator {SIM}; run make WIDTH=1792 HEIGHT=128 all first")
     artifact_root = Path(os.environ.get("AV1_ARTIFACT_ROOT", TB / "artifacts"))
-    out = artifact_root / "natural1792x128_ip_fullcoeff_newmv"
+    out = artifact_root / "natural1792x128_ip_fullcoeff_newmv_uncapped_probe"
     paths = run_encoder_case(
         out,
         W,
@@ -37,7 +36,7 @@ def main() -> int:
         repeat=False,
         dc_only=0,
         timeout=7_400_000_000,
-        extra_plusargs=["+me_newmv_limit=255", "+dump_inter_summary=1"],
+        extra_plusargs=["+disable_fullcoeff_cap=1", "+me_newmv_limit=255", "+dump_inter_summary=1"],
     )
     log = paths["log"]
     summary = re.search(
@@ -54,16 +53,16 @@ def main() -> int:
         fail("expected nonzero full-coeff inter residual blocks")
     if globalmv != 3329 or newmv != 100 or nearestmv != 155 or nearmv != 0:
         fail(
-            f"expected uncapped taller-geometry mix GLOBALMV=3329 NEWMV=100 NEARESTMV=155 NEARMV=0, "
+            f"expected uncapped cap-disable mix GLOBALMV=3329 NEWMV=100 NEARESTMV=155 NEARMV=0, "
             f"saw global={globalmv} new={newmv} nearest={nearestmv} near={nearmv}"
         )
     print(
-        "[PASS] 1792x128 unrestricted full-coeff integer motion summary: "
+        "[PASS] 1792x128 cap-disable full-coeff integer motion summary: "
         f"total_inter={total_inter} nonzero_inter={nonzero_inter} "
         f"mode_counts={{GLOBALMV:{globalmv} NEARESTMV:{nearestmv} NEARMV:{nearmv} NEWMV:{newmv}}}"
     )
-    check_public_decoder_case(paths, "1792x128 unrestricted full-coeff integer motion")
-    print("[PASS] 1792x128 unrestricted full-coeff integer motion public-decoder proof")
+    check_public_decoder_case(paths, "1792x128 cap-disable full-coeff integer motion")
+    print("[PASS] 1792x128 cap-disable full-coeff integer motion public-decoder proof")
     return 0
 
 
