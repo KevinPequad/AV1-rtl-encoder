@@ -302,6 +302,11 @@ Inventory of the current repo state:
     - `make -C tb THREADS=1 BUILD_JOBS=1 natural1472x192-ip-fullcoeff-newmv-syntax-check` passed with `AV1_ARTIFACT_ROOT=/tmp/av1-cron-1472x192-20260602_181633`.
     - The frame-1 summary was `total_inter=4416`, `nonzero_inter=13`, `GLOBALMV=4372`, `NEARESTMV=2`, `NEARMV=0`, `NEWMV=42`.
     - `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and FFmpeg/libdav1d plus `aomdec` decoded the RTL IVF back to `recon.yuv`; this is scale/parity evidence, not feature-complete or ASIC-ready closure.
+  - The serialized `av1-cron-main-progress-20260531` handoff branch now includes the public-clean `1856x128` unrestricted full-coeff integer-NEWMV checkpoint at `20129e52411d4f16794d22276b6f7c731b3a5268`:
+    - `THREADS=1 BUILD_JOBS=1 make -C tb natural1856x128-ip-fullcoeff-newmv-syntax-check` and `natural1856x128-ip-fullcoeff-newmv-uncapped-check` both passed post-merge on Chud PC 2 with `AV1_ARTIFACT_ROOT=/tmp/t_33868916_postmerge`.
+    - The frame-1 summary was `total_inter=3712`, `nonzero_inter=12`, `GLOBALMV=3457`, `NEARESTMV=155`, `NEARMV=0`, `NEWMV=100` for both the normal and explicit cap-disabled probes.
+    - RTL raw OBU and IVF output matched the software oracle, and FFmpeg/libdav1d plus `aomdec` decoded the RTL IVF back to `recon.yuv`; this is bounded software/public-decoder parity evidence, not full AV1, FPGA, or ASIC-ready closure.
+    - The full-slice FPGA status is still blocked: the current YPCB setup has no AV1 FPGA wrapper/host transport and no `/dev/xdma*` path for this encoder slice; only a representative fabric/transform proof exists outside this software merge.
 - Broken:
   - decoded output is not yet verified as coming from a fully RTL-owned final AV1 syntax path
 - Placeholder or debug-only:
