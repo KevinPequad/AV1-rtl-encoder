@@ -302,9 +302,10 @@ Inventory of the current repo state:
     - `make -C tb THREADS=1 BUILD_JOBS=1 natural1472x192-ip-fullcoeff-newmv-syntax-check` passed with `AV1_ARTIFACT_ROOT=/tmp/av1-cron-1472x192-20260602_181633`.
     - The frame-1 summary was `total_inter=4416`, `nonzero_inter=13`, `GLOBALMV=4372`, `NEARESTMV=2`, `NEARMV=0`, `NEWMV=42`.
     - `encoded.obu == encoded_rtl_raw.obu`, `encoded.ivf == encoded_rtl.ivf`, and FFmpeg/libdav1d plus `aomdec` decoded the RTL IVF back to `recon.yuv`; this is scale/parity evidence, not feature-complete or ASIC-ready closure.
-  - The serialized `av1-cron-main-progress-20260531` handoff branch now includes the public-clean `1856x128` unrestricted full-coeff integer-NEWMV checkpoint at `20129e52411d4f16794d22276b6f7c731b3a5268`:
-    - `THREADS=1 BUILD_JOBS=1 make -C tb natural1856x128-ip-fullcoeff-newmv-syntax-check` and `natural1856x128-ip-fullcoeff-newmv-uncapped-check` both passed post-merge on Chud PC 2 with `AV1_ARTIFACT_ROOT=/tmp/t_33868916_postmerge`.
-    - The frame-1 summary was `total_inter=3712`, `nonzero_inter=12`, `GLOBALMV=3457`, `NEARESTMV=155`, `NEARMV=0`, `NEWMV=100` for both the normal and explicit cap-disabled probes.
+  - The serialized `av1-cron-main-progress-20260531` handoff branch now has a candidate for the public-clean `1984x128` unrestricted full-coeff integer-NEWMV checkpoint:
+    - `THREADS=1 BUILD_JOBS=1 make -C tb natural1984x128-ip-fullcoeff-newmv-syntax-check` passed in the Kanban scratch/GitHub relay clone with `AV1_ARTIFACT_ROOT=/tmp/av1-kanban-t_9b2ce0bd-normal-20260629T215838`.
+    - `THREADS=1 BUILD_JOBS=1 make -C tb natural1984x128-ip-fullcoeff-newmv-uncapped-check` passed with `AV1_ARTIFACT_ROOT=/tmp/av1-kanban-t_9b2ce0bd-uncapped-20260629T215951`.
+    - The frame-1 summary was `total_inter=3968`, `nonzero_inter=12`, `GLOBALMV=3713`, `NEARESTMV=155`, `NEARMV=0`, `NEWMV=100` for both the normal production whitelist path and the explicit cap-disabled probe.
     - RTL raw OBU and IVF output matched the software oracle, and FFmpeg/libdav1d plus `aomdec` decoded the RTL IVF back to `recon.yuv`; this is bounded software/public-decoder parity evidence, not full AV1, FPGA, or ASIC-ready closure.
     - The full-slice FPGA status is still blocked: the current YPCB setup has no AV1 FPGA wrapper/host transport and no `/dev/xdma*` path for this encoder slice; only a representative fabric/transform proof exists outside this software merge.
 - Broken:
@@ -408,7 +409,7 @@ Inventory of the current repo state:
   - `output/natural_motion32_x640_y360_5f_fix1/` and `output/natural_motion64_x640_y360_5f_fix1/` are byte-exact at `5` frames, `output/natural_motion64_x640_y360_6f_fix1/` is byte-exact at `6` frames, `output/natural_motion64_x640_y360_7f_fixmvref64/` is byte-exact at `7` frames, and `output/natural_motion64_x640_y360_10f_progress70m/` is byte-exact at `10` frames
   - `output/natural_motion64_x640_y360_2f_subpel2/`, `output/natural_motion64_x640_y360_7f_subpel2/`, and `output/natural_motion64_x640_y360_10f_subpel2/` now keep that same exactness after the syntax-only subpel header / payload move, and strict `aomdec` output still matches `recon.yuv`
   - the `64x64` full-coeff low-delay LAST gradient gate is public-decoder clean unrestricted; the width-stretched `128x64` and `192x64` full-coeff low-delay LAST gradient gates are also public-decoder clean without the taller-geometry cap (`128x64`: `52` `NEWMV` payload blocks plus `10` stack-hit `NEARESTMV` blocks; `192x64`: `114` `GLOBALMV`, `56` `NEWMV`, and `22` `NEARESTMV` blocks): RTL raw OBU and IVF match the software oracle, and FFmpeg/libdav1d plus `aomdec` decode back to `recon.yuv`
-  - the 128-high full-coeff LAST gradient frontier now includes `1792x128` without the cap: both the normal whitelist path and the explicit `+disable_fullcoeff_cap=1` comparison prove `GLOBALMV=3329`, `NEARESTMV=155`, `NEWMV=100`, RTL/software byte equality, and FFmpeg/libdav1d plus `aomdec` recon parity
+  - the 128-high full-coeff LAST gradient frontier now includes `1984x128` without the cap: both the normal whitelist path and the explicit `+disable_fullcoeff_cap=1` comparison prove `GLOBALMV=3713`, `NEARESTMV=155`, `NEWMV=100`, RTL/software byte equality, and FFmpeg/libdav1d plus `aomdec` recon parity
   - the repaired longer-motion root cause was the reduced ref-MV stack reach, not the MV payload encoder itself: matching AOM's `MVREF_ROW_COLS == 3` scan removed the extra far-neighbor weight that had been flipping later NEWMV references
   - the first strict decoder corruption after enabling subpel syntax was shared writer/RTL syntax, not ownership drift:
     - `mv_hp` was missing after `mv_fr` on reduced `NEWMV` components
@@ -417,7 +418,7 @@ Inventory of the current repo state:
 - Real chroma residual coding and fuller chroma tool coverage remain incomplete.
 - The old `17/18`-block `NEWMV` threshold is no longer the active blocker.
 - The current active blockers are:
-  - unrestricted full-coeff `NEWMV` / reference-stack / MV-prediction parity for taller-than-64 geometries beyond the verified `1792x128` frontier; do not treat cap raises as final completion
+  - unrestricted full-coeff `NEWMV` / reference-stack / MV-prediction parity for taller-than-64 geometries beyond the verified `1984x128` frontier; do not treat cap raises as final completion
   - moving final AV1 syntax ownership out of `tb/av1_bitstream_writer.h` and onto the RTL byte path
   - extending the verified `qindex=1+` reduced subset beyond the current single-frame coefficient, partition, and syntax checkpoints
   - implementing the separate deferred `qindex=0` / lossless `TX_4X4` path instead of clamping it to the supported floor
